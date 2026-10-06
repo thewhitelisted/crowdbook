@@ -1,0 +1,33 @@
+cmake_minimum_required(VERSION 3.25)
+
+project(crowdbook
+    VERSION 0.1.0
+    DESCRIPTION "Agent-based limit order book simulator for market microstructure research"
+    LANGUAGES CXX)
+
+option(CROWDBOOK_BUILD_TESTS "Build the crowdbook test suite" ${PROJECT_IS_TOP_LEVEL})
+option(CROWDBOOK_BUILD_APPS "Build the crowdbook command-line tool" ${PROJECT_IS_TOP_LEVEL})
+option(CROWDBOOK_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(CROWDBOOK_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+
+if(PROJECT_IS_TOP_LEVEL)
+    set(CMAKE_CXX_EXTENSIONS OFF)
+endif()
+
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+include(CrowdbookWarnings)
+include(CrowdbookSanitizers)
+
+if(CROWDBOOK_BUILD_TESTS)
+    enable_testing()
+endif()
+
+add_subdirectory(src)
+
+if(CROWDBOOK_BUILD_APPS)
+    add_subdirectory(apps)
+endif()
+
+if(CROWDBOOK_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
