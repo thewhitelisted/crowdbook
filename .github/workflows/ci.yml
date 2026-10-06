@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos / apple-clang / dev
+            os: macos-15
+            preset: dev
+          - name: linux / gcc-14 / dev
+            os: ubuntu-24.04
+            preset: dev
+            cc: gcc-14
+            cxx: g++-14
+          - name: linux / gcc-14 / release
+            os: ubuntu-24.04
+            preset: release
+            cc: gcc-14
+            cxx: g++-14
+          - name: linux / gcc-14 / asan
+            os: ubuntu-24.04
+            preset: asan
+            cc: gcc-14
+            cxx: g++-14
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: brew install ninja
+
+      - name: Select compiler
+        if: matrix.cxx
+        run: |
+          echo "CC=${{ matrix.cc }}" >> "$GITHUB_ENV"
+          echo "CXX=${{ matrix.cxx }}" >> "$GITHUB_ENV"
+
+      - name: Configure, build and test
+        run: cmake --workflow --preset ${{ matrix.preset }}
