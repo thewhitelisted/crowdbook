@@ -32,10 +32,12 @@ private:
     bool paused_ = false;
 };
 
-// One thing a live participant did: a request sent at simulated time `time`. A new order carries
-// the client order id it was given, so that a replay can check it is given the same one.
+// One thing a live participant did: a request sent at simulated time `time` from one of the
+// session's seats. A new order carries the client order id it was given, so that a replay can
+// check it is given the same one.
 struct SessionAction {
     Timestamp time = 0;
+    std::uint32_t seat = 0;       // the index of the seat in the session's list
     std::uint32_t instrument = 0; // the only instrument, until scenarios hold several
     Request request{};
 

@@ -95,10 +95,13 @@ public:
     }
 
 private:
+    // play has the session's only seat.
+    [[nodiscard]] const Seat& seat() const { return market_.seats.front(); }
+
     ladder::Screen screen(const RawTerminal& terminal, const Pacer& pacer) const {
         const Simulation& simulation = market_.run.simulation();
         const auto [rows, columns] = terminal.size();
-        const auto& tape = market_.agent->tape();
+        const auto& tape = seat().participant->tape();
         // Filled in field by field: GCC 14 at -O3 mistakes the vectors of a braced temporary
         // for uninitialized.
         ladder::Screen view;
@@ -106,8 +109,8 @@ private:
         view.end = scenario_.duration;
         view.speed = pacer.speed();
         view.paused = pacer.paused();
-        view.market = simulation.marketSeenBy(market_.participant);
-        view.ledger = &simulation.ledger(market_.participant);
+        view.market = simulation.marketSeenBy(seat().agent);
+        view.ledger = &simulation.ledger(seat().agent);
         view.tape.assign(tape.begin(), tape.end());
         view.referencePrice = scenario_.referencePrice;
         view.initialCash = scenario_.participant.account.initialCash;
@@ -125,7 +128,7 @@ private:
     }
 
     void noteRejection() {
-        const std::optional<OrderRejected>& rejection = market_.agent->lastRejection();
+        const std::optional<OrderRejected>& rejection = seat().participant->lastRejection();
         if (rejection && rejection != shownRejection_) {
             shownRejection_ = rejection;
             message_ = describe(*rejection);
@@ -139,7 +142,7 @@ private:
         }
         Simulation& simulation = market_.run.simulation();
         SessionAction action{.time = simulation.now(), .request = std::move(request)};
-        const ClientOrderId id = perform(simulation, market_.participant, action);
+        const ClientOrderId id = perform(simulation, seat().agent, action);
         if (auto* order = std::get_if<NewOrder>(&action.request)) {
             order->clientOrderId = id;
         }
@@ -158,7 +161,7 @@ private:
     void cancel(bool everywhere) {
         std::vector<ClientOrderId> ids;
         for (const auto& [id, own] :
-             market_.run.simulation().ledger(market_.participant).orders()) {
+             market_.run.simulation().ledger(seat().agent).orders()) {
             if (own.type == OrderType::Limit && !own.cancelRequested &&
                 (everywhere || own.price == cursor_)) {
                 ids.push_back(id);
@@ -171,7 +174,7 @@ private:
     }
 
     void centerCursor() {
-        const MarketSnapshot market = market_.run.simulation().marketSeenBy(market_.participant);
+        const MarketSnapshot market = market_.run.simulation().marketSeenBy(seat().agent);
         if (market.bid && market.ask) {
             cursor_ = (market.bid->price + market.ask->price) / 2;
         } else if (market.lastTrade) {

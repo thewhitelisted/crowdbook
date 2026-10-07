@@ -1,5 +1,6 @@
 #include "crowdbook/session.hpp"
 
+#include <algorithm>
 #include <array>
 #include <format>
 #include <fstream>
@@ -10,13 +11,15 @@
 
 #include <toml++/toml.hpp>
 
+#include "crowdbook/protocol.hpp"
 #include "crowdbook/scenario_file.hpp"
 
 namespace crowdbook {
 
 namespace {
 
-constexpr std::int64_t kSessionVersion = 1;
+// Version 1 had a single seat, the participant "you", and no seat in its actions.
+constexpr std::int64_t kSessionVersion = 2;
 
 // A TOML basic string, escaped.
 std::string tomlString(std::string_view text) {
@@ -50,8 +53,8 @@ std::string tomlString(std::string_view text) {
 }
 
 std::string actionLine(const SessionAction& action) {
-    std::string line = std::format("    {{ time_ns = {}, instrument = {}, ", action.time,
-                                   action.instrument);
+    std::string line = std::format("    {{ time_ns = {}, seat = {}, instrument = {}, ",
+                                   action.time, action.seat, action.instrument);
     if (const auto* order = std::get_if<NewOrder>(&action.request)) {
         line += std::format("request = \"new\", client_order_id = {}, side = \"{}\", type = \"{}\"",
                             order->clientOrderId, toString(order->side), toString(order->type));
@@ -129,9 +132,15 @@ private:
 
 constexpr std::int64_t kMaxInt = std::numeric_limits<std::int64_t>::max();
 
-SessionAction readAction(const Reader& reader, const toml::table& table) {
+// Reads one action of a session with `seats` seats; version 1 actions name none.
+SessionAction readAction(const Reader& reader, const toml::table& table, std::int64_t version,
+                         std::size_t seats) {
     SessionAction action{
         .time = reader.integer(reader.required(table, "time_ns"), "time_ns", 0, kMaxInt),
+        .seat = version == 1 ? 0U
+                             : static_cast<std::uint32_t>(reader.integer(
+                                   reader.required(table, "seat"), "seat", 0,
+                                   static_cast<std::int64_t>(seats) - 1)),
         .instrument = static_cast<std::uint32_t>(
             reader.integer(reader.required(table, "instrument"), "instrument", 0, 0))};
     const auto clientOrderId = static_cast<ClientOrderId>(reader.integer(
@@ -181,23 +190,45 @@ SessionAction readAction(const Reader& reader, const toml::table& table) {
 } // namespace
 
 SessionMarket openSession(const Scenario& scenario, const AgentRegistry& registry,
-                          EventSink* sink) {
+                          EventSink* sink, const std::vector<std::string>& seats) {
+    if (seats.empty()) {
+        throw ScenarioError("a session needs at least one seat");
+    }
+    for (std::size_t i = 0; i < seats.size(); ++i) {
+        if (std::find(seats.begin(), seats.begin() + static_cast<std::ptrdiff_t>(i), seats[i]) !=
+            seats.begin() + static_cast<std::ptrdiff_t>(i)) {
+            throw ScenarioError(std::format("seat '{}' is named twice", seats[i]));
+        }
+        for (const AgentGroup& group : scenario.groups) {
+            if ((group.name.empty() ? group.type : group.name) == seats[i]) {
+                throw ScenarioError(
+                    std::format("seat '{}' has the name of an agent group", seats[i]));
+            }
+        }
+    }
     SessionMarket market{.run = ScenarioRun{scenario, registry, sink}};
-    auto participant = std::make_unique<Participant>();
-    market.agent = participant.get();
-    try {
-        market.participant = market.run.addAgent(std::string{kParticipantGroup}, "participant",
-                                                 std::move(participant), scenario.participant);
-    } catch (const std::invalid_argument& error) {
-        throw ScenarioError(std::format("participant: {}", error.what()));
+    for (const std::string& name : seats) {
+        auto participant = std::make_unique<Participant>();
+        Seat seat{.name = name, .participant = participant.get()};
+        try {
+            seat.agent = market.run.addAgent(name, "participant", std::move(participant),
+                                             scenario.participant);
+        } catch (const std::invalid_argument& error) {
+            throw ScenarioError(std::format("participant: {}", error.what()));
+        }
+        market.seats.push_back(std::move(seat));
     }
     return market;
 }
 
 void writeSession(std::ostream& out, const Session& session) {
     out << "# A crowdbook session. Replay it with: crowdbook replay <this file>\n";
-    out << std::format("session_version = {}\nseed = {}\nend_ns = {}\nscenario = {}\n",
-                       kSessionVersion, session.seed, session.end, tomlString(session.scenario));
+    out << std::format("session_version = {}\nseed = {}\nend_ns = {}\nseats = [",
+                       kSessionVersion, session.seed, session.end);
+    for (std::size_t i = 0; i < session.seats.size(); ++i) {
+        out << (i > 0 ? ", " : "") << tomlString(session.seats[i]);
+    }
+    out << std::format("]\nscenario = {}\n", tomlString(session.scenario));
     out << "actions = [\n";
     for (const SessionAction& action : session.actions) {
         out << actionLine(action) << '\n';
@@ -214,8 +245,8 @@ Session parseSession(std::string_view text, std::string_view source) {
             std::format("{}:{}: {}", source, error.source().begin.line, error.description()));
     }
     const Reader reader{source};
-    reader.integer(reader.required(root, "session_version"), "session_version", kSessionVersion,
-                   kSessionVersion);
+    const std::int64_t version = reader.integer(reader.required(root, "session_version"),
+                                                "session_version", 1, kSessionVersion);
 
     Session session{
         .scenario = reader.text(reader.required(root, "scenario"), "scenario"),
@@ -223,6 +254,26 @@ Session parseSession(std::string_view text, std::string_view source) {
             reader.integer(reader.required(root, "seed"), "seed", 0, kMaxInt)),
         .end = reader.integer(reader.required(root, "end_ns"), "end_ns", 0, kMaxInt)};
     static_cast<void>(parseScenario(session.scenario, std::format("{} (its scenario)", source)));
+    if (version > 1) {
+        const toml::node& node = reader.required(root, "seats");
+        const auto* list = node.as_array();
+        if (list == nullptr || list->empty()) {
+            reader.fail(node, "'seats' must be a list of one or more seat names");
+        }
+        session.seats.clear();
+        for (const toml::node& element : *list) {
+            std::string seat = reader.text(element, "seats");
+            if (!protocol::validSeat(seat)) {
+                reader.fail(element, "a seat name has 1 to 32 letters, digits, '-' or '_'");
+            }
+            if (std::ranges::find(session.seats, seat) != session.seats.end()) {
+                reader.fail(element, std::format("seat '{}' is named twice", seat));
+            }
+            session.seats.push_back(std::move(seat));
+        }
+    } else if (const toml::node* node = root.get("seats")) {
+        reader.fail(*node, "a version 1 session has no 'seats'");
+    }
 
     if (const toml::node* node = root.get("actions")) {
         const auto* list = node->as_array();
@@ -234,7 +285,8 @@ Session parseSession(std::string_view text, std::string_view source) {
             if (table == nullptr) {
                 reader.fail(element, "each action must be a { ... } table");
             }
-            const SessionAction& action = session.actions.emplace_back(readAction(reader, *table));
+            const SessionAction& action = session.actions.emplace_back(
+                readAction(reader, *table, version, session.seats.size()));
             const Timestamp latest =
                 session.actions.size() > 1 ? session.actions[session.actions.size() - 2].time : 0;
             if (action.time < latest || action.time > session.end) {
@@ -258,10 +310,11 @@ Session loadSession(const std::filesystem::path& path) {
 RunResult replaySession(const Session& session, const AgentRegistry& registry, EventSink* sink) {
     Scenario scenario = parseScenario(session.scenario, "the session's scenario");
     scenario.seed = session.seed;
-    SessionMarket market = openSession(scenario, registry, sink);
+    SessionMarket market = openSession(scenario, registry, sink, session.seats);
     for (const SessionAction& action : session.actions) {
         market.run.runUntil(action.time);
-        static_cast<void>(perform(market.run.simulation(), market.participant, action));
+        static_cast<void>(
+            perform(market.run.simulation(), market.seats.at(action.seat).agent, action));
     }
     market.run.runUntil(session.end);
     return market.run.result();

@@ -55,7 +55,8 @@ std::pair<Session, std::string> playScripted() {
     const auto act = [&](Timestamp time, Request request) {
         market.run.runUntil(time);
         SessionAction action{.time = time, .request = std::move(request)};
-        const ClientOrderId id = perform(market.run.simulation(), market.participant, action);
+        const ClientOrderId id =
+            perform(market.run.simulation(), market.seats.front().agent, action);
         if (auto* order = std::get_if<NewOrder>(&action.request)) {
             order->clientOrderId = id;
         }
@@ -96,20 +97,83 @@ TEST(SessionTest, ReplaysToTheSameLogByteForByte) {
 TEST(SessionTest, TheParticipantHasTheScenariosLatencyAndAccount) {
     SessionMarket market = openSession(parseScenario(kScenario), AgentRegistry::withBuiltIns());
     Simulation& simulation = market.run.simulation();
+    const Seat& seat = market.seats.front();
     market.run.runUntil(kSecond);
-    static_cast<void>(perform(simulation, market.participant,
+    static_cast<void>(perform(simulation, seat.agent,
                               {.time = kSecond, .request = limitOrder(0, Side::Buy, 900, 10)}));
-    static_cast<void>(perform(simulation, market.participant,
+    static_cast<void>(perform(simulation, seat.agent,
                               {.time = kSecond, .request = limitOrder(0, Side::Buy, 900, 11)}));
 
     // A millisecond there and a millisecond back.
     market.run.runUntil(kSecond + 2 * kMillisecond - 1);
-    EXPECT_FALSE(simulation.ledger(market.participant).find(1)->acknowledged);
+    EXPECT_FALSE(simulation.ledger(seat.agent).find(1)->acknowledged);
     market.run.runUntil(kSecond + 2 * kMillisecond);
-    EXPECT_TRUE(simulation.ledger(market.participant).find(1)->acknowledged);
+    EXPECT_TRUE(simulation.ledger(seat.agent).find(1)->acknowledged);
     // Eleven lots is over its largest order of ten.
-    ASSERT_TRUE(market.agent->lastRejection().has_value());
-    EXPECT_EQ(market.agent->lastRejection()->reason, RejectReason::OrderSizeLimit);
+    ASSERT_TRUE(seat.participant->lastRejection().has_value());
+    EXPECT_EQ(seat.participant->lastRejection()->reason, RejectReason::OrderSizeLimit);
+}
+
+TEST(SessionTest, SeveralSeatsReplayToTheSameLogByteForByte) {
+    std::ostringstream live;
+    CsvEventLog sink{live};
+    const Scenario scenario = parseScenario(kScenario);
+    const std::vector<std::string> seats{"alice", "bob"};
+    SessionMarket market = openSession(scenario, AgentRegistry::withBuiltIns(), &sink, seats);
+    ASSERT_EQ(market.seats.size(), 2U);
+    EXPECT_EQ(market.seats[0].name, "alice");
+    EXPECT_EQ(market.seats[1].agent, market.seats[0].agent + 1);
+    Session session{.scenario = std::string{kScenario}, .seed = scenario.seed, .seats = seats};
+    const auto act = [&](Timestamp time, std::uint32_t seat, Request request) {
+        market.run.runUntil(time);
+        SessionAction action{.time = time, .seat = seat, .request = std::move(request)};
+        const ClientOrderId id =
+            perform(market.run.simulation(), market.seats[seat].agent, action);
+        if (auto* order = std::get_if<NewOrder>(&action.request)) {
+            order->clientOrderId = id;
+        }
+        session.actions.push_back(action);
+    };
+    // The two seats trade with each other at the same nanosecond, and each has its own ids.
+    act(kSecond, 0, limitOrder(0, Side::Buy, 1'001, 4));
+    act(kSecond, 1, limitOrder(0, Side::Sell, 1'001, 4));
+    act(2 * kSecond, 1, limitOrder(0, Side::Sell, 1'010, 2));
+    act(3 * kSecond, 1, CancelOrder{.clientOrderId = 2});
+    market.run.runUntil(4 * kSecond);
+    session.end = 4 * kSecond;
+
+    std::ostringstream file;
+    writeSession(file, session);
+    const Session read = parseSession(file.str());
+    EXPECT_EQ(read, session);
+    std::ostringstream replayed;
+    CsvEventLog replaySink{replayed};
+    const RunResult result = replaySession(read, AgentRegistry::withBuiltIns(), &replaySink);
+    EXPECT_EQ(replayed.str(), live.str());
+    ASSERT_GE(result.groups.size(), 2U);
+    EXPECT_EQ(result.groups[result.groups.size() - 2].name, "alice");
+    EXPECT_EQ(result.groups.back().name, "bob");
+}
+
+TEST(SessionTest, SeatsAreCheckedWhenTheMarketOpens) {
+    const Scenario scenario = parseScenario(kScenario);
+    const AgentRegistry registry = AgentRegistry::withBuiltIns();
+    for (const std::vector<std::string>& seats :
+         {std::vector<std::string>{}, std::vector<std::string>{"a", "a"},
+          std::vector<std::string>{"market_maker"}}) {
+        EXPECT_THROW(static_cast<void>(openSession(scenario, registry, nullptr, seats)),
+                     ScenarioError);
+    }
+}
+
+TEST(SessionTest, VersionOneSessionsHaveOneSeat) {
+    const std::string scenario = "scenario = \"[[agents]]\\ntype = \\\"momentum\\\"\"\n";
+    const Session session = parseSession(
+        "session_version = 1\nseed = 1\nend_ns = 100\n" + scenario +
+        "actions = [{ time_ns = 5, instrument = 0, request = \"cancel\", client_order_id = 1 }]\n");
+    EXPECT_EQ(session.seats, std::vector<std::string>{std::string{kParticipantGroup}});
+    ASSERT_EQ(session.actions.size(), 1U);
+    EXPECT_EQ(session.actions[0].seat, 0U);
 }
 
 TEST(SessionTest, AReplayThatDivergesFailsLoudly) {
@@ -133,7 +197,23 @@ TEST(SessionTest, ReportsMalformedSessionsWithTheirLine) {
     const std::string scenario = "scenario = \"[[agents]]\\ntype = \\\"momentum\\\"\"\n";
     const std::string header = "session_version = 1\nseed = 1\nend_ns = 100\n" + scenario;
     const std::vector<std::pair<std::string, std::string>> cases = {
-        {"session_version = 2\nseed = 1\nend_ns = 100\n" + scenario, "test.session:1:"},
+        {"session_version = 3\nseed = 1\nend_ns = 100\n" + scenario, "test.session:1:"},
+        {"session_version = 2\nseed = 1\nend_ns = 100\n" + scenario, "missing 'seats'"},
+        {header + "seats = [\"you\"]\n", "a version 1 session has no 'seats'"},
+        {"session_version = 2\nseed = 1\nend_ns = 100\nseats = []\n" + scenario,
+         "one or more seat names"},
+        {"session_version = 2\nseed = 1\nend_ns = 100\nseats = [\"a\", \"a\"]\n" + scenario,
+         "seat 'a' is named twice"},
+        {"session_version = 2\nseed = 1\nend_ns = 100\nseats = [\"a b\"]\n" + scenario,
+         "a seat name has"},
+        {"session_version = 2\nseed = 1\nend_ns = 100\nseats = [\"a\"]\n" + scenario +
+             "actions = [{ time_ns = 5, instrument = 0, request = \"cancel\", "
+             "client_order_id = 1 }]\n",
+         "missing 'seat'"},
+        {"session_version = 2\nseed = 1\nend_ns = 100\nseats = [\"a\"]\n" + scenario +
+             "actions = [{ time_ns = 5, seat = 1, instrument = 0, request = \"cancel\", "
+             "client_order_id = 1 }]\n",
+         "'seat' must be a whole number between 0 and 0"},
         {"session_version = 1\nseed = 1\n" + scenario, "missing 'end_ns'"},
         {header + "actions = [{ time_ns = 5, instrument = 0, request = \"buy\", "
                   "client_order_id = 1 }]\n",

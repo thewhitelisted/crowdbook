@@ -346,11 +346,15 @@ A session is a TOML file holding everything a replay needs:
 
 | Key | Meaning |
 |---|---|
-| `session_version` | `1` |
+| `session_version` | `2` |
 | `seed` | The seed the session ran with |
 | `end_ns` | When it stopped, in simulated nanoseconds |
+| `seats` | The names of the session's seats, in the order their participants joined: `["you"]` for `play` |
 | `scenario` | The scenario file's text, so a session replays even if the file changes |
-| `actions` | Your requests in time order, one table each: `time_ns`, `instrument` (always 0 for now), `request` (`new`, `cancel` or `modify`) and the request's fields: `client_order_id`, `side`, `type`, `time_in_force`, `price`, `quantity` |
+| `actions` | The participants' requests in time order, one table each: `time_ns`, `seat` (an index into `seats`), `instrument` (always 0 for now), `request` (`new`, `cancel` or `modify`) and the request's fields: `client_order_id`, `side`, `type`, `time_in_force`, `price`, `quantity` |
+
+Version 1 files, from before sessions could have several seats, have no `seats` and no `seat` in
+their actions; they still replay, with the one seat `you`.
 
 A replay checks that each new order gets the client order id the session recorded, and stops with
 an error if it does not, which would mean the market had come out differently.
