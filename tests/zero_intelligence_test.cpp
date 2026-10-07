@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdint>
 #include <set>
 #include <stdexcept>
@@ -175,6 +176,44 @@ TEST(ZeroIntelligenceTest, PaceFollowsRecentActivityAgainstItsUsualLevel) {
     EXPECT_EQ(constant.pace(), 1.0);
 }
 
+TEST(ZeroIntelligenceTest, StandsBackFromTheTouchWhenPricesStartJumping) {
+    ZeroIntelligenceConfig config{.limitRate = 1.0, .marketRate = 0.0, .maxOffset = 4};
+    config.volatilityResponse = 1.0;
+    config.activityMemory = kSecond;
+    config.activityBaseline = 100 * kSecond;
+    ZeroIntelligenceTrader trader{config, kReference};
+    FakeContext context;
+    trader.onStart(context);
+
+    // Steps the mid back and forth by `step` ticks for `count` seconds, and returns how far inside
+    // the quote it was placed against its deepest limit order went.
+    Timestamp time = 0;
+    const auto seconds = [&](int count, Price step) {
+        Price deepest = 0;
+        for (int i = 0; i < count; ++i) {
+            time += kSecond;
+            const Price mid = kReference + (i % 2 == 0 ? step : 0);
+            context.setNow(time);
+            context.snapshot = {.bid = LevelSummary{.price = mid - 1, .quantity = 1},
+                                .ask = LevelSummary{.price = mid + 1, .quantity = 1}};
+            trader.onWakeup(context, 0);
+            for (const Request& request : context.takeSent()) {
+                const auto& order = std::get<NewOrder>(request);
+                deepest = std::max(deepest, order.side == Side::Buy ? mid + 1 - order.price
+                                                                    : order.price - (mid - 1));
+            }
+        }
+        return deepest;
+    };
+    EXPECT_LE(seconds(60, 1), config.maxOffset); // a calm minute: the usual depth
+    EXPECT_NEAR(trader.stretch(), 1.0, 0.05);
+
+    // Squared moves go from 1 to 100; the usual level, mostly calm, comes to about 20, so the
+    // stretch is about the square root of 100 / 20, and orders go about twice as deep.
+    EXPECT_GT(seconds(10, 10), config.maxOffset);
+    EXPECT_NEAR(trader.stretch(), 2.24, 0.05);
+}
+
 TEST(ZeroIntelligenceTest, RejectsInvalidConfigs) {
     EXPECT_THROW((ZeroIntelligenceTrader{{.limitRate = -1.0}, kReference}), std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.limitRate = 0.0, .marketRate = 0.0}, kReference}),
@@ -185,6 +224,8 @@ TEST(ZeroIntelligenceTest, RejectsInvalidConfigs) {
     EXPECT_THROW((ZeroIntelligenceTrader{{.minSize = 5, .maxSize = 4}, kReference}),
                  std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.activityResponse = -0.5}, kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((ZeroIntelligenceTrader{{.volatilityResponse = -0.5}, kReference}),
                  std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.activityMemory = 0}, kReference}),
                  std::invalid_argument);

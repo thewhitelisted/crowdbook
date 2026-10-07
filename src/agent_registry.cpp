@@ -37,6 +37,8 @@ std::unique_ptr<Agent> makeZeroIntelligence(const Parameters& parameters,
             .activityMemory = parameters.duration("activity_memory", defaults.activityMemory),
             .activityBaseline =
                 parameters.duration("activity_baseline", defaults.activityBaseline),
+            .volatilityResponse =
+                parameters.number("volatility_response", defaults.volatilityResponse),
         },
         environment.referencePrice);
 }

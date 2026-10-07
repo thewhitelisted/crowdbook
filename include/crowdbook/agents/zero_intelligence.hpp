@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 #include "crowdbook/agent.hpp"
 #include "crowdbook/agents/market_view.hpp"
@@ -26,6 +27,13 @@ struct ZeroIntelligenceConfig {
     double activityResponse = 0.0;
     Duration activityMemory = 60 * kSecond;
     Duration activityBaseline = 1'800 * kSecond;
+    // How the trader's limit orders follow the market's volatility. The range they go into, 1 to
+    // maxOffset ticks inside the opposite quote, is stretched by (recent volatility / usual
+    // volatility) ^ volatilityResponse, kept within [0.25, 4], where volatility comes from the
+    // moves of the mid it sees between its decisions, averaged over the same two windows as
+    // activity. Traders who stand back when prices jump thin the book, and a thinner book makes
+    // prices jump further.
+    double volatilityResponse = 0.0;
 };
 
 // A zero-intelligence trader after Farmer, Patelli and Zovko (2005). It sends limit and market
@@ -56,6 +64,8 @@ public:
 
     // The factor its order rates are multiplied by at the moment: 1 without an activity response.
     [[nodiscard]] double pace() const noexcept { return pace_; }
+    // The factor its limit orders' range is stretched by: 1 without a volatility response.
+    [[nodiscard]] double stretch() const noexcept { return stretch_; }
 
 private:
     // A running average that weighs observations by how recent they are, with no bias toward its
@@ -67,7 +77,8 @@ private:
         [[nodiscard]] double value() const noexcept { return weightedSum / weight; }
     };
 
-    void observeActivity(const MarketSnapshot& market, Timestamp now);
+    // Updates its pace and stretch from what it sees when it acts.
+    void observeMarket(const MarketSnapshot& market, Timestamp now);
     [[nodiscard]] double orderRate() const noexcept;
     void scheduleNextOrder(AgentContext& context) const;
     void sendLimit(AgentContext& context) const;
@@ -80,6 +91,10 @@ private:
     Average recent_;
     Average usual_;
     double pace_ = 1.0;
+    std::optional<double> lastSeenMid_;
+    Average recentVariance_; // squared mid moves per second
+    Average usualVariance_;
+    double stretch_ = 1.0;
 };
 
 } // namespace crowdbook
