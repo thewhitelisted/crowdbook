@@ -1,0 +1,100 @@
+#pragma once
+
+#include <algorithm>
+#include <cstdint>
+#include <utility>
+#include <vector>
+
+#include "crowdbook/agent.hpp"
+#include "crowdbook/ledger.hpp"
+#include "crowdbook/messages.hpp"
+#include "crowdbook/random.hpp"
+
+namespace crowdbook::test {
+
+// An AgentContext for testing one agent on its own. It records everything the agent sends and
+// lets the test play the exchange by feeding events to the agent's ledger, as the simulation does
+// before each callback.
+class FakeContext final : public AgentContext {
+public:
+    explicit FakeContext(std::uint64_t seed = 1, AgentId id = 1)
+        : id_(id), random_(seed, 2 * std::uint64_t{id}) {}
+
+    [[nodiscard]] AgentId id() const noexcept override { return id_; }
+    [[nodiscard]] Timestamp now() const noexcept override { return now_; }
+    [[nodiscard]] Random& random() noexcept override { return random_; }
+    [[nodiscard]] const Ledger& ledger() const noexcept override { return ledger_; }
+
+    ClientOrderId submit(NewOrder order) override {
+        order.clientOrderId = nextClientOrderId_++;
+        record(order);
+        return order.clientOrderId;
+    }
+
+    void cancel(ClientOrderId clientOrderId) override {
+        record(CancelOrder{.clientOrderId = clientOrderId});
+    }
+
+    void modify(ClientOrderId clientOrderId, Price price, Quantity quantity) override {
+        record(ModifyOrder{.clientOrderId = clientOrderId, .price = price, .quantity = quantity});
+    }
+
+    void wakeAt(Timestamp time, std::uint64_t tag) override {
+        wakeups.emplace_back(std::max(time, now_), tag);
+    }
+
+    void setNow(Timestamp time) noexcept { now_ = time; }
+
+    // Requests sent since the last call.
+    std::vector<Request> takeSent() { return std::exchange(sent, {}); }
+
+    // Plays the exchange: acknowledges an order the agent sent.
+    void accept(ClientOrderId clientOrderId) {
+        const OwnOrder& order = *ledger_.find(clientOrderId);
+        ledger_.apply(OrderAccepted{.agent = id_,
+                                    .clientOrderId = clientOrderId,
+                                    .orderId = clientOrderId,
+                                    .side = order.side,
+                                    .type = order.type,
+                                    .price = order.price,
+                                    .quantity = order.leaves});
+    }
+
+    // Plays the exchange: fills part or all of an acknowledged order at its price.
+    void fill(ClientOrderId clientOrderId, Quantity quantity) {
+        const OwnOrder& order = *ledger_.find(clientOrderId);
+        ledger_.apply(OrderFilled{.agent = id_,
+                                  .clientOrderId = clientOrderId,
+                                  .orderId = order.orderId,
+                                  .side = order.side,
+                                  .price = order.price,
+                                  .quantity = quantity,
+                                  .leavesQuantity = order.leaves - quantity});
+    }
+
+    // Plays the exchange: confirms a modify.
+    void confirmModify(ClientOrderId clientOrderId, Price price, Quantity quantity) {
+        ledger_.apply(OrderModified{.agent = id_,
+                                    .clientOrderId = clientOrderId,
+                                    .orderId = ledger_.find(clientOrderId)->orderId,
+                                    .price = price,
+                                    .quantity = quantity});
+    }
+
+    std::vector<Request> sent;
+    std::vector<std::pair<Timestamp, std::uint64_t>> wakeups;
+
+private:
+    void record(const Request& request) {
+        ledger_.recordRequest(request);
+        sent.push_back(request);
+    }
+
+    AgentId id_;
+    Timestamp now_ = 0;
+    Random random_;
+    Ledger ledger_;
+    ClientOrderId nextClientOrderId_ = 1;
+};
+
+} // namespace crowdbook::test

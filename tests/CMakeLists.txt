@@ -19,7 +19,8 @@ add_executable(crowdbook_tests
     random_test.cpp
     simulation_determinism_test.cpp
     simulation_test.cpp
-    version_test.cpp)
+    version_test.cpp
+    zero_intelligence_test.cpp)
 target_link_libraries(crowdbook_tests PRIVATE crowdbook::crowdbook GTest::gtest_main)
 crowdbook_set_warnings(crowdbook_tests)
 
