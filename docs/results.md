@@ -6,7 +6,7 @@ commands reproduce them exactly:
 
 ```bash
 cmake --workflow --preset release
-uv run --project analysis crowdbook-facts         # about 5 minutes on 10 cores
+uv run --project analysis crowdbook-facts         # about 12 minutes on 10 cores
 uv run --project analysis crowdbook-experiments   # a few seconds
 uv run --project analysis crowdbook-large-orders  # about 2 minutes
 ```
@@ -30,7 +30,7 @@ exponential lifetime of 5 seconds on average.
 
 Each market ran for one simulated day under each of four seeds, sampling prices every second. It
 also ran for one simulated hour under each seed with its event log, for spreads and price impact.
-One simulated day of the mixed market is 17 million trades and takes 37 seconds on one core.
+One simulated day of the mixed market is 17 million trades and takes 41 seconds on one core.
 
 ## What emerges
 
@@ -179,16 +179,16 @@ traders have larger limits, 10,000 lots each, so they never run out of room.
 
 | Market | Excess kurtosis, 1 min | Clustering at 1 min | 15 min | 1 h | 2 h |
 |---|---:|---:|---:|---:|---:|
-| Memory market | +7.6 ± 1.2 | +0.24 | +0.18 | +0.12 | −0.00 |
-| … without news | +7.0 ± 1.4 | +0.34 | +0.27 | +0.11 | +0.02 |
+| Memory market | +8.5 ± 0.7 | +0.24 | +0.18 | +0.08 | −0.00 |
+| … without news | +6.3 ± 1.3 | +0.31 | +0.21 | +0.09 | +0.02 |
 | … without the activity response | +5.8 ± 1.2 | +0.22 | +0.10 | +0.06 | +0.00 |
-| … without the volatility response | +2.4 ± 0.6 | +0.06 | +0.02 | +0.03 | +0.01 |
-| … with fifty adaptive traders | +2.3 ± 0.4 | +0.05 | +0.03 | +0.03 | +0.00 |
+| … without the volatility response | +2.6 ± 0.5 | +0.03 | +0.01 | +0.01 | −0.01 |
+| … with fifty adaptive traders | +2.8 ± 0.7 | +0.05 | +0.03 | +0.01 | +0.01 |
 | Mixed market, no memory | −0.1 | +0.07 | +0.01 | −0.01 | −0.02 |
 
 "Clustering" is the autocorrelation of absolute one-minute returns at that lag; the 95% band for no
-correlation is ±0.03. Tails thin with the horizon, as in real markets: excess kurtosis is +18 at
-10 seconds, +7.6 at a minute and +1.8 at five minutes.
+correlation is ±0.03. Tails thin with the horizon, as in real markets: excess kurtosis is +19 at
+10 seconds, +8.5 at a minute and +1.7 at five minutes.
 
 - **Liquidity feedback is the cause.** Without the volatility response the clustering is gone.
   Jumpy prices make the noise traders stand back, a thinner book makes the next jump bigger, and

@@ -40,7 +40,7 @@ noise                     20          0          -1575        -1575
 
 A market maker with a fast connection earns the spread from twenty zero-intelligence traders.
 `run.csv` holds every order, cancel, fill, trade and top-of-book change. The same seed always
-reproduces the same run, byte for byte. [examples/scenarios](examples/scenarios) has ten
+reproduces the same run, byte for byte, on any platform. [examples/scenarios](examples/scenarios) has ten
 scenarios, from this one to thousand-trader markets with informed traders, memory, or brokers
 working large orders; [docs/scenarios.md](docs/scenarios.md) describes the file format and every
 agent parameter.
@@ -48,7 +48,7 @@ agent parameter.
 ## Results
 
 A day of a 1,041-agent market — a thousand noise traders, a market maker, twenty trend followers
-and twenty informed traders who know the asset's true value — simulates in 37 seconds. Measured
+and twenty informed traders who know the asset's true value — simulates in 41 seconds. Measured
 over four such days and more than a thousand smaller markets ([docs/results.md](docs/results.md)):
 
 - **Who moves prices.** Noise traders' orders move the mid a tenth of a tick, and the move is gone
@@ -177,28 +177,30 @@ Each workflow preset configures, builds and runs the test suite, with output in 
 | `release` | Release, including the benchmarks                          |
 | `asan`    | Debug with AddressSanitizer and UndefinedBehaviorSanitizer |
 
-The core library has no dependencies. Scenario files use [toml++](https://github.com/marzer/tomlplusplus)
-and the tests use GoogleTest; CMake fetches both at pinned versions. The analysis in `analysis/`
-is a [uv](https://docs.astral.sh/uv/) project using polars, NumPy and matplotlib; nothing in the
-C++ build depends on it.
+The core library has no dependencies. Scenario files use
+[toml++](https://github.com/marzer/tomlplusplus) and the tests use GoogleTest; CMake fetches both
+at pinned versions, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has toml++'s license,
+since it is compiled into the `crowdbook` command. The analysis in `analysis/` is a
+[uv](https://docs.astral.sh/uv/) project using polars, NumPy and matplotlib; nothing in the C++
+build depends on it.
 
 ## Performance
 
 Measured on an Apple M5 with a Release build:
 
-- The matching engine handles about 15 million operations per second (roughly 65 ns each) on a
+- The matching engine handles about 30 million operations per second (roughly 33 ns each) on a
   mixed stream of passive orders, cancels, crossing orders and market orders.
 - A simulated day of the 1,041-agent mixed market in
-  [large_market.toml](examples/scenarios/large_market.toml), 17 million trades, takes 37 seconds
-  on one core: about 2,400 times faster than real time.
+  [large_market.toml](examples/scenarios/large_market.toml), 17 million trades, takes 41 seconds
+  on one core: about 2,100 times faster than real time.
 - Whole markets of zero-intelligence traders, each acting about four times a second, simulate
   this many seconds per second of wall-clock time:
 
   | Traders | Every update pushed to every trader | Traders read the market on demand |
   |---:|---:|---:|
-  | 100 | 1,295 | 9,815 |
-  | 1,000 | 8.5 | 734 |
-  | 10,000 | — | 52 |
+  | 100 | 1,076 | 9,641 |
+  | 1,000 | 10.1 | 608 |
+  | 10,000 | — | 44 |
 
   Pushing every trade and quote change to every trader costs N² as the crowd grows, so agents
   that only look at the market when they act read it on demand instead. Market makers, which
@@ -213,4 +215,5 @@ cmake --workflow --preset release
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Third-party code compiled into the binary is listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -24,6 +24,12 @@ market and on a real one (M11).
 Out of scope: connecting to real exchanges or trading real money, and multiple instruments or
 venues until the single-instrument market is calibrated.
 
+This repository is the open engine, under the MIT license: the simulator, its agents, the
+analysis, the terminal trading screen, and, to come, the gateway's protocol and its Python client.
+A trading screen in the browser, multiplayer markets hosted online, and tournaments with
+leaderboards are planned as part of a hosted product built on the engine, and are not built here;
+the roadmap marks them.
+
 ## Architecture
 
 ```
@@ -166,8 +172,17 @@ time order. Items due at the same nanosecond run in the order they were schedule
 - **Randomness:** `Random` is xoshiro256** seeded through SplitMix64, with uniform, Bernoulli,
   exponential and normal distributions written here. Agent *n* draws from stream 2*n* and its
   network jitter from stream 2*n* + 1, so turning on jitter or adding another agent does not change
-  any agent's own draws. Integer draws are identical on every platform; floating-point draws use
-  the same algorithms everywhere but the platform's `log` and `sqrt`.
+  any agent's own draws. Every draw is identical on every platform: floating-point draws use
+  `crowdbook::math` and the correctly rounded square root.
+- **Arithmetic the same everywhere:** a seeded run is byte for byte the same on every platform,
+  not just on one machine. Standard libraries compute `exp`, `log` and `pow` differently in the
+  last bit, and a one-bit difference sends a run down another path, so `crowdbook::math`
+  implements them with addition, subtraction, multiplication and division in a fixed order, from
+  tables worked out to 60 digits by `tools/math_tables.py`; they agree with the standard library
+  to within one unit in the last place. Every target compiles with `-ffp-contract=off`, since
+  Clang fuses multiplies and adds by default and GCC on x86-64 does not. No statement makes more
+  than one random draw, because the order in which operands and arguments are evaluated is
+  unspecified, and the exchange's hash maps are only looked up, never walked, outside its audit.
 - **Market data:** an agent chooses how it gets public data by overriding `marketData()`.
   Streaming agents receive every trade and top-of-book change through `onTrade` and
   `onTopOfBook`. Snapshot agents receive nothing and call `context.market()` when they act, which
@@ -360,6 +375,12 @@ uv run --project analysis crowdbook-large-orders
   half a simulated second: about 4,000 requests, 1,200 trades and 11,000 log rows. Two runs with
   the same seed must produce byte-identical CSV logs and a different seed a different log. Once
   every message has landed, each agent's ledger must match the exchange exactly.
+- **Golden test:** a market with every agent type and every source of randomness runs for four
+  simulated minutes, and the hashes of its event log, price and depth samples and results, and of
+  the replayed demo session's log, must equal committed values. CI runs it on macOS arm64 and on
+  Linux x86-64, so the two platforms have to agree byte for byte. `crowdbook::math` is checked
+  against the standard library over its whole range, and a test fails if the compiler fuses a
+  multiply and an add.
 - **Agent tests** run each built-in agent against `FakeContext`, a stand-in for the simulation
   that records what the agent sends and lets the test play the exchange. They check decisions
   exactly: Avellaneda–Stoikov quotes against hand-computed values, prices relative to the book,
@@ -415,6 +436,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | Events | Ordered, FIX-style execution reports plus anonymous trades and top of book | Agents can rebuild their own state from their events, and logs replay in a well-defined order |
 | Time | `int64` nanoseconds, discrete events | Latency and queue position matter in microstructure; fixed rounds hide both |
 | Ties | Same timestamp → insertion order | Deterministic; no hidden dependence on container iteration order |
+| Event queue | A heap of small (time, sequence, slot) entries, with the actions in a deque beside it, built and processed where they lie | Once an event could hold the depth feed's vectors, moving whole actions around the heap took most of a run's time |
 | Prices and sizes | `int64` ticks and lots; cash in tick-lots | Exact arithmetic; no floating point in matching or accounting |
 | Priority | Price, then time | Standard for continuous limit order books |
 | Modify | Size decrease keeps queue position; price change or size increase loses it | Matches common exchange rules, so queue-position effects are realistic |
@@ -424,6 +446,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | Market data delivery | Streamed or read on demand, chosen by each agent | Streaming to everyone costs N²; most agents only need the market at the moment they act |
 | Randomness | xoshiro256** streams from the run's seed: 2*n* for agent *n*'s draws, 2*n* + 1 for its jitter | Same seed → same run; adding an agent or turning on jitter does not change any agent's draws |
 | Distributions | Implemented in crowdbook, not `std::*_distribution` | Standard distribution output is implementation-defined, so libc++ and libstdc++ disagree for the same seed |
+| Elementary functions | crowdbook's own `exp`, `exp2`, `log` and `pow`, from basic arithmetic, and no fused multiply-adds | The platforms' libraries differ in the last bit, which is enough to make a seeded run differ between macOS and Linux |
 | Agent state | A ledger built from the agent's own requests and events, not a view of the exchange | Agents act on what they could know, including orders in flight and cancels that race fills |
 | Output | Full event log rather than summaries | Microstructure analysis needs every order, cancel and trade, not end-of-run PnL |
 | Log format | One CSV, a row per request or event, unused columns empty | Loads into Python in one call, and runs can be compared byte for byte |
@@ -441,7 +464,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | Parent orders | An optional parent id on a new order, which the exchange ignores and the log keeps | An analysis can rebuild every parent from the log, as FIX's linked order ids allow; agents need nothing new |
 | VWAP | Comes with the trading day, not with TWAP and POV | It follows a forecast of the day's volume curve; until the market has a day, it is TWAP |
 | Live play | A pacer around runUntil plus Simulation::act, on one thread | Wall-clock time only decides when a person's actions happen, so a recording replays exactly |
-| Trading screen | Terminal, with ANSI escape codes and no library | Runs anywhere with a terminal and adds no dependency; a browser screen comes with the gateway |
+| Trading screen | Terminal, with ANSI escape codes and no library | Runs anywhere with a terminal and adds no dependency; a browser screen is part of the hosted product |
 | Session files | TOML holding the scenario's text, the seed and every request with its time | A session replays even when its scenario file changes or is gone |
 | Depth feed | Optional, published as events when the best levels change | Agents, the analysis and a trading screen need depth; computing it costs about half again the run time, so markets that do not need it do not pay |
 | Analysis | Python (polars, matplotlib) in its own uv project, driving the command line | The C++ build keeps no analysis dependencies, and the analysis uses only what any user gets |
@@ -456,7 +479,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | M2 | Exchange: validation, order ids, ownership, accounting, risk limits | Conservation of cash and shares; agents' event ledgers match the exchange | Done |
 | M3 | Kernel, latency, random streams, agent API, ledger, CSV event log | Same seed gives a byte-identical event log; ledgers match the exchange | Done |
 | M4 | Built-in agents (zero-intelligence, Avellaneda–Stoikov market maker, momentum, informed), fundamental value, TOML scenarios, `crowdbook` CLI | Agent tests against a fake context; every example runs in CI | Done |
-| M5a | On-demand market data, so crowds of thousands of agents run faster than real time | Scaling benchmark: 10,000 traders at 52× real time | Done |
+| M5a | On-demand market data, so crowds of thousands of agents run faster than real time | Scaling benchmark: 10,000 traders at 44× real time | Done |
 | M5b | Analysis package; stylized facts, crowd size and price impact by trader type in the thousand-trader markets; market-maker self-impact and PnL against informed flow and latency | [results.md](results.md): four simulated days per market, 32 seeds per experiment point | Done |
 | M6 | Depth and order types: the best levels of the book in market data, post-only orders, maker–taker fees | The published depth matches the book after every random request; fees paid add up to fees collected; planted bugs caught | Done |
 | M7 | Playable slice: real time at adjustable speed, an outside participant, a terminal price ladder, sessions recorded for replay | A recorded session, scripted and played through the real screen, replays to a byte-identical log | Done |
@@ -467,12 +490,12 @@ Choices for later milestones may change once they are implemented; changes are r
 | M12 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
 | M13 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |
 | M14 | Gateway: one network protocol for market data and orders, used by humans and bots alike; a Python client | A Python bot trades through it under the same limits, latency and fees as built-in agents | Planned |
-| M15 | Trading screen: price ladder with click-to-trade, chart, trade tape, position and PnL, and a report after each session | A full session played by hand, with its report | Planned |
+| M15 | Trading screen in the browser, part of the hosted product: price ladder with click-to-trade, chart, trade tape, position and PnL, and a report after each session | A full session played by hand, with its report | Planned (hosted product) |
 | M16 | Truth and counterfactuals: after a session, who you traded with and what they knew; the session replayed without your orders; rewind and re-trade | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Planned |
 | M17 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Planned |
 | M18 | Options research and game: whether a volatility smile emerges from supply and demand, dealers' hedging feeding back into the stock, pinning at expiry; an options market-making challenge | Results in results.md; the challenge playable on the trading screen | Planned |
-| M19 | Challenges and tournaments: scored scenarios (work a large order against VWAP, make markets within a risk limit, trade the news), bot tournaments, leaderboards | Scenarios with published scoring; a tournament of the example bots | Planned |
-| Later | Multiplayer markets hosted online, one stock on several exchanges, ETFs and their constituents, an environment for training learning agents, rule-based agents | | |
+| M19 | Challenges and tournaments: scored scenarios (work a large order against VWAP, make markets within a risk limit, trade the news); bot tournaments and leaderboards are part of the hosted product | Scenarios with published scoring, played by the example bots | Planned (tournaments and leaderboards: hosted product) |
+| Later | Multiplayer markets hosted online (hosted product), one stock on several exchanges, ETFs and their constituents, an environment for training learning agents, rule-based agents | | |
 
 ## Code conventions
 

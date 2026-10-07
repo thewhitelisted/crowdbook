@@ -122,7 +122,7 @@ constexpr std::uint64_t kMarketLog = 0x0d2b8fee0b0afb38;
 constexpr std::uint64_t kMarketPrices = 0xb5dc7ff55dfed436;
 constexpr std::uint64_t kMarketDepth = 0x3f64617a1293ca45;
 constexpr std::uint64_t kMarketResult = 0xebf5b0556bf4bf09;
-constexpr std::uint64_t kDemoReplayLog = 0x8680a02fed133a4e;
+constexpr std::uint64_t kDemoReplayLog = 0xaad3c9d2f37beeed;
 
 TEST(GoldenTest, AMarketsOutputsAreTheSameOnEveryPlatform) {
     const Scenario scenario = parseScenario(kMarket, "golden");
