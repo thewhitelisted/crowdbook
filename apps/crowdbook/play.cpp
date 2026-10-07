@@ -13,6 +13,8 @@
 #include <variant>
 #include <vector>
 
+#include <unistd.h>
+
 #include "crowdbook/agent_registry.hpp"
 #include "crowdbook/scenario_file.hpp"
 #include "crowdbook/session.hpp"
@@ -82,6 +84,7 @@ public:
             if (target > simulation.now()) {
                 market_.run.runUntil(target);
             }
+            noteStop();
             noteRejection();
             terminal.draw(ladder::render(screen(terminal, pacer)));
             // Wait a frame for a key, then take every other key already typed.
@@ -127,6 +130,21 @@ private:
         return market_.run.simulation().now() >= scenario_.duration;
     }
 
+    // With a loss limit, a seat whose loss reached it has its orders cancelled and trades no
+    // more.
+    void noteStop() {
+        if (stopped_ || !market_.scorer) {
+            return;
+        }
+        if (const std::optional<Timestamp> at = market_.scorer->stoppedAt(seat().agent)) {
+            cancel(true);
+            stopped_ = true;
+            message_ = std::format("stopped at {}: the loss reached the limit of {}; no more "
+                                   "orders",
+                                   formatDuration(*at), scenario_.scoring->maxLoss);
+        }
+    }
+
     void noteRejection() {
         const std::optional<OrderRejected>& rejection = seat().participant->lastRejection();
         if (rejection && rejection != shownRejection_) {
@@ -135,9 +153,10 @@ private:
         }
     }
 
-    // Sends a request now and records it. Trading stops when the session is over.
+    // Sends a request now and records it. Trading stops when the session is over, and only
+    // cancels are sent once the loss limit has stopped the seat.
     void act(Request request) {
-        if (over()) {
+        if (over() || (stopped_ && !std::holds_alternative<CancelOrder>(request))) {
             return;
         }
         Simulation& simulation = market_.run.simulation();
@@ -150,6 +169,9 @@ private:
     }
 
     void order(Side side, OrderType type) {
+        if (stopped_) {
+            return;
+        }
         act(NewOrder{.side = side, .type = type, .price = cursor_, .quantity = size_});
         message_ = type == OrderType::Market
                        ? std::format("{} {} at the market", side == Side::Buy ? "buy" : "sell",
@@ -255,6 +277,7 @@ private:
     Quantity size_;
     std::string message_;
     std::optional<OrderRejected> shownRejection_;
+    bool stopped_ = false;
 };
 
 } // namespace
@@ -283,6 +306,14 @@ int play(const PlayOptions& options) {
     }
     SessionMarket market = openSession(scenario, AgentRegistry::withBuiltIns(), outputs.sink());
     Session record{.scenario = text, .seed = scenario.seed};
+    if (scenario.challenge) {
+        printBriefing(std::cout, scenario);
+        if (::isatty(STDIN_FILENO) != 0) {
+            std::cout << "press enter to start" << std::flush;
+            std::string line;
+            std::getline(std::cin, line);
+        }
+    }
     {
         RawTerminal terminal;
         LiveSession session{scenario, market, record};
@@ -295,8 +326,9 @@ int play(const PlayOptions& options) {
                              options.scenarioPath, scenario.seed, formatDuration(record.end),
                              formatDuration(scenario.duration), record.actions.size());
     scenario.duration = record.end;
-    printResults(std::cout, scenario, market.run.result());
-    outputs.report(std::cout, scenario, market.run.result());
+    const RunResult result = market.result();
+    printResults(std::cout, scenario, result);
+    outputs.report(std::cout, scenario, result);
     if (options.recordPath) {
         writeSession(recordFile, record);
         if (!recordFile.flush()) {

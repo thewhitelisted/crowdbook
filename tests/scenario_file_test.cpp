@@ -124,7 +124,8 @@ TEST(ScenarioFileTest, ReportsSyntaxErrorsWithTheirLine) {
 TEST(ScenarioFileTest, RejectsUnknownKeysWithTheirLine) {
     EXPECT_EQ(parseError("seed = 1\nduraton = \"5s\"\n[[agents]]\ntype = \"momentum\"\n"),
               "test.toml:2: unknown key 'duraton' at the top level; expected one of: seed, "
-              "duration, reference_price, fundamental, exchange, agents, participant");
+              "duration, reference_price, fundamental, exchange, agents, participant, scoring, "
+              "challenge");
     EXPECT_EQ(parseError("[[agents]]\ntype = \"momentum\"\n"
                          "latency = { to_exchange = \"1us\", jiter = \"1us\" }\n"),
               "test.toml:3: unknown key 'jiter' in latency; expected one of: to_exchange, "
@@ -153,11 +154,62 @@ TEST(ScenarioFileTest, RejectsValuesOfTheWrongKindOrRange) {
         {"[fundamental]\ninitial = -nan\n" + agent, "'initial' must be a finite number"},
         {agent + "rate = -inf\n", "agent parameter 'rate' must be a finite number"},
         {"duration = \"1000000000s\"\n" + agent, "it must be shorter than 1000000000s"},
+        {"[scoring]\nmark = \"value\"\n" + agent,
+         "scoring at the true value needs a [fundamental] section"},
+        {"[scoring]\nmark = \"mid\"\n" + agent, "'mark' must be \"last\" or \"value\""},
+        {"[scoring]\ninventory_penalty = -0.1\n" + agent, "not negative"},
+        {"[scoring]\nclose_penalty = 0.0001\n" + agent, "at most three decimals"},
+        {"[scoring]\nmax_loss = -5\n" + agent, "'max_loss' must be between 0"},
+        {"[scoring]\npenalty = 1\n" + agent, "unknown key 'penalty' in [scoring]"},
+        {"[scoring.target]\nside = \"buy\"\n" + agent, "missing 'quantity'"},
+        {"[scoring.target]\nside = \"long\"\nquantity = 5\n" + agent,
+         "'side' must be \"buy\" or \"sell\""},
+        {"[scoring.target]\nside = \"buy\"\nquantity = 5\nbenchmark = \"twap\"\n" + agent,
+         "'benchmark' must be \"vwap\" or \"reference\""},
+        {"[challenge]\nbriefing = \"go\"\n" + agent, "missing 'name'"},
+        {"[challenge]\nname = \"\"\nbriefing = \"go\"\n" + agent, "a challenge needs a name"},
     };
     for (const auto& [text, expected] : cases) {
         EXPECT_NE(parseError(text).find(expected), std::string::npos)
             << "for:\n" << text << "got: " << parseError(text);
     }
+}
+
+TEST(ScenarioFileTest, ReadsScoringAndChallenges) {
+    const Scenario scenario = parseScenario(R"(
+[challenge]
+name = "Work a large order"
+briefing = """
+Buy it all."""
+
+[scoring]
+inventory_penalty = 0.02
+close_penalty = 1
+max_loss = 2000
+
+[scoring.target]
+side = "sell"
+quantity = 300
+benchmark = "reference"
+unfinished_penalty = 10.5
+
+[[agents]]
+type = "momentum"
+)");
+    ASSERT_TRUE(scenario.challenge);
+    EXPECT_EQ(scenario.challenge->name, "Work a large order");
+    EXPECT_EQ(scenario.challenge->briefing, "Buy it all.");
+    ASSERT_TRUE(scenario.scoring);
+    EXPECT_EQ(scenario.scoring->mark, Mark::LastTrade);
+    EXPECT_EQ(scenario.scoring->inventoryPenalty, 20);
+    EXPECT_EQ(scenario.scoring->closePenalty, 1'000);
+    EXPECT_EQ(scenario.scoring->maxLoss, 2'000);
+    ASSERT_TRUE(scenario.scoring->target);
+    EXPECT_EQ(scenario.scoring->target->side, Side::Sell);
+    EXPECT_EQ(scenario.scoring->target->quantity, 300);
+    EXPECT_EQ(scenario.scoring->target->benchmark, Benchmark::Reference);
+    EXPECT_EQ(scenario.scoring->target->unfinishedPenalty, 10'500);
+    EXPECT_FALSE(parseScenario("[[agents]]\ntype = \"momentum\"\n").scoring);
 }
 
 TEST(ScenarioFileTest, LoadsFilesAndReportsMissingOnes) {

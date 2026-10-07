@@ -63,6 +63,19 @@ std::vector<ServerMessage> serverMessages() {
                               .leaves = 3,
                               .acknowledged = true,
                               .cancelRequested = true});
+    Welcome challenge{.seat = "carol"};
+    challenge.challenge = ChallengeInfo{.name = "Work a large order",
+                                        .briefing = "Buy 300 lots.\nDon't \"chase\" it."};
+    challenge.scoring = ScoringConfig{.mark = Mark::Value,
+                                      .inventoryPenalty = 50,
+                                      .closePenalty = 1'000,
+                                      .maxLoss = 2'000,
+                                      .target = Target{.side = Side::Sell,
+                                                       .quantity = 300,
+                                                       .benchmark = Benchmark::Reference,
+                                                       .unfinishedPenalty = 5'000}};
+    Welcome plain{.seat = "dave"};
+    plain.scoring = ScoringConfig{};
     TopOfBook top;
     top.bid = LevelSummary{.price = 10'003, .quantity = 12, .orderCount = 3};
     BookDepth depth;
@@ -115,6 +128,18 @@ std::vector<ServerMessage> serverMessages() {
         MarketMessage{.time = 10, .event = depth},
         MarketMessage{.time = 11, .event = BookDepth{}},
         End{.time = 60'000'000'000, .cash = -50'012, .position = 5, .fees = 1'000, .pnl = 45},
+        challenge,
+        plain,
+        End{.time = 1,
+            .score = Score{.pnl = -3'500,
+                           .inventory = 12,
+                           .close = 2'000,
+                           .paper = -9'000,
+                           .unfinished = 15'000,
+                           .total = -11'512,
+                           .unfinishedLots = 3,
+                           .stoppedAt = 77}},
+        End{.time = 2, .score = Score{}},
         Error{.message = "unknown field 'qty'\n\"quoted\"", .fatal = true},
     };
 }
@@ -156,7 +181,8 @@ TEST(Protocol, DecodesTheSpecificationsExamples) {
         R"("duration":60000000000,"reference_price":10000,"depth_levels":10,"maker_fee":0,)"
         R"("taker_fee":0,"latency":{"to_exchange":1000000,"from_exchange":1000000,"jitter":0},)"
         R"("account":{"initial_cash":0,"initial_position":0,"cash":0,"position":0,"fees":0,)"
-        R"("max_position":50,"max_order_quantity":10},"orders":[]})")));
+        R"("max_position":50,"max_order_quantity":10},"orders":[],"challenge":null,)"
+        R"("scoring":null})")));
     EXPECT_NO_THROW(static_cast<void>(decodeServer(
         R"({"type":"top","time":3000000,"bid":{"price":10003,"quantity":12,"orders":3},)"
         R"("ask":null})")));
@@ -205,6 +231,7 @@ TEST(Protocol, SeatNames) {
 TEST(Protocol, RejectReasonsHaveWireNames) {
     EXPECT_EQ(wireName(RejectReason::PositionLimit), "position-limit");
     EXPECT_EQ(wireName(RejectReason::DuplicateClientOrderId), "duplicate-client-order-id");
+    EXPECT_EQ(wireName(RejectReason::LossLimit), "loss-limit");
 }
 
 // Malformed input from the network must be decoded or rejected with ProtocolError, never crash,

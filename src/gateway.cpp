@@ -5,6 +5,7 @@
 #include <format>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -21,6 +22,7 @@ constexpr std::int64_t kMaxMessagesPerSecond = 1'000'000;
 // One seat's side of the translation between the client's order ids and the market's.
 struct SeatState {
     std::optional<ConnectionId> connection{};
+    bool stopped = false; // by the loss limit: no more orders
     // The client's ids of the seat's live orders, as the participant's ledger has them.
     std::unordered_map<ClientOrderId, ClientOrderId> wireToInternal{};
     // Kept a little longer than the above: until the order is done and every cancel or modify
@@ -197,6 +199,22 @@ struct Gateway::State {
     void trade(Connection& connection, std::size_t seat, const protocol::ClientMessage& message,
                std::int64_t wallNow) {
         SeatState& state = seats[seat];
+        if (state.stopped && !std::holds_alternative<CancelOrder>(message)) {
+            const auto [wire, kind] = std::visit(
+                [](const auto& body) -> std::pair<ClientOrderId, RequestKind> {
+                    using Body = std::decay_t<decltype(body)>;
+                    if constexpr (std::is_same_v<Body, NewOrder>) {
+                        return {body.clientOrderId, RequestKind::New};
+                    } else if constexpr (std::is_same_v<Body, ModifyOrder>) {
+                        return {body.clientOrderId, RequestKind::Modify};
+                    } else {
+                        return {0, RequestKind::Cancel};
+                    }
+                },
+                message);
+            rejectAtOnce(connection, wire, kind, RejectReason::LossLimit, wallNow);
+            return;
+        }
         if (const auto* order = std::get_if<NewOrder>(&message)) {
             if (state.wireToInternal.contains(order->clientOrderId)) {
                 rejectAtOnce(connection, order->clientOrderId, RequestKind::New,
@@ -277,7 +295,12 @@ struct Gateway::State {
                         .position = ledger.position(),
                         .fees = ledger.fees(),
                         .maxPosition = account.maxPosition,
-                        .maxOrderQuantity = account.maxOrderQuantity}};
+                        .maxOrderQuantity = account.maxOrderQuantity},
+            .scoring = scenario.scoring};
+        if (scenario.challenge) {
+            message.challenge = protocol::ChallengeInfo{.name = scenario.challenge->name,
+                                                        .briefing = scenario.challenge->briefing};
+        }
         for (const auto& [internal, own] : ledger.orders()) {
             OwnOrder order = own;
             order.clientOrderId = seats[seat].internalToWire.at(internal);
@@ -411,6 +434,7 @@ struct Gateway::State {
             if (target > simulation().now()) {
                 market.run.runUntil(target);
             }
+            stopLosers(wallNow);
             if (simulation().now() >= scenario.duration) {
                 finish(wallNow);
                 return;
@@ -423,21 +447,47 @@ struct Gateway::State {
         }
     }
 
+    // Seats whose loss reached the limit while the market ran have their orders cancelled and
+    // can send no more.
+    void stopLosers(std::int64_t wallNow) {
+        if (!market.scorer) {
+            return;
+        }
+        for (std::size_t seat = 0; seat < seats.size(); ++seat) {
+            const std::optional<Timestamp> at = market.scorer->stoppedAt(market.seats[seat].agent);
+            if (!at || seats[seat].stopped) {
+                continue;
+            }
+            seats[seat].stopped = true;
+            cancelAll(seat);
+            if (Connection* connection = seatConnection(seat)) {
+                complain(*connection,
+                         std::format("stopped at {} ns: the loss reached the limit of {}; open "
+                                     "orders are cancelled and no more are taken",
+                                     *at, scenario.scoring->maxLoss),
+                         wallNow);
+            }
+        }
+    }
+
     void finish(std::int64_t wallNow) {
         finished = true;
         record.end = simulation().now();
-        const RunResult result = market.run.result();
+        const RunResult result = market.result();
         for (auto& [id, connection] : connections) {
             if (connection.seat) {
                 const std::string& name = market.seats[*connection.seat].name;
                 const auto group = std::ranges::find(result.groups, name, &GroupResult::name);
-                send(connection,
-                     protocol::End{.time = simulation().now(),
-                                   .cash = group->cash,
-                                   .position = group->position,
-                                   .fees = group->fees,
-                                   .pnl = group->pnl},
-                     wallNow);
+                protocol::End end{.time = simulation().now(),
+                                  .cash = group->cash,
+                                  .position = group->position,
+                                  .fees = group->fees,
+                                  .pnl = group->pnl};
+                if (const auto score = std::ranges::find(result.scores, name, &SeatScore::seat);
+                    score != result.scores.end()) {
+                    end.score = score->score;
+                }
+                send(connection, end, wallNow);
             }
             connection.closing = true;
         }
@@ -602,7 +652,7 @@ const Session& Gateway::session() const noexcept {
 }
 
 RunResult Gateway::result() {
-    return state_->market.run.result();
+    return state_->market.result();
 }
 
 const SessionMarket& Gateway::market() const noexcept {

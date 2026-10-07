@@ -206,7 +206,24 @@ SessionMarket openSession(const Scenario& scenario, const AgentRegistry& registr
             }
         }
     }
-    SessionMarket market{.run = ScenarioRun{scenario, registry, sink}};
+    std::unique_ptr<Scorer> scorer;
+    std::unique_ptr<BroadcastSink> sinks;
+    if (scenario.scoring) {
+        try {
+            scorer = std::make_unique<Scorer>(*scenario.scoring, scenario.referencePrice);
+        } catch (const std::invalid_argument& error) {
+            throw ScenarioError(std::format("scoring: {}", error.what()));
+        }
+        sinks = std::make_unique<BroadcastSink>();
+        sinks->add(*scorer);
+        if (sink != nullptr) {
+            sinks->add(*sink);
+        }
+        sink = sinks.get();
+    }
+    SessionMarket market{.scorer = std::move(scorer),
+                         .sinks = std::move(sinks),
+                         .run = ScenarioRun{scenario, registry, sink}};
     for (const std::string& name : seats) {
         auto participant = std::make_unique<Participant>();
         Seat seat{.name = name, .participant = participant.get()};
@@ -216,9 +233,25 @@ SessionMarket openSession(const Scenario& scenario, const AgentRegistry& registr
         } catch (const std::invalid_argument& error) {
             throw ScenarioError(std::format("participant: {}", error.what()));
         }
+        if (market.scorer) {
+            market.scorer->addSeat(seat.agent, scenario.participant.account.initialCash,
+                                   scenario.participant.account.initialPosition);
+        }
         market.seats.push_back(std::move(seat));
     }
     return market;
+}
+
+RunResult SessionMarket::result() {
+    RunResult result = run.result();
+    if (scorer) {
+        for (const Seat& seat : seats) {
+            result.scores.push_back(
+                {.seat = seat.name,
+                 .score = scorer->score(seat.agent, run.simulation().now(), result.finalValue)});
+        }
+    }
+    return result;
 }
 
 void writeSession(std::ostream& out, const Session& session) {
@@ -317,7 +350,7 @@ RunResult replaySession(const Session& session, const AgentRegistry& registry, E
             perform(market.run.simulation(), market.seats.at(action.seat).agent, action));
     }
     market.run.runUntil(session.end);
-    return market.run.result();
+    return market.result();
 }
 
 } // namespace crowdbook

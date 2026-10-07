@@ -19,6 +19,9 @@ namespace {
 
 using Keys = std::initializer_list<std::string_view>;
 
+// The largest loss limit: far enough inside int64 that the arithmetic around it cannot overflow.
+constexpr Cash kMaxCashLimit = std::int64_t{1} << 60;
+
 // Reads values out of one TOML document, reporting problems as "source:line: message".
 class Reader {
 public:
@@ -85,6 +88,15 @@ public:
         } catch (const std::invalid_argument& error) {
             fail(node, std::format("'{}': {}", key, error.what()));
         }
+    }
+
+    [[nodiscard]] const toml::node& required(const toml::table& table,
+                                             std::string_view key) const {
+        const toml::node* node = table.get(key);
+        if (node == nullptr) {
+            fail(table, std::format("missing '{}'", key));
+        }
+        return *node;
     }
 
     [[nodiscard]] const toml::table& table(const toml::node& node, std::string_view key) const {
@@ -156,6 +168,85 @@ Fee readFeeRate(const Reader& reader, const toml::node& node, std::string_view k
                                       key, kMaxFeeRate / kFeeUnitsPerTickLot));
     }
     return static_cast<Fee>(whole);
+}
+
+// A rate given in ticks, such as 0.05, in points, which must not be negative.
+Points readPoints(const Reader& reader, const toml::node& node, std::string_view key) {
+    const double units = reader.number(node, key) * static_cast<double>(kPointsPerTickLot);
+    const double whole = std::round(units);
+    if (std::abs(units - whole) > 1e-6 || whole < 0.0 || whole > 1e15) {
+        reader.fail(node, std::format("'{}' must be in ticks, with at most three decimals, and "
+                                      "not negative",
+                                      key));
+    }
+    return static_cast<Points>(whole);
+}
+
+Target readTarget(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table, {"side", "quantity", "benchmark", "unfinished_penalty"},
+                     "in [scoring.target]");
+    Target target;
+    const std::string side = reader.text(reader.required(table, "side"), "side");
+    if (side != "buy" && side != "sell") {
+        reader.fail(table, "'side' must be \"buy\" or \"sell\"");
+    }
+    target.side = side == "buy" ? Side::Buy : Side::Sell;
+    target.quantity = reader.integer(reader.required(table, "quantity"), "quantity", 1,
+                                     kMaxQuantity);
+    if (const auto* node = table.get("benchmark")) {
+        const std::string benchmark = reader.text(*node, "benchmark");
+        if (benchmark == "vwap") {
+            target.benchmark = Benchmark::Vwap;
+        } else if (benchmark == "reference") {
+            target.benchmark = Benchmark::Reference;
+        } else {
+            reader.fail(*node, "'benchmark' must be \"vwap\" or \"reference\"");
+        }
+    }
+    if (const auto* node = table.get("unfinished_penalty")) {
+        target.unfinishedPenalty = readPoints(reader, *node, "unfinished_penalty");
+    }
+    return target;
+}
+
+ScoringConfig readScoring(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table,
+                     {"mark", "inventory_penalty", "close_penalty", "max_loss", "target"},
+                     "in [scoring]");
+    ScoringConfig config;
+    if (const auto* node = table.get("mark")) {
+        const std::string mark = reader.text(*node, "mark");
+        if (mark == "last") {
+            config.mark = Mark::LastTrade;
+        } else if (mark == "value") {
+            config.mark = Mark::Value;
+        } else {
+            reader.fail(*node, "'mark' must be \"last\" or \"value\"");
+        }
+    }
+    if (const auto* node = table.get("inventory_penalty")) {
+        config.inventoryPenalty = readPoints(reader, *node, "inventory_penalty");
+    }
+    if (const auto* node = table.get("close_penalty")) {
+        config.closePenalty = readPoints(reader, *node, "close_penalty");
+    }
+    if (const auto* node = table.get("max_loss")) {
+        config.maxLoss = reader.integer(*node, "max_loss", 0, kMaxCashLimit);
+    }
+    if (const auto* node = table.get("target")) {
+        config.target = readTarget(reader, reader.table(*node, "target"));
+    }
+    return config;
+}
+
+Challenge readChallenge(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table, {"name", "briefing"}, "in [challenge]");
+    Challenge challenge{.name = reader.text(reader.required(table, "name"), "name"),
+                        .briefing = reader.text(reader.required(table, "briefing"), "briefing")};
+    if (challenge.name.empty()) {
+        reader.fail(table, "a challenge needs a name");
+    }
+    return challenge;
 }
 
 ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
@@ -268,7 +359,7 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     const Reader reader{source};
     reader.allowOnly(root,
                      {"seed", "duration", "reference_price", "fundamental", "exchange", "agents",
-                      "participant"},
+                      "participant", "scoring", "challenge"},
                      "at the top level");
 
     Scenario scenario;
@@ -291,6 +382,15 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     }
     if (const auto* node = root.get("participant")) {
         scenario.participant = readParticipant(reader, reader.table(*node, "participant"));
+    }
+    if (const auto* node = root.get("scoring")) {
+        scenario.scoring = readScoring(reader, reader.table(*node, "scoring"));
+        if (scenario.scoring->mark == Mark::Value && !scenario.fundamental) {
+            reader.fail(*node, "scoring at the true value needs a [fundamental] section");
+        }
+    }
+    if (const auto* node = root.get("challenge")) {
+        scenario.challenge = readChallenge(reader, reader.table(*node, "challenge"));
     }
     if (const auto* node = root.get("agents")) {
         const auto* list = node->as_array();

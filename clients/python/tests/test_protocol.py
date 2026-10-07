@@ -79,6 +79,29 @@ class DecodeTest(unittest.TestCase):
         self.assertEqual(protocol.decode('{"type":"error","message":"no","fatal":true}'),
                          Error(message="no", fatal=True))
 
+    def test_challenges_scoring_and_scores(self):
+        welcome = protocol.decode(
+            '{"type":"welcome","protocol":1,"seat":"carol","started":true,"time":5,'
+            '"duration":60,"reference_price":100,"depth_levels":0,"maker_fee":0,"taker_fee":0,'
+            '"latency":{"to_exchange":0,"from_exchange":0,"jitter":0},"account":{'
+            '"initial_cash":0,"initial_position":0,"cash":0,"position":0,"fees":0,'
+            '"max_position":9,"max_order_quantity":9},"orders":[],'
+            '"challenge":{"name":"Work a large order","briefing":"Buy 300."},'
+            '"scoring":{"mark":"value","inventory_penalty":0,"close_penalty":0,"max_loss":0,'
+            '"target":{"side":"buy","quantity":300,"benchmark":"vwap",'
+            '"unfinished_penalty":5000}}}')
+        self.assertEqual(welcome.challenge.name, "Work a large order")
+        self.assertEqual(welcome.scoring.target.quantity, 300)
+        end = protocol.decode(
+            '{"type":"end","time":9,"cash":0,"position":0,"fees":0,"pnl":0,"score":{'
+            '"total":-11512,"pnl":-3500,"inventory":12,"close":2000,"paper":-9000,'
+            '"unfinished":15000,"unfinished_lots":3,"stopped_at":77}}')
+        self.assertEqual(end.score.total, -11512)
+        self.assertEqual(end.score.stopped_at, 77)
+        plain = protocol.decode('{"type":"end","time":9,"cash":0,"position":0,"fees":0,'
+                                '"pnl":0,"score":null}')
+        self.assertIsNone(plain.score)
+
     def test_fields_a_newer_server_adds_are_ignored(self):
         self.assertEqual(protocol.decode('{"type":"clock","time":5,"sequence":12}').time, 5)
 

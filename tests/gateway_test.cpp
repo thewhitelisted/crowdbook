@@ -556,6 +556,99 @@ TEST(GatewayTest, TheEndReportsTheSeatsResults) {
     EXPECT_EQ(market.gateway.session().actions.size(), 1U);
 }
 
+// A scored challenge where taking liquidity is dear: a market buy of ten lots costs 50 in fees,
+// past the loss limit of 30.
+constexpr std::string_view kChallenge = R"(seed = 5
+duration = "20s"
+reference_price = 1000
+
+[challenge]
+name = "Do not take"
+briefing = "Taking costs five a lot."
+
+[scoring]
+max_loss = 30
+inventory_penalty = 0.01
+
+[exchange]
+taker_fee = 5.0
+
+[participant]
+latency = { to_exchange = "1ms", from_exchange = "1ms" }
+account = { max_position = 50, max_order_quantity = 10 }
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 10
+limit_rate = 5.0
+market_rate = 1.0
+
+[[agents]]
+type = "market_maker"
+name = "maker"
+)";
+
+TEST(GatewayTest, TheWelcomeCarriesTheChallengeAndItsScoring) {
+    Gateway gateway{parseScenario(kChallenge), std::string{kChallenge},
+                    AgentRegistry::withBuiltIns(), {}};
+    Client client{gateway, 0};
+    client.hello("you", 0);
+    const auto welcome = only<protocol::Welcome>(client.read());
+    ASSERT_EQ(welcome.size(), 1U);
+    ASSERT_TRUE(welcome[0].challenge);
+    EXPECT_EQ(welcome[0].challenge->name, "Do not take");
+    ASSERT_TRUE(welcome[0].scoring);
+    EXPECT_EQ(welcome[0].scoring->maxLoss, 30);
+    EXPECT_EQ(welcome[0].scoring->inventoryPenalty, 10);
+}
+
+TEST(GatewayTest, TheLossLimitStopsASeatAndTheReplayAgrees) {
+    std::ostringstream live;
+    CsvEventLog sink{live};
+    Gateway gateway{parseScenario(kChallenge), std::string{kChallenge},
+                    AgentRegistry::withBuiltIns(), {}, &sink};
+    Client client{gateway, 0};
+    client.hello("you", 0);
+    gateway.advance(kSecond);
+    client.read();
+    client.send(bid(1, 900, 2), kSecond);
+    client.send(NewOrder{.clientOrderId = 2,
+                         .side = Side::Buy,
+                         .type = OrderType::Market,
+                         .quantity = 10},
+                kSecond);
+    gateway.advance(kSecond + 10 * kMs);
+    const auto stopped = errors(client.read());
+    ASSERT_EQ(stopped.size(), 1U);
+    EXPECT_NE(stopped[0].message.find("stopped"), std::string::npos);
+    // The resting bid was cancelled for the seat, and nothing new is taken.
+    const auto& actions = gateway.session().actions;
+    ASSERT_EQ(actions.size(), 3U);
+    EXPECT_EQ(std::get<CancelOrder>(actions[2].request).clientOrderId,
+              std::get<NewOrder>(actions[0].request).clientOrderId);
+    client.send(bid(3, 900, 1), 2 * kSecond);
+    const auto refused = events<OrderRejected>(client.read());
+    ASSERT_EQ(refused.size(), 1U);
+    EXPECT_EQ(refused[0].reason, RejectReason::LossLimit);
+    EXPECT_EQ(gateway.session().actions.size(), 3U);
+
+    gateway.advance(30 * kSecond);
+    const auto ends = only<protocol::End>(client.read());
+    ASSERT_EQ(ends.size(), 1U);
+    ASSERT_TRUE(ends[0].score);
+    ASSERT_TRUE(ends[0].score->stoppedAt);
+    EXPECT_GT(ends[0].score->inventory, 0);
+
+    std::ostringstream replayed;
+    CsvEventLog replaySink{replayed};
+    const RunResult result =
+        replaySession(gateway.session(), AgentRegistry::withBuiltIns(), &replaySink);
+    EXPECT_EQ(replayed.str(), live.str());
+    ASSERT_EQ(result.scores.size(), 1U);
+    EXPECT_EQ(result.scores[0].score, *ends[0].score);
+}
+
 TEST(GatewayTest, OptionsAreChecked) {
     const Scenario scenario = parseScenario(kScenario);
     const AgentRegistry registry = AgentRegistry::withBuiltIns();

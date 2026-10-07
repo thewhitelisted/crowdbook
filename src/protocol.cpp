@@ -37,11 +37,16 @@ constexpr std::array kRejectReasons{
               RejectReason::DuplicateClientOrderId},
     std::pair{std::string_view{"unknown-order-id"}, RejectReason::UnknownOrderId},
     std::pair{std::string_view{"unknown-agent"}, RejectReason::UnknownAgent},
-    std::pair{std::string_view{"post-only-would-trade"}, RejectReason::PostOnlyWouldTrade}};
+    std::pair{std::string_view{"post-only-would-trade"}, RejectReason::PostOnlyWouldTrade},
+    std::pair{std::string_view{"loss-limit"}, RejectReason::LossLimit}};
 constexpr std::array kCancelReasons{
     std::pair{std::string_view{"requested"}, CancelReason::Requested},
     std::pair{std::string_view{"immediate-or-cancel"}, CancelReason::ImmediateOrCancel},
     std::pair{std::string_view{"self-trade"}, CancelReason::SelfTrade}};
+constexpr std::array kMarks{std::pair{std::string_view{"last"}, Mark::LastTrade},
+                            std::pair{std::string_view{"value"}, Mark::Value}};
+constexpr std::array kBenchmarks{std::pair{std::string_view{"vwap"}, Benchmark::Vwap},
+                                 std::pair{std::string_view{"reference"}, Benchmark::Reference}};
 constexpr std::array kLiquidities{std::pair{std::string_view{"maker"}, Liquidity::Maker},
                                   std::pair{std::string_view{"taker"}, Liquidity::Taker}};
 
@@ -144,6 +149,56 @@ void writeOrder(std::string& out, const OwnOrder& order) {
 }
 
 // Writes the event's type, then the time it reached the seat, then its own fields.
+void writeChallenge(std::string& out, const std::optional<ChallengeInfo>& challenge) {
+    if (!challenge) {
+        out += "null";
+        return;
+    }
+    ObjectWriter{out}.field("name", challenge->name).field("briefing", challenge->briefing).close();
+}
+
+void writeScoring(std::string& out, const std::optional<ScoringConfig>& scoring) {
+    if (!scoring) {
+        out += "null";
+        return;
+    }
+    ObjectWriter writer{out};
+    writer.field("mark", nameOf(scoring->mark, kMarks))
+        .field("inventory_penalty", scoring->inventoryPenalty)
+        .field("close_penalty", scoring->closePenalty)
+        .field("max_loss", scoring->maxLoss);
+    std::string& target = writer.open("target");
+    if (const auto& t = scoring->target) {
+        ObjectWriter{target}
+            .field("side", nameOf(t->side, kSides))
+            .field("quantity", t->quantity)
+            .field("benchmark", nameOf(t->benchmark, kBenchmarks))
+            .field("unfinished_penalty", t->unfinishedPenalty)
+            .close();
+    } else {
+        target += "null";
+    }
+    writer.close();
+}
+
+void writeScore(std::string& out, const std::optional<Score>& score) {
+    if (!score) {
+        out += "null";
+        return;
+    }
+    ObjectWriter writer{out};
+    writer.field("total", score->total)
+        .field("pnl", score->pnl)
+        .field("inventory", score->inventory)
+        .field("close", score->close)
+        .field("paper", score->paper)
+        .field("unfinished", score->unfinished)
+        .field("unfinished_lots", score->unfinishedLots);
+    std::string& stopped = writer.open("stopped_at");
+    stopped += score->stoppedAt ? std::format("{}", *score->stoppedAt) : "null";
+    writer.close();
+}
+
 void writeEvent(ObjectWriter& writer, Timestamp time, const Event& event) {
     const auto head = [&](std::string_view type) -> ObjectWriter& {
         return writer.field("type", type).field("time", time);
@@ -401,6 +456,61 @@ AccountState readAccount(const json::Value& value) {
     return account;
 }
 
+bool isNull(const json::Value& value) {
+    return std::holds_alternative<std::nullptr_t>(value.data);
+}
+
+std::optional<ChallengeInfo> readChallenge(const json::Value& value) {
+    if (isNull(value)) {
+        return std::nullopt;
+    }
+    Fields fields{value, "challenge"};
+    ChallengeInfo challenge{.name = fields.text("name"), .briefing = fields.text("briefing")};
+    fields.finish();
+    return challenge;
+}
+
+std::optional<ScoringConfig> readScoring(const json::Value& value) {
+    if (isNull(value)) {
+        return std::nullopt;
+    }
+    Fields fields{value, "scoring"};
+    ScoringConfig scoring{.mark = fields.choice("mark", kMarks),
+                          .inventoryPenalty = fields.integer("inventory_penalty", 0),
+                          .closePenalty = fields.integer("close_penalty", 0),
+                          .maxLoss = fields.integer("max_loss", 0)};
+    if (const json::Value& target = fields.required("target"); !isNull(target)) {
+        Fields inner{target, "target"};
+        scoring.target = Target{.side = inner.choice("side", kSides),
+                                .quantity = inner.integer("quantity", 1),
+                                .benchmark = inner.choice("benchmark", kBenchmarks),
+                                .unfinishedPenalty = inner.integer("unfinished_penalty", 0)};
+        inner.finish();
+    }
+    fields.finish();
+    return scoring;
+}
+
+std::optional<Score> readScore(const json::Value& value) {
+    if (isNull(value)) {
+        return std::nullopt;
+    }
+    Fields fields{value, "score"};
+    Score score;
+    score.total = fields.integer("total");
+    score.pnl = fields.integer("pnl");
+    score.inventory = fields.integer("inventory");
+    score.close = fields.integer("close");
+    score.paper = fields.integer("paper");
+    score.unfinished = fields.integer("unfinished");
+    score.unfinishedLots = fields.integer("unfinished_lots", 0);
+    if (const json::Value& stopped = fields.required("stopped_at"); !isNull(stopped)) {
+        score.stoppedAt = Fields::integerOf(stopped, "stopped_at", 0, kMaxInt);
+    }
+    fields.finish();
+    return score;
+}
+
 Welcome readWelcome(Fields& fields) {
     Welcome welcome{.protocol = fields.integer("protocol"),
                     .seat = fields.text("seat"),
@@ -416,6 +526,8 @@ Welcome readWelcome(Fields& fields) {
     for (const json::Value& value : fields.array("orders")) {
         welcome.orders.push_back(readOrder(value));
     }
+    welcome.challenge = readChallenge(fields.required("challenge"));
+    welcome.scoring = readScoring(fields.required("scoring"));
     return welcome;
 }
 
@@ -588,6 +700,8 @@ std::string encode(const ServerMessage& message) {
                            writeOrder(orders, m.orders[i]);
                        }
                        orders += ']';
+                       writeChallenge(writer.open("challenge"), m.challenge);
+                       writeScoring(writer.open("scoring"), m.scoring);
                    },
                    [&](const Start& m) { writer.field("type", "start").field("time", m.time); },
                    [&](const Clock& m) { writer.field("type", "clock").field("time", m.time); },
@@ -599,6 +713,7 @@ std::string encode(const ServerMessage& message) {
                            .field("position", m.position)
                            .field("fees", m.fees)
                            .field("pnl", m.pnl);
+                       writeScore(writer.open("score"), m.score);
                    },
                    [&](const Error& m) {
                        writer.field("type", "error")
@@ -674,7 +789,8 @@ ServerMessage decodeServer(std::string_view line) {
                       .cash = fields.integer("cash"),
                       .position = fields.integer("position"),
                       .fees = fields.integer("fees"),
-                      .pnl = fields.integer("pnl")};
+                      .pnl = fields.integer("pnl"),
+                      .score = readScore(fields.required("score"))};
     } else if (type == "error") {
         message = Error{.message = fields.text("message"), .fatal = fields.boolean("fatal")};
     } else {

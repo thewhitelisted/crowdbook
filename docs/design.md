@@ -298,6 +298,45 @@ fields without breaking older clients; the server, which must not trust its inpu
 seat's ledger from its own requests and events, and the market from the public messages, and draws
 the same ladder as `crowdbook play`.
 
+## Scoring and challenges
+
+A scenario with a `[scoring]` section scores each seat of a session; with a `[challenge]` section
+it is also a challenge, with a name and a briefing that clients show before the clock starts.
+The engine computes the score from the exchange's events, the same way live and in a replay, so a
+replay recomputes a session's score exactly and anyone holding the session file can check it.
+
+Scores are in points, thousandths of a tick-lot, the unit fees already use, so that every number
+on the wire stays a whole number. Rates in the scenario are written in ticks, with at most three
+decimals, and kept as whole points.
+
+- **PnL** is the change in cash plus the change in position valued at the mark, net of fees. The
+  mark is the last trade price, or with `mark = "value"` the true value at the end, which scores
+  what a position was really worth rather than where the last trade happened to print.
+- **Inventory** costs `inventory_penalty` per lot per second held, integrated over the session
+  from the seat's fills: holding risk costs something even when it pays off.
+- **Closing** costs `close_penalty` per lot still held at the end.
+- **A target** is a large order to work: a side and a quantity. The score is measured against a
+  paper portfolio that traded the whole target at a benchmark price, either the market's VWAP
+  over the session or the reference price: the seat's PnL minus the paper portfolio's PnL, at
+  the same mark. Trading the target at the benchmark scores zero; doing better scores above
+  zero. Lots of the target not done cost `unfinished_penalty` each on top, since the paper
+  portfolio's PnL alone would reward not trading when the price ran away.
+- **A loss limit** stops a seat whose loss, valued at the latest trade price, reaches
+  `max_loss`: its open orders are cancelled and it can send no more orders, as a risk manager
+  would cut off a trader. The scorer checks at every trade, so the moment is the same in a
+  replay; the cancels are recorded like any other request. The seat is still scored at the end,
+  with whatever position it was left holding.
+
+    score = pnl − inventory − closing − paper pnl (target only) − unfinished (target only)
+
+Each part is computed in floating point from whole numbers and rounded to points once, with the
+same arithmetic on every platform.
+
+Challenges are scenario files in `examples/challenges`: making markets within a risk limit,
+working a large order, trading the news, and making markets against informed traders. The example
+bots play every one of them in CI, and each session's score from the server must equal the score
+of its replay.
+
 ## Agents and scenarios
 
 Five agent types are built in. Each is a plain class configured by a struct, so it can be used
@@ -485,7 +524,14 @@ uv run --project analysis crowdbook-large-orders
   skipped, live ids reused, a taken seat claimed twice, tokens unchecked, no clock messages, an
   end past the duration) were each caught. The gateway's test for answers that arrive after an
   order is done first ran in a market without latency, where the gateway itself answered, and
-  missed its bug; with latency it catches it.
+  missed its bug; with latency it catches it. Sixteen more in scoring and stop-outs (fees left
+  out, inventory counted after the fill, the close penalty on the change of position, the last
+  price as the benchmark, sell targets counted backwards, a loss limit one tick late, a stop
+  time that moves, the true value ignored, the paper portfolio's sign, stop-outs never checked,
+  a stopped seat still trading, a stop that cancels nothing, an end without the score, a
+  welcome without the scoring, a scorer that hears nothing, seats it does not know) were each
+  caught, three of them only once the tests pinned the exact boundary: a loss equal to the
+  limit, a deeper loss after the stop, and a position held from the start.
 - **Session tests** play a scripted session the way a live one runs, in uneven steps with requests
   at chosen nanoseconds, then write it, read it back and replay it: the event log must come out
   byte for byte the same. The real `play` command was also driven through a pseudo-terminal with
@@ -501,6 +547,12 @@ uv run --project analysis crowdbook-large-orders
   the rate limit, the limit on waiting output, long and split lines, hello timeouts, tokens, a
   seat claimed again, clock messages and the end. A session with two seats, a disconnect and a
   seat claimed again replays to the same event log byte for byte.
+- **Scoring tests** score hand-made fills and trades against values worked out by hand: PnL
+  net of fees at both marks, inventory over every change of position, the close penalty, a
+  target against VWAP and against the reference price, a target done at the benchmark, and the
+  loss limit stopping at the trade that reaches it. A gateway test stops a seat whose fees take
+  it past its loss limit: its resting order is cancelled, its next order is refused, and the
+  replay's event log and score both match the live session's.
 - **Client model tests** feed a client only the protocol messages for its seat while it trades,
   modifies and cancels for 200 steps: its ledger and its view of the market must equal the
   server's exactly, before and after the seat is claimed again.
@@ -514,7 +566,8 @@ uv run --project analysis crowdbook-large-orders
   every fill's fee is the exchange's rate for its side times its size, every answer from the
   exchange arrives exactly one round trip after the request left by the recording's clock, the
   bot's ledger ends equal to the server's results, and the recording replays. The two example
-  bots then trade side by side in one served market.
+  bots then trade side by side in one served market, and the example bots play every challenge:
+  each session's score from the server must equal the score of its replay.
 - **Analysis tests** check each statistic in `analysis/` on inputs with known answers: a random
   walk's flat volatility signature, a normal sample's zero excess kurtosis, hand-computed spreads
   and price moves.
@@ -562,6 +615,10 @@ Choices for later milestones may change once they are implemented; changes are r
 | Disconnects | Cancel the seat's open orders | Protects a participant whose connection drops, as exchanges' cancel-on-disconnect does |
 | Server | POSIX sockets and `poll` on the market's thread, listening on 127.0.0.1 by default | No locks and no dependency; nothing is exposed to other machines unless asked |
 | Python client | Standard library only, one thread with `select`, bots as subclasses with callbacks | Nothing to conflict with a user's environment; the same shape as agents inside the market; no locking in user code |
+| Score units | Points, thousandths of a tick-lot, whole numbers | The fee unit already; integers on the wire, and exact sums |
+| Scores | Computed by the engine from the exchange's events, live and in replays alike | A score anyone can recompute from the session file is one a competition can trust |
+| Loss limit | Stops new orders and cancels open ones; the seat is still scored at the end | What a risk manager does, deterministic from the events, and no way to escape a loss by being stopped |
+| Large orders | Scored against a paper portfolio filled at the benchmark, plus a penalty per unfinished lot | Implementation shortfall, the standard measure, in one formula; the penalty makes finishing the order matter |
 | Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
@@ -595,8 +652,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M9 | Large orders worked over time: execution agents slicing parent orders (TWAP and percentage of volume), parent ids in the log | Long memory in the signs of market orders; how the impact of parent orders grows with their size, in [results.md](results.md) | Done |
 | M10 | Gateway: a network protocol for orders and market data, its messages kept apart from their encoding (JSON lines first); `crowdbook serve`, a market with seats for several people and bots at once; every arrival recorded, so a session with many participants still replays exactly; input treated as untrusted, with size and rate limits; the terminal screen as a client over the network | A bot and the terminal screen trade in one served market, and its recording replays byte for byte; the parser survives randomized malformed input; planted bugs caught | Done |
 | M11 | Python client and example bots: a package installable with pip, using only the standard library; a market maker and a momentum bot as examples | A Python bot trades under the same limits, latency and fees as built-in agents, in CI | Done |
-| M12 | Scoring and challenges: a scoring section in scenarios (PnL, risk-adjusted PnL, slippage against a benchmark, inventory and loss limits), computed by the engine; challenges with briefings (make markets within a risk limit, work a large order, trade the news, find the informed flow) | A score recomputed from the session's replay equals the live one; the example bots play every challenge in CI | Next |
-| M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Planned |
+| M12 | Scoring and challenges: a scoring section in scenarios (PnL, risk-adjusted PnL, slippage against a benchmark, inventory and loss limits), computed by the engine; challenges with briefings (make markets within a risk limit, work a large order, trade the news, find the informed flow) | A score recomputed from the session's replay equals the live one; the example bots play every challenge in CI | Done |
+| M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Next |
 | M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Planned |
 | M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Planned (hosted product) |
 | M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |

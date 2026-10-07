@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string_view>
+#include <thread>
 #include <variant>
 
 #include <fcntl.h>
@@ -136,18 +137,21 @@ public:
     Client(Connection& connection, std::string seat)
         : connection_(connection), seat_(std::move(seat)) {}
 
+    // Waits up to `timeout` for the server's welcome. Returns whether it came.
+    bool awaitWelcome(std::chrono::milliseconds timeout) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (!remote_.welcomed() && connection_.open() &&
+               std::chrono::steady_clock::now() < deadline) {
+            receive();
+            std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
+        return remote_.welcomed();
+    }
+
     // Runs until the person quits.
     void run(RawTerminal& terminal) {
         while (true) {
-            for (const std::string& line : connection_.receive()) {
-                try {
-                    remote_.apply(protocol::decodeServer(line));
-                } catch (const protocol::ProtocolError& error) {
-                    message_ = std::format("a message from the server made no sense: {}",
-                                           error.what());
-                }
-                noteServerMessage();
-            }
+            receive();
             if (remote_.welcomed() && !placed_) {
                 cursor_ = remote_.settings().referencePrice;
                 size_ = std::min<Quantity>(5, remote_.settings().account.maxOrderQuantity);
@@ -167,6 +171,18 @@ public:
     [[nodiscard]] const RemoteMarket& remote() const noexcept { return remote_; }
 
 private:
+    void receive() {
+        for (const std::string& line : connection_.receive()) {
+            try {
+                remote_.apply(protocol::decodeServer(line));
+            } catch (const protocol::ProtocolError& error) {
+                message_ =
+                    std::format("a message from the server made no sense: {}", error.what());
+            }
+            noteServerMessage();
+        }
+    }
+
     // The latest message from the server replaces this screen's own.
     void noteServerMessage() {
         if (remote_.message() != shown_) {
@@ -328,6 +344,20 @@ int connect(const ConnectOptions& options) {
     Connection connection{options.host, options.port};
     connection.send(protocol::Hello{.seat = options.seat, .token = options.token});
     Client client{connection, options.seat};
+    if (!client.awaitWelcome(std::chrono::seconds{10})) {
+        const std::string& message = client.remote().message();
+        throw std::runtime_error(message.empty() ? "the server did not answer"
+                                                 : std::format("{}", message));
+    }
+    if (const auto& challenge = client.remote().settings().challenge) {
+        std::cout << std::format("challenge: {}\n\n{}\n\n", challenge->name,
+                                 challenge->briefing);
+        if (::isatty(STDIN_FILENO) != 0) {
+            std::cout << "press enter to start" << std::flush;
+            std::string line;
+            std::getline(std::cin, line);
+        }
+    }
     {
         RawTerminal terminal;
         client.run(terminal);

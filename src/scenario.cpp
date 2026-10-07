@@ -223,7 +223,23 @@ void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResul
                            ids, group.traded, group.initialCash, group.initialPosition,
                            group.cash, group.position, group.pnl, formatFee(group.fees));
     }
-    out << "\n  ]\n}\n";
+    out << "\n  ]";
+    if (!result.scores.empty()) {
+        out << ",\n  \"scores\": [";
+        for (std::size_t index = 0; index < result.scores.size(); ++index) {
+            const Score& score = result.scores[index].score;
+            out << (index == 0 ? "\n" : ",\n");
+            out << std::format("    {{\"seat\": {}, \"total\": {}, \"pnl\": {}, \"inventory\": {}, "
+                               "\"close\": {}, \"paper\": {}, \"unfinished\": {}, "
+                               "\"unfinished_lots\": {}, \"stopped_at_ns\": {}}}",
+                               jsonString(result.scores[index].seat), score.total, score.pnl,
+                               score.inventory, score.close, score.paper, score.unfinished,
+                               score.unfinishedLots,
+                               score.stoppedAt ? std::format("{}", *score.stoppedAt) : "null");
+        }
+        out << "\n  ]";
+    }
+    out << "\n}\n";
 }
 
 } // namespace crowdbook

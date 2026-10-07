@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -12,6 +13,7 @@
 #include "crowdbook/event_log.hpp"
 #include "crowdbook/live.hpp"
 #include "crowdbook/scenario.hpp"
+#include "crowdbook/scoring.hpp"
 
 namespace crowdbook {
 
@@ -31,12 +33,19 @@ struct Seat {
 // each with the scenario's [participant] account and latency and reported as a group named after
 // its seat.
 struct SessionMarket {
+    // With a [scoring] section, the scorer, which sees every request and event, and the sink
+    // that passes them to it and to the caller's sink. Kept apart so their addresses never move.
+    std::unique_ptr<Scorer> scorer{};
+    std::unique_ptr<BroadcastSink> sinks{};
     ScenarioRun run;
     std::vector<Seat> seats{};
+
+    // The run's results so far, with each seat's score when the scenario has scoring.
+    [[nodiscard]] RunResult result();
 };
 
 // Throws ScenarioError as ScenarioRun does, and for no seats, a seat named twice or a seat with
-// the name of one of the scenario's agent groups.
+// the name of one of the scenario's agent groups. With a [scoring] section, each seat is scored.
 [[nodiscard]] SessionMarket openSession(
     const Scenario& scenario, const AgentRegistry& registry, EventSink* sink = nullptr,
     const std::vector<std::string>& seats = {std::string{kParticipantGroup}});
@@ -66,8 +75,8 @@ void writeSession(std::ostream& out, const Session& session);
 
 // Replays a session: builds its market with openSession, performs every action at its time and
 // runs to the session's end. Every request and event goes to `sink`, if there is one, so the
-// event log comes out exactly as it did during the session. Throws std::logic_error if the replay
-// diverges from the recording.
+// event log comes out exactly as it did during the session, and the scores are computed again.
+// Throws std::logic_error if the replay diverges from the recording.
 [[nodiscard]] RunResult replaySession(const Session& session, const AgentRegistry& registry,
                                       EventSink* sink = nullptr);
 

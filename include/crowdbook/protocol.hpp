@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -10,6 +11,7 @@
 
 #include "crowdbook/ledger.hpp"
 #include "crowdbook/messages.hpp"
+#include "crowdbook/scoring.hpp"
 #include "crowdbook/simulation.hpp"
 #include "crowdbook/types.hpp"
 
@@ -58,6 +60,14 @@ struct AccountState {
     friend bool operator==(const AccountState&, const AccountState&) = default;
 };
 
+// The challenge a scenario offers, if it is one.
+struct ChallengeInfo {
+    std::string name{};
+    std::string briefing{};
+
+    friend bool operator==(const ChallengeInfo&, const ChallengeInfo&) = default;
+};
+
 struct Welcome {
     std::int64_t protocol = kVersion;
     std::string seat{};
@@ -71,6 +81,8 @@ struct Welcome {
     Latency latency{};
     AccountState account{};
     std::vector<OwnOrder> orders{}; // the seat's live orders, by the client's ids
+    std::optional<ChallengeInfo> challenge{};
+    std::optional<ScoringConfig> scoring{}; // how the seat is scored, if it is
 
     friend bool operator==(const Welcome&, const Welcome&) = default;
 };
@@ -102,6 +114,7 @@ struct End {
     Quantity position = 0;
     Fee fees = 0;
     Cash pnl = 0;
+    std::optional<Score> score{}; // when the scenario has scoring
 
     friend bool operator==(const End&, const End&) = default;
 };

@@ -137,6 +137,48 @@ class OpenOrder:
 
 
 @dataclass(frozen=True)
+class Challenge:
+    name: str
+    briefing: str
+
+
+@dataclass(frozen=True)
+class TargetRule:
+    """A large order the seat is asked to work."""
+
+    side: Side
+    quantity: int
+    benchmark: Literal["vwap", "reference"]
+    unfinished_penalty: int  # points per lot not done
+
+
+@dataclass(frozen=True)
+class Scoring:
+    """How the seat is scored. Amounts are in points, thousandths of a tick-lot."""
+
+    mark: Literal["last", "value"]
+    inventory_penalty: int  # per lot per second held
+    close_penalty: int  # per lot held at the end
+    max_loss: int  # in tick-lots; 0 for no limit
+    target: Optional[TargetRule] = None
+
+
+@dataclass(frozen=True)
+class Score:
+    """A seat's score and its parts, in points: total = pnl - inventory - close - paper -
+    unfinished."""
+
+    total: int
+    pnl: int
+    inventory: int
+    close: int
+    paper: int
+    unfinished: int
+    unfinished_lots: int
+    stopped_at: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class Welcome:
     protocol: int
     seat: str
@@ -150,6 +192,8 @@ class Welcome:
     latency: Latency
     account: Account
     orders: tuple[OpenOrder, ...] = ()
+    challenge: Optional[Challenge] = None
+    scoring: Optional[Scoring] = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +286,7 @@ class End:
     position: int
     fees: int
     pnl: int
+    score: Optional[Score] = None
 
 
 @dataclass(frozen=True)
@@ -269,9 +314,17 @@ def _levels(bodies: list) -> tuple[Level, ...]:
     return tuple(Level(**_fields(Level, body)) for body in bodies)
 
 
+def _scoring(body: Optional[dict]) -> Optional[Scoring]:
+    if body is None:
+        return None
+    target = body.get("target")
+    return Scoring(**{k: v for k, v in _fields(Scoring, body).items() if k != "target"},
+                   target=None if target is None else TargetRule(**_fields(TargetRule, target)))
+
+
 _SIMPLE = {
     "start": Start, "clock": Clock, "accepted": Accepted, "rejected": Rejected,
-    "modified": Modified, "filled": Filled, "cancelled": Cancelled, "trade": Trade, "end": End,
+    "modified": Modified, "filled": Filled, "cancelled": Cancelled, "trade": Trade,
     "error": Error,
 }
 
@@ -284,11 +337,18 @@ def decode(line: str) -> ServerMessage:
         if kind == "welcome":
             return Welcome(
                 **{k: v for k, v in _fields(Welcome, body).items()
-                   if k not in ("latency", "account", "orders")},
+                   if k not in ("latency", "account", "orders", "challenge", "scoring")},
                 latency=Latency(**_fields(Latency, body["latency"])),
                 account=Account(**_fields(Account, body["account"])),
                 orders=tuple(OpenOrder(**_fields(OpenOrder, order)) for order in body["orders"]),
+                challenge=(None if body.get("challenge") is None
+                           else Challenge(**_fields(Challenge, body["challenge"]))),
+                scoring=_scoring(body.get("scoring")),
             )
+        if kind == "end":
+            score = body.get("score")
+            return End(**{k: v for k, v in _fields(End, body).items() if k != "score"},
+                       score=None if score is None else Score(**_fields(Score, score)))
         if kind == "top":
             return Top(time=body["time"], bid=_level(body["bid"]), ask=_level(body["ask"]))
         if kind == "depth":

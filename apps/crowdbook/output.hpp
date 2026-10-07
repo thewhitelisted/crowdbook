@@ -61,6 +61,12 @@ private:
 // charges fees.
 void printResults(std::ostream& out, const Scenario& scenario, const RunResult& result);
 
+// A challenge's name and briefing, and how it is scored.
+void printBriefing(std::ostream& out, const Scenario& scenario);
+
+// Points as signed tick-lots, exactly: 12345 is "+12.345" and -250 is "-0.25".
+[[nodiscard]] std::string formatPoints(Points points);
+
 // A duration in the largest whole unit, such as "60s" or "250ms", or in seconds to the millisecond
 // when it is longer than a second and not a whole number of milliseconds: "58.857s".
 [[nodiscard]] std::string formatDuration(Duration duration);

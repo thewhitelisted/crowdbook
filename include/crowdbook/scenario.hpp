@@ -12,6 +12,7 @@
 #include "crowdbook/event_log.hpp"
 #include "crowdbook/fundamental.hpp"
 #include "crowdbook/parameters.hpp"
+#include "crowdbook/scoring.hpp"
 #include "crowdbook/simulation.hpp"
 #include "crowdbook/types.hpp"
 
@@ -32,6 +33,14 @@ struct AgentGroup {
     Parameters parameters{};  // everything else, handed to the agent type's factory
 };
 
+// A scenario offered as a challenge: its name, and what the participant is asked to do.
+struct Challenge {
+    std::string name{};
+    std::string briefing{};
+
+    friend bool operator==(const Challenge&, const Challenge&) = default;
+};
+
 // A market to simulate: who trades, with which settings, and for how long.
 struct Scenario {
     std::uint64_t seed = 1;
@@ -42,6 +51,9 @@ struct Scenario {
     std::vector<AgentGroup> groups{};
     // The account and latency of a person trading in the market live; unused by runScenario.
     AgentOptions participant{};
+    // How live participants are scored, if they are; unused by runScenario.
+    std::optional<ScoringConfig> scoring{};
+    std::optional<Challenge> challenge{};
 };
 
 // Totals over the agents of one group.
@@ -59,6 +71,14 @@ struct GroupResult {
     Fee fees = 0; // paid to the exchange, net of rebates, in fee units
 };
 
+// A live participant's score, by the name of its seat.
+struct SeatScore {
+    std::string seat{};
+    Score score{};
+
+    friend bool operator==(const SeatScore&, const SeatScore&) = default;
+};
+
 struct RunResult {
     std::uint64_t trades = 0;
     Quantity volume = 0;
@@ -66,6 +86,8 @@ struct RunResult {
     // The fundamental value at the end, if the scenario has one, to compare with lastPrice.
     std::optional<double> finalValue{};
     std::vector<GroupResult> groups{};
+    // Each seat's score, for a session of a scenario with scoring; otherwise empty.
+    std::vector<SeatScore> scores{};
 };
 
 // A scenario's market, built and ready to run in steps. runScenario builds one and runs it to the

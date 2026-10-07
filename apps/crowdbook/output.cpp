@@ -98,6 +98,65 @@ void printResults(std::ostream& out, const Scenario& scenario, const RunResult& 
     }
     out << "\ncash and pnl are in tick-lots; pnl values positions at the last price"
         << (fees ? ", and net pnl is pnl minus fees\n" : "\n");
+    if (result.scores.empty()) {
+        return;
+    }
+    out << std::format("\n{:<20} {:>12} {:>12} {:>10} {:>10} {:>12} {:>11}\n", "seat", "score",
+                       "pnl", "inventory", "close", "paper pnl", "unfinished");
+    for (const SeatScore& seat : result.scores) {
+        const Score& score = seat.score;
+        out << std::format("{:<20} {:>12} {:>12} {:>10} {:>10} {:>12} {:>11}", seat.seat,
+                           formatPoints(score.total), formatPoints(score.pnl),
+                           formatFee(score.inventory), formatFee(score.close),
+                           formatPoints(score.paper), formatFee(score.unfinished));
+        out << (score.stoppedAt
+                    ? std::format("  stopped at {}\n", formatDuration(*score.stoppedAt))
+                    : "\n");
+    }
+    out << "scores are in tick-lots: pnl net of fees at the mark, less the penalties and, with a "
+           "target, the paper pnl\n";
+}
+
+void printBriefing(std::ostream& out, const Scenario& scenario) {
+    if (scenario.challenge) {
+        out << std::format("challenge: {}\n\n{}\n", scenario.challenge->name,
+                           scenario.challenge->briefing);
+        if (!scenario.challenge->briefing.ends_with('\n')) {
+            out << '\n';
+        }
+    }
+    if (!scenario.scoring) {
+        return;
+    }
+    const ScoringConfig& scoring = *scenario.scoring;
+    out << std::format("scored on pnl net of fees, with positions valued at {}",
+                       scoring.mark == Mark::Value ? "the true value at the end"
+                                                   : "the last trade price");
+    if (scoring.inventoryPenalty != 0) {
+        out << std::format("; holding costs {} a lot a second",
+                           formatFee(scoring.inventoryPenalty));
+    }
+    if (scoring.closePenalty != 0) {
+        out << std::format("; each lot held at the end costs {}", formatFee(scoring.closePenalty));
+    }
+    if (scoring.maxLoss != 0) {
+        out << std::format("; a loss of {} stops you", scoring.maxLoss);
+    }
+    if (const auto& target = scoring.target) {
+        out << std::format("; the target is to {} {} lots, measured against {}",
+                           toString(target->side), target->quantity,
+                           target->benchmark == Benchmark::Vwap ? "the market's VWAP"
+                                                                : "the reference price");
+        if (target->unfinishedPenalty != 0) {
+            out << std::format(", and each lot not done costs {}",
+                               formatFee(target->unfinishedPenalty));
+        }
+    }
+    out << " (all in tick-lots)\n\n";
+}
+
+std::string formatPoints(Points points) {
+    return (points > 0 ? "+" : "") + formatFee(points);
 }
 
 std::string formatDuration(Duration duration) {

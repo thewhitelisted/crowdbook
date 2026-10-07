@@ -99,7 +99,10 @@ exchange produced them, in the order the exchange produced them.
  "latency":{"to_exchange":1000000,"from_exchange":1000000,"jitter":0},
  "account":{"initial_cash":0,"initial_position":0,"cash":0,"position":0,"fees":0,
             "max_position":50,"max_order_quantity":10},
- "orders":[]}
+ "orders":[],
+ "challenge":{"name":"Make markets","briefing":"Quote both sides..."},
+ "scoring":{"mark":"value","inventory_penalty":20,"close_penalty":1000,"max_loss":3000,
+            "target":null}}
 ```
 
 Sent on one line. `duration` is the market's length, `depth_levels` the levels per side in
@@ -107,6 +110,14 @@ Sent on one line. `duration` is the market's length, `depth_levels` the levels p
 seat's starting balances, its balances now and its limits, and `orders` its live orders, each as
 `{"id","order_id","side","order_type","price","leaves","acknowledged","cancel_requested"}`, so a
 client claiming a seat again can carry on.
+
+`challenge` is `null` unless the scenario is a challenge, and `scoring` is `null` unless the seat
+is scored. Scoring amounts are in points, thousandths of a tick-lot: `mark` is `last` (positions
+valued at the last trade price) or `value` (at the true value at the end); `inventory_penalty` is
+per lot per second held, `close_penalty` per lot held at the end, `max_loss` in tick-lots (0 for
+no limit), and `target`, if not `null`, is
+`{"side","quantity","benchmark","unfinished_penalty"}` with `benchmark` either `vwap` or
+`reference`. [design.md](design.md#scoring-and-challenges) explains the score.
 
 ### start
 
@@ -130,8 +141,9 @@ client claiming a seat again can carry on.
 
 `request` is `new`, `cancel` or `modify`. `reason` is one of `non-positive-quantity`,
 `invalid-price`, `order-size-limit`, `position-limit`, `duplicate-client-order-id`,
-`unknown-order-id` or `post-only-would-trade`. The gateway itself rejects a new order whose id is
-live and a cancel or modify whose id is not, at once and without the latency; the exchange rejects
+`unknown-order-id`, `post-only-would-trade` or `loss-limit`. The gateway itself rejects a new order whose id is
+live and a cancel or modify whose id is not, at once and without the latency, and once a seat's
+loss limit has stopped it, every new order and modify with `loss-limit`; the exchange rejects
 everything else.
 
 ### modified
@@ -194,11 +206,15 @@ The market's time, sent about ten times a second of wall-clock time when nothing
 ### end
 
 ```json
-{"type":"end","time":60000000000,"cash":-50012,"position":5,"fees":1000,"pnl":45}
+{"type":"end","time":60000000000,"cash":-50012,"position":5,"fees":1000,"pnl":45,
+ "score":{"total":-11512,"pnl":-3500,"inventory":12,"close":2000,"paper":-9000,
+          "unfinished":15000,"unfinished_lots":3,"stopped_at":null}}
 ```
 
-The seat's balances at the end. `pnl` is the change in cash plus the change in position valued at
-the last trade price, before fees, in tick-lots.
+Sent on one line. The seat's balances at the end. `pnl` is the change in cash plus the change in
+position valued at the last trade price, before fees, in tick-lots. `score` is `null` unless the
+seat is scored; its amounts are in points, `total` is `pnl` less the other parts, and
+`stopped_at` is when the loss limit stopped the seat, or `null`.
 
 ### error
 

@@ -19,6 +19,7 @@ add_library(crowdbook
     parameters.cpp
     random.cpp
     scenario.cpp
+    scoring.cpp
     simulation.cpp
     types.cpp
     version.cpp)
