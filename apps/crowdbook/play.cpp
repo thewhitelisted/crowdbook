@@ -84,9 +84,12 @@ public:
             }
             noteRejection();
             terminal.draw(ladder::render(screen(terminal, pacer)));
-            const std::optional<Key> key = terminal.readKey(kFrame);
-            if (key && !handle(*key, pacer)) {
-                return;
+            // Wait a frame for a key, then take every other key already typed.
+            for (std::optional<Key> key = terminal.readKey(kFrame); key;
+                 key = terminal.readKey(std::chrono::milliseconds{0})) {
+                if (!handle(*key, pacer)) {
+                    return;
+                }
             }
         }
     }
@@ -156,7 +159,8 @@ private:
         std::vector<ClientOrderId> ids;
         for (const auto& [id, own] :
              market_.run.simulation().ledger(market_.participant).orders()) {
-            if (!own.cancelRequested && (everywhere || own.price == cursor_)) {
+            if (own.type == OrderType::Limit && !own.cancelRequested &&
+                (everywhere || own.price == cursor_)) {
                 ids.push_back(id);
             }
         }
@@ -265,6 +269,15 @@ int play(const PlayOptions& options) {
     const OutputOptions logOnly{.logPath = options.outputs.logPath,
                                 .logKinds = options.outputs.logKinds};
     Outputs outputs{logOnly, scenario};
+    // Opened now, so that a path that cannot be written fails before the session rather than
+    // after it.
+    std::ofstream recordFile;
+    if (options.recordPath) {
+        recordFile.open(*options.recordPath);
+        if (!recordFile) {
+            throw std::runtime_error(std::format("cannot write '{}'", *options.recordPath));
+        }
+    }
     SessionMarket market = openSession(scenario, AgentRegistry::withBuiltIns(), outputs.sink());
     Session record{.scenario = text, .seed = scenario.seed};
     {
@@ -273,6 +286,7 @@ int play(const PlayOptions& options) {
         session.run(terminal, options.speed);
     }
     record.end = market.run.simulation().now();
+    outputs.finish(record.end);
 
     std::cout << std::format("{} (seed {}): played {} of {} with {} actions\n",
                              options.scenarioPath, scenario.seed, formatDuration(record.end),
@@ -281,11 +295,11 @@ int play(const PlayOptions& options) {
     printResults(std::cout, scenario, market.run.result());
     outputs.report(std::cout, scenario, market.run.result());
     if (options.recordPath) {
-        std::ofstream file{*options.recordPath};
-        if (!file) {
-            throw std::runtime_error(std::format("cannot write '{}'", *options.recordPath));
+        writeSession(recordFile, record);
+        if (!recordFile.flush()) {
+            throw std::runtime_error(std::format("could not write all of '{}'",
+                                                 *options.recordPath));
         }
-        writeSession(file, record);
         std::cout << std::format("session written to {}; crowdbook replay plays it back\n",
                                  *options.recordPath);
     }

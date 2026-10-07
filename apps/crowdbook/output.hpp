@@ -29,8 +29,9 @@ struct OutputOptions {
     Duration sampleInterval = kSecond; // for the price and depth samples
 };
 
-// The files a run writes as it goes. Throws std::runtime_error for a file that cannot be written,
-// or depth samples asked of a market without a depth feed.
+// The files a run writes. All of them are opened at the start, so that a path that cannot be
+// written fails before the run. Throws std::runtime_error for a file that cannot be opened or
+// written in full, or depth samples asked of a market without a depth feed.
 class Outputs {
 public:
     Outputs(const OutputOptions& options, const Scenario& scenario);
@@ -42,13 +43,14 @@ public:
     // Writes the samples still due when the run ends at `end`.
     void finish(Timestamp end);
     // Writes the JSON results, if asked for, and says where each file went.
-    void report(std::ostream& out, const Scenario& scenario, const RunResult& result) const;
+    void report(std::ostream& out, const Scenario& scenario, const RunResult& result);
 
 private:
     OutputOptions options_;
     std::ofstream logFile_;
     std::ofstream pricesFile_;
     std::ofstream depthFile_;
+    std::ofstream jsonFile_;
     std::optional<CsvEventLog> log_;
     std::optional<PriceSampler> prices_;
     std::optional<DepthSampler> depth_;

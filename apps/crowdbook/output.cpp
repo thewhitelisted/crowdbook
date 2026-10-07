@@ -14,6 +14,14 @@ std::ofstream openForWriting(const std::string& path) {
     return file;
 }
 
+// Throws if anything written to the file at `path`, if there is one, failed to reach it, as on a
+// full disk.
+void checkWritten(std::ofstream& file, const std::optional<std::string>& path) {
+    if (path && !file.flush()) {
+        throw std::runtime_error(std::format("could not write all of '{}'", *path));
+    }
+}
+
 } // namespace
 
 Outputs::Outputs(const OutputOptions& options, const Scenario& scenario) : options_(options) {
@@ -34,6 +42,9 @@ Outputs::Outputs(const OutputOptions& options, const Scenario& scenario) : optio
         sinks_.add(
             depth_.emplace(depthFile_, options.sampleInterval, scenario.exchange.depthLevels));
     }
+    if (options.jsonPath) {
+        jsonFile_ = openForWriting(*options.jsonPath);
+    }
 }
 
 void Outputs::finish(Timestamp end) {
@@ -43,9 +54,12 @@ void Outputs::finish(Timestamp end) {
     if (depth_) {
         depth_->finish(end);
     }
+    checkWritten(logFile_, options_.logPath);
+    checkWritten(pricesFile_, options_.pricesPath);
+    checkWritten(depthFile_, options_.depthPath);
 }
 
-void Outputs::report(std::ostream& out, const Scenario& scenario, const RunResult& result) const {
+void Outputs::report(std::ostream& out, const Scenario& scenario, const RunResult& result) {
     if (options_.logPath) {
         out << std::format("event log written to {}\n", *options_.logPath);
     }
@@ -56,8 +70,8 @@ void Outputs::report(std::ostream& out, const Scenario& scenario, const RunResul
         out << std::format("depth written to {}\n", *options_.depthPath);
     }
     if (options_.jsonPath) {
-        std::ofstream json = openForWriting(*options_.jsonPath);
-        writeResultJson(json, scenario, result);
+        writeResultJson(jsonFile_, scenario, result);
+        checkWritten(jsonFile_, options_.jsonPath);
         out << std::format("results written to {}\n", *options_.jsonPath);
     }
 }

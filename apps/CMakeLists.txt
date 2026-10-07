@@ -1,6 +1,8 @@
-# The trading screen's drawing involves no terminal, so the tests link it too.
+# The trading screen's drawing and the codes it exchanges with a terminal need no terminal, so
+# the tests link them too.
 add_library(crowdbook_ladder
-    crowdbook/ladder.cpp)
+    crowdbook/ladder.cpp
+    crowdbook/terminal_codes.cpp)
 target_include_directories(crowdbook_ladder PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/crowdbook")
 target_link_libraries(crowdbook_ladder PUBLIC crowdbook::crowdbook)
 crowdbook_set_warnings(crowdbook_ladder)
@@ -64,6 +66,28 @@ if(CROWDBOOK_BUILD_TESTS)
         COMMAND crowdbook_cli play "${PROJECT_SOURCE_DIR}/examples/scenarios/playable.toml")
     set_tests_properties(cli.replay_takes_no_seed cli.play_needs_a_terminal
         PROPERTIES WILL_FAIL TRUE)
+
+    # Mistakes are caught before anything runs or anyone plays.
+    add_test(NAME cli.seed_fits_a_scenario_file
+        COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/market_maker.toml"
+            --seed 9223372036854775808)
+    set_tests_properties(cli.seed_fits_a_scenario_file PROPERTIES
+        PASS_REGULAR_EXPRESSION "--seed needs a whole number from 0 to 9223372036854775807")
+    add_test(NAME cli.speed_is_finite
+        COMMAND crowdbook_cli play "${PROJECT_SOURCE_DIR}/examples/scenarios/playable.toml"
+            --speed inf)
+    set_tests_properties(cli.speed_is_finite PROPERTIES
+        PASS_REGULAR_EXPRESSION "--speed needs a positive number")
+    add_test(NAME cli.json_path_checked_first
+        COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/market_maker.toml"
+            --duration 1s --json "${CMAKE_CURRENT_BINARY_DIR}/no-such-directory/result.json")
+    set_tests_properties(cli.json_path_checked_first PROPERTIES
+        PASS_REGULAR_EXPRESSION "cannot write" FAIL_REGULAR_EXPRESSION "simulated")
+    add_test(NAME cli.record_path_checked_first
+        COMMAND crowdbook_cli play "${PROJECT_SOURCE_DIR}/examples/scenarios/playable.toml"
+            --record "${CMAKE_CURRENT_BINARY_DIR}/no-such-directory/session.toml")
+    set_tests_properties(cli.record_path_checked_first PROPERTIES
+        PASS_REGULAR_EXPRESSION "cannot write")
 
     # Every example scenario has to keep working: run each one briefly, with an event log.
     file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")

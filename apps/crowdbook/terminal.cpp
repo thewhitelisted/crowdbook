@@ -25,7 +25,7 @@ void writeAll(std::string_view text) {
 
 // Reads whatever bytes are waiting, up to the buffer's size.
 std::string readWaiting() {
-    std::array<char, 16> buffer{};
+    std::array<char, 256> buffer{};
     const ssize_t count = ::read(STDIN_FILENO, buffer.data(), buffer.size());
     return count > 0 ? std::string(buffer.data(), static_cast<std::size_t>(count)) : std::string{};
 }
@@ -56,48 +56,22 @@ RawTerminal::~RawTerminal() {
 }
 
 std::optional<Key> RawTerminal::readKey(std::chrono::milliseconds timeout) {
-    pollfd input{.fd = STDIN_FILENO, .events = POLLIN, .revents = 0};
-    if (::poll(&input, 1, static_cast<int>(timeout.count())) <= 0) {
-        return std::nullopt;
+    if (pending_.empty()) {
+        pollfd input{.fd = STDIN_FILENO, .events = POLLIN, .revents = 0};
+        if (::poll(&input, 1, static_cast<int>(timeout.count())) <= 0) {
+            return std::nullopt;
+        }
+        pending_ += readWaiting();
     }
-    const std::string bytes = readWaiting();
-    if (bytes.empty()) {
-        return std::nullopt;
-    }
-    if (bytes == "\x1b[A") {
-        return Key{.kind = Key::Kind::Up};
-    }
-    if (bytes == "\x1b[B") {
-        return Key{.kind = Key::Kind::Down};
-    }
-    if (bytes == "\x1b[5~") {
-        return Key{.kind = Key::Kind::PageUp};
-    }
-    if (bytes == "\x1b[6~") {
-        return Key{.kind = Key::Kind::PageDown};
-    }
-    if (bytes.front() == '\x03') {
-        return Key{.character = 'q'};
-    }
-    if (bytes.front() == '\x1b') {
-        return std::nullopt; // some other escape sequence
-    }
-    return Key{.character = bytes.front()};
+    return takeKey(pending_);
 }
 
-void RawTerminal::draw(const std::vector<std::string>& lines) {
-    std::string frame = "\x1b[H";
-    for (const std::string& line : lines) {
-        frame += line;
-        frame += "\x1b[K\r\n";
-    }
-    frame += "\x1b[J";
-    writeAll(frame);
-}
+void RawTerminal::draw(const std::vector<std::string>& lines) { writeAll(frame(lines)); }
 
 std::pair<std::size_t, std::size_t> RawTerminal::size() const {
     winsize window{};
-    if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &window) != 0 || window.ws_row == 0) {
+    if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &window) != 0 || window.ws_row == 0 ||
+        window.ws_col == 0) {
         return {24, 80};
     }
     return {window.ws_row, window.ws_col};

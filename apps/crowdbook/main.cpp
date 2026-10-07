@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -8,6 +9,7 @@
 #include <format>
 #include <initializer_list>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -57,13 +59,15 @@ std::vector<std::string> splitList(std::string_view text) {
     return items;
 }
 
+// Seeds go up to the largest a scenario or session file can hold.
 std::uint64_t parseSeed(std::string_view text) {
-    std::uint64_t seed = 0;
+    std::int64_t seed = 0;
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), seed);
-    if (error != std::errc{} || end != text.data() + text.size()) {
-        throw UsageError(std::format("--seed needs a whole number, not '{}'", text));
+    if (error != std::errc{} || end != text.data() + text.size() || seed < 0) {
+        throw UsageError(std::format("--seed needs a whole number from 0 to {}, not '{}'",
+                                     std::numeric_limits<std::int64_t>::max(), text));
     }
-    return seed;
+    return static_cast<std::uint64_t>(seed);
 }
 
 double parseSpeed(std::string_view text) {
@@ -71,7 +75,8 @@ double parseSpeed(std::string_view text) {
     const std::string copy{text};
     char* end = nullptr;
     const double speed = std::strtod(copy.c_str(), &end);
-    if (copy.empty() || end != copy.c_str() + copy.size() || !(speed > 0.0)) {
+    if (copy.empty() || end != copy.c_str() + copy.size() || !(speed > 0.0) ||
+        !std::isfinite(speed)) {
         throw UsageError(std::format("--speed needs a positive number, not '{}'", text));
     }
     return speed;
