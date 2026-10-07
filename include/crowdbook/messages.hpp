@@ -125,6 +125,16 @@ struct TopOfBook {
     friend bool operator==(const TopOfBook&, const TopOfBook&) = default;
 };
 
+// The public market as one agent can see it: the best bid and ask and the last trade price, as
+// the exchange had published them one of the agent's latencies ago.
+struct MarketSnapshot {
+    std::optional<LevelSummary> bid{};
+    std::optional<LevelSummary> ask{};
+    std::optional<Price> lastTrade{};
+
+    friend bool operator==(const MarketSnapshot&, const MarketSnapshot&) = default;
+};
+
 using Event = std::variant<OrderAccepted, OrderRejected, OrderModified, OrderFilled,
                            OrderCancelled, Trade, TopOfBook>;
 

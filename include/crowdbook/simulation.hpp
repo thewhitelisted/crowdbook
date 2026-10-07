@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -98,6 +99,12 @@ private:
         Action action{};
     };
 
+    // The exchange's public state from `time` until the next change.
+    struct PublicState {
+        Timestamp time = 0;
+        MarketSnapshot market{};
+    };
+
     void schedule(Timestamp time, Action action);
     void send(AgentId sender, Request request);
     void deliver(AgentId recipient, const Event& event);
@@ -107,6 +114,8 @@ private:
     void process(const Wakeup& wakeup);
     void process(const Arrival& arrival);
     void process(const Delivery& delivery);
+    void recordPublicState();
+    [[nodiscard]] MarketSnapshot visibleMarket(AgentId id) const;
 
     std::uint64_t seed_;
     Exchange exchange_;
@@ -116,6 +125,13 @@ private:
     Timestamp now_ = 0;
     EventSink* sink_ = nullptr;
     std::vector<Event> events_; // reused for every request
+
+    std::vector<AgentId> streamed_; // agents sent every public update
+    MarketSnapshot published_;      // the exchange's public state now
+    // Public states some agent could still be shown, oldest first. Nobody looks further back than
+    // the largest fromExchange latency, so older states are dropped and the history stays short.
+    std::deque<PublicState> history_;
+    Duration longestDelay_ = 0;
 };
 
 } // namespace crowdbook

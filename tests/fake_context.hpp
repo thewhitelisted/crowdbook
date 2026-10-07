@@ -24,6 +24,7 @@ public:
     [[nodiscard]] Timestamp now() const noexcept override { return now_; }
     [[nodiscard]] Random& random() noexcept override { return random_; }
     [[nodiscard]] const Ledger& ledger() const noexcept override { return ledger_; }
+    [[nodiscard]] MarketSnapshot market() const override { return snapshot; }
 
     ClientOrderId submit(NewOrder order) override {
         order.clientOrderId = nextClientOrderId_++;
@@ -81,6 +82,7 @@ public:
                                     .quantity = quantity});
     }
 
+    MarketSnapshot snapshot; // what market() returns; set it to show the agent a market
     std::vector<Request> sent;
     std::vector<std::pair<Timestamp, std::uint64_t>> wakeups;
 

@@ -218,6 +218,100 @@ TEST(SimulationTest, JitterDoesNotDisturbTheAgentsOwnRandomStream) {
     EXPECT_EQ(drawsAroundAnOrder(5'000), withoutJitter);
 }
 
+// Is never sent market data: it reads the market on demand at the given times.
+class SnapshotProbe final : public Agent {
+public:
+    explicit SnapshotProbe(std::vector<Timestamp> times) : times_(std::move(times)) {}
+
+    [[nodiscard]] MarketDataMode marketData() const noexcept override {
+        return MarketDataMode::Snapshot;
+    }
+    void onStart(AgentContext& context) override {
+        for (const Timestamp time : times_) {
+            context.wakeAt(time, 0);
+        }
+    }
+    void onWakeup(AgentContext& context, std::uint64_t /*tag*/) override {
+        seen.emplace_back(context.now(), context.market());
+    }
+    void onTrade(AgentContext& /*context*/, const Trade& /*trade*/) override { ++streamed; }
+    void onTopOfBook(AgentContext& /*context*/, const TopOfBook& /*top*/) override { ++streamed; }
+
+    std::vector<std::pair<Timestamp, MarketSnapshot>> seen;
+    int streamed = 0;
+
+private:
+    std::vector<Timestamp> times_;
+};
+
+TEST(SimulationTest, SnapshotAgentsSeeTheMarketOneLatencyLate) {
+    Simulation simulation{1};
+    auto& seller = add<RecordingAgent>(simulation, {.latency = {.toExchange = 50}});
+    seller.startHook = [](AgentContext& context) { context.submitLimit(Side::Sell, 101, 5); };
+    auto& probe = add<SnapshotProbe>(simulation, {.latency = {.fromExchange = 100}},
+                                     std::vector<Timestamp>{149, 150, 151});
+
+    simulation.runUntil(1'000);
+
+    // The ask reaches the exchange at 50, so with a 100 ns delay the probe sees it from 150 on.
+    const MarketSnapshot withAsk{
+        .ask = LevelSummary{.price = 101, .quantity = 5, .orderCount = 1}};
+    EXPECT_EQ(probe.seen, (std::vector<std::pair<Timestamp, MarketSnapshot>>{
+                              {149, MarketSnapshot{}}, {150, withAsk}, {151, withAsk}}));
+    EXPECT_EQ(probe.streamed, 0);
+}
+
+TEST(SimulationTest, SnapshotsAgreeWithTheStreamOverABusyRun) {
+    constexpr Duration kDelay = 700;
+    Simulation simulation{4};
+    for (int i = 0; i < 2; ++i) {
+        auto& trader = add<RecordingAgent>(simulation, {.latency = {.toExchange = 100 * (i + 1)}});
+        trader.startHook = [](AgentContext& context) { context.wakeAfter(10); };
+        trader.wakeupHook = [](AgentContext& context, std::uint64_t /*tag*/) {
+            Random& random = context.random();
+            const Side side = random.below(2) == 0 ? Side::Buy : Side::Sell;
+            const Price price = random.uniformInt(95, 105);
+            const Quantity quantity = random.uniformInt(1, 5);
+            if (random.below(4) == 0) {
+                context.submitMarket(side, quantity);
+            } else {
+                context.submitLimit(side, price, quantity);
+            }
+            const Duration wait = random.uniformInt(1, 500);
+            context.wakeAfter(wait);
+        };
+    }
+    auto& stream = add<RecordingAgent>(simulation, {.latency = {.fromExchange = kDelay}});
+    std::vector<Timestamp> times;
+    Random pick{9, 0};
+    for (int i = 0; i < 300; ++i) {
+        times.push_back(pick.uniformInt(0, 100'000));
+    }
+    auto& probe = add<SnapshotProbe>(simulation, {.latency = {.fromExchange = kDelay}}, times);
+
+    simulation.runUntil(110'000);
+
+    // With the same delay and no jitter, a snapshot must show exactly what the streaming agent
+    // had received by then.
+    ASSERT_EQ(probe.seen.size(), times.size());
+    for (const auto& [time, snapshot] : probe.seen) {
+        MarketSnapshot expected;
+        for (const Received& received : stream.received) {
+            if (received.time > time) {
+                break;
+            }
+            if (const auto* trade = std::get_if<Trade>(&received.event)) {
+                expected.lastTrade = trade->price;
+            } else if (const auto* top = std::get_if<TopOfBook>(&received.event)) {
+                expected.bid = top->bid;
+                expected.ask = top->ask;
+            }
+        }
+        ASSERT_EQ(snapshot, expected) << "at " << time;
+    }
+    EXPECT_GT(stream.received.size(), 500U); // several updates per delay, so history is pruned
+}
+
 // The first number each of two agents draws in a run with the given seed.
 std::vector<std::uint64_t> firstDraws(std::uint64_t seed) {
     Simulation simulation{seed};

@@ -9,6 +9,12 @@
 
 namespace crowdbook {
 
+// How an agent receives public market data.
+enum class MarketDataMode : std::uint8_t {
+    Stream,   // every trade and top-of-book update, through onTrade and onTopOfBook
+    Snapshot, // nothing is sent; the agent reads context.market() when it needs the market
+};
+
 // What an agent can see and do from inside a callback. Nothing reaches the exchange instantly:
 // each request arrives after the agent's latency, and the replies take time to come back.
 class AgentContext {
@@ -26,6 +32,9 @@ public:
     [[nodiscard]] virtual Random& random() noexcept = 0;
     // The agent's cash, position and orders as it knows them from its own requests and events.
     [[nodiscard]] virtual const Ledger& ledger() const noexcept = 0;
+    // The public market as this agent can see it now: what the exchange had published one
+    // fromExchange latency ago. Available whichever way the agent receives market data.
+    [[nodiscard]] virtual MarketSnapshot market() const = 0;
 
     // Sends a new order and returns the client order id that names it in later events. The
     // order's own clientOrderId is ignored; the context assigns a fresh one.
@@ -62,6 +71,13 @@ public:
     Agent(Agent&&) = delete;
     Agent& operator=(Agent&&) = delete;
     virtual ~Agent() = default;
+
+    // How this agent wants public market data. Sending every update to every agent is the
+    // simulation's largest cost as agents are added, so an agent that only looks at the market
+    // when it acts should return MarketDataMode::Snapshot and read context.market().
+    [[nodiscard]] virtual MarketDataMode marketData() const noexcept {
+        return MarketDataMode::Stream;
+    }
 
     virtual void onStart(AgentContext& /*context*/) {}
     virtual void onWakeup(AgentContext& /*context*/, std::uint64_t /*tag*/) {}

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <format>
+#include <functional>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -34,6 +36,9 @@ public:
     [[nodiscard]] Random& random() noexcept override { return simulation_.slot(agent_).random; }
     [[nodiscard]] const Ledger& ledger() const noexcept override {
         return simulation_.slot(agent_).ledger;
+    }
+    [[nodiscard]] MarketSnapshot market() const override {
+        return simulation_.visibleMarket(agent_);
     }
 
     ClientOrderId submit(NewOrder order) override {
@@ -77,6 +82,7 @@ AgentId Simulation::addAgent(std::unique_ptr<Agent> agent, const AgentOptions& o
     }
 
     const auto id = static_cast<AgentId>(slots_.size() + 1);
+    const MarketDataMode marketData = agent->marketData();
     exchange_.addAgent(id, options.account);
     // Stream 2 * id feeds the agent's own draws and 2 * id + 1 its network jitter, so neither
     // depends on how many agents there are or on what the other draws.
@@ -87,6 +93,12 @@ AgentId Simulation::addAgent(std::unique_ptr<Agent> agent, const AgentOptions& o
         .network = Random{seed_, 2 * std::uint64_t{id} + 1},
         .ledger = Ledger{options.account.initialCash, options.account.initialPosition},
     });
+    if (marketData == MarketDataMode::Stream) {
+        streamed_.push_back(id);
+    }
+    // An agent added mid-run with a longer delay than anyone before it sees nothing from before it
+    // joined that has already been dropped; it sees the oldest state still kept instead.
+    longestDelay_ = std::max(longestDelay_, latency.fromExchange);
     schedule(startTime, Start{.agent = id});
     return id;
 }
@@ -162,18 +174,50 @@ void Simulation::process(const Arrival& arrival) {
     }
     events_.clear();
     exchange_.handle(arrival.sender, arrival.request, events_);
+    bool marketChanged = false;
     for (const Event& event : events_) {
         if (sink_ != nullptr) {
             sink_->onEvent(now_, event);
         }
         if (const std::optional<AgentId> to = recipient(event)) {
             deliver(*to, event);
-        } else {
-            for (AgentId id = 1; id <= slots_.size(); ++id) {
-                deliver(id, event);
-            }
+            continue;
+        }
+        if (const auto* trade = std::get_if<Trade>(&event)) {
+            published_.lastTrade = trade->price;
+        } else if (const auto* top = std::get_if<TopOfBook>(&event)) {
+            published_.bid = top->bid;
+            published_.ask = top->ask;
+        }
+        marketChanged = true;
+        for (const AgentId id : streamed_) {
+            deliver(id, event);
         }
     }
+    if (marketChanged) {
+        recordPublicState();
+    }
+}
+
+void Simulation::recordPublicState() {
+    if (!history_.empty() && history_.back().time == now_) {
+        history_.back().market = published_;
+    } else {
+        history_.push_back(PublicState{.time = now_, .market = published_});
+    }
+    // Every agent looks at least as recent as now - longestDelay_, so only the last state from
+    // before that moment and everything after it can still be needed.
+    const Timestamp oldestNeeded = now_ - longestDelay_;
+    while (history_.size() >= 2 && history_[1].time <= oldestNeeded) {
+        history_.pop_front();
+    }
+}
+
+MarketSnapshot Simulation::visibleMarket(AgentId id) const {
+    const Timestamp seenAt = now_ - slots_.at(id - 1).latency.fromExchange;
+    const auto after =
+        std::ranges::upper_bound(history_, seenAt, std::less<>{}, &PublicState::time);
+    return after == history_.begin() ? MarketSnapshot{} : std::prev(after)->market;
 }
 
 void Simulation::process(const Delivery& delivery) {

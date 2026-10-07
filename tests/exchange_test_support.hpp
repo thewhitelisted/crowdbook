@@ -58,6 +58,16 @@ inline void PrintTo(const TopOfBook& event, std::ostream* os) {
     *os << "}";
 }
 
+inline void PrintTo(const MarketSnapshot& market, std::ostream* os) {
+    PrintTo(TopOfBook{.bid = market.bid, .ask = market.ask}, os);
+    *os << " last trade ";
+    if (market.lastTrade) {
+        *os << *market.lastTrade;
+    } else {
+        *os << "none";
+    }
+}
+
 inline void PrintTo(const Account& account, std::ostream* os) {
     *os << "Account{cash " << account.cash << ", position " << account.position << ", open buy "
         << account.openBuyQuantity << ", open sell " << account.openSellQuantity << "}";
