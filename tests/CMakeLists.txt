@@ -8,6 +8,7 @@ set(INSTALL_GTEST OFF)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(crowdbook_tests
+    exchange_test.cpp
     order_book_differential_test.cpp
     order_book_test.cpp
     version_test.cpp)

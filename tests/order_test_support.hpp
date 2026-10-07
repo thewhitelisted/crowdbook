@@ -49,7 +49,8 @@ inline OrderRequest limit(OrderId id, AgentId owner, Side side, Price price, Qua
 }
 
 inline OrderRequest market(OrderId id, AgentId owner, Side side, Quantity quantity) {
-    return {.id = id, .owner = owner, .side = side, .type = OrderType::Market, .quantity = quantity};
+    return {
+        .id = id, .owner = owner, .side = side, .type = OrderType::Market, .quantity = quantity};
 }
 
 inline OrderResult resting(Quantity remaining, Quantity traded = 0) {
