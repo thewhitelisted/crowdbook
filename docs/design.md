@@ -23,7 +23,7 @@ exchanges, real-time execution, and a GUI.
   sequence number, so simultaneous events always resolve the same way.
 - **Exchange** — the only component that changes the book or any account. Validates and
   acknowledges orders, assigns order ids, enforces ownership and risk limits, and keeps each
-  agent's cash and position.
+  agent's cash and position. See [Exchange](#exchange).
 - **OrderBook** — price-time priority matching on integer ticks with self-trade prevention.
   Supports limit, market, cancel, modify and immediate-or-cancel orders. See
   [Order book](#order-book).
@@ -76,6 +76,39 @@ On an Apple M5 (Release build, `crowdbook_bench`) the book handles about 15 mill
 second on a mixed stream of passive orders, cancels, crossing orders and market orders — roughly
 65 ns per operation.
 
+## Exchange
+
+`Exchange` owns the book and every account. Agents never call the book; they send requests
+(`NewOrder`, `CancelOrder`, `ModifyOrder`) and receive events.
+
+- **Client order ids:** agents name their orders with ids they choose, unique among their own live
+  orders. An agent can therefore cancel an order before its acknowledgement arrives, which matters
+  once messages have latency, and can never name another agent's order. The exchange assigns the
+  global order id and reports it in the acknowledgement.
+- **Checks:** a request that fails any check gets exactly one `OrderRejected` with the reason, and
+  nothing else changes. Quantity must be positive and within the agent's `maxOrderQuantity`; a
+  limit price must be in [1, `kMaxPrice`]; a new order's client order id must not already be
+  live, and a cancel or modify must name a live order.
+- **Position limit:** checked as if every open order on that side filled —
+  `position + open buys + new quantity ≤ maxPosition` for buys and
+  `position − open sells − new quantity ≥ −maxPosition` for sells — so no sequence of fills can
+  breach it. A modify is checked only when it adds quantity. Short selling is allowed within the
+  limit.
+- **Accounts:** cash (in tick-lots) and position. Cash has no limit and may go negative, so risk is
+  bounded by position alone. Each trade moves `price × quantity` of cash from buyer to seller and
+  `quantity` shares the other way, so total cash and total shares never change.
+- **Events** for each request are appended in a fixed order, in the style of FIX execution reports:
+  1. the sender's `OrderAccepted`, `OrderModified`, `OrderCancelled` or `OrderRejected`;
+  2. for each execution, the maker's `OrderFilled`, the taker's `OrderFilled` and a public `Trade`;
+  3. `OrderCancelled` for quantity that could not rest (immediate-or-cancel or market remainder,
+     self-trade prevention);
+  4. `TopOfBook`, if the best bid or ask changed in price or size.
+
+  Every request gets at least one event, and the first always answers the sender. Fills carry the
+  order's remaining open quantity, so an agent can track its own orders and balances from its
+  events alone.
+- **Market data:** `Trade` and `TopOfBook` are public and never identify agents or orders.
+
 ## Testing
 
 - **Unit tests** spell out each matching rule with a small hand-checked scenario.
@@ -84,12 +117,24 @@ second on a mixed stream of passive orders, cancels, crossing orders and market 
   rules can be verified by reading it. Every result, every fill and the full book state must match
   after every step, for 40 seeds of 2,000 steps. Half the seeds use a narrow price band and three
   owners, so crossing orders, partial fills and self-trades are frequent.
-- **Mutation check:** before the differential tests were committed, six deliberately planted bugs
-  (an off-by-one limit check, LIFO instead of FIFO, no self-trade prevention, market orders
-  resting, size increases keeping priority, stale level totals) were each caught by them.
 - **Invariant audit:** `OrderBook::audit()` checks the internal structure (book not crossed, no
   empty levels, queue links, level totals, index consistency) after every random step and at the
   end of every unit test.
+- **Exchange unit tests** pin down the exact event sequence for each rule.
+- **Randomized exchange tests:** six agents with different limits send random requests, including
+  invalid ones and some from an agent with no account, for 30 seeds of 2,000 steps. After every
+  step:
+  - `Exchange::audit()` cross-checks accounts, live orders and the book, and checks that cash and
+    shares are conserved and no position limit can be breached;
+  - the public feed must agree with the book;
+  - each agent's ledger, rebuilt only from its own events, must match its account and open orders
+    exactly.
+- **Mutation check:** before each randomized suite was committed, deliberately planted bugs were
+  each caught by it. Six in the order book: an off-by-one limit check, LIFO instead of FIFO, no
+  self-trade prevention, market orders resting, size increases keeping priority, stale level
+  totals. Eight in the exchange: open quantity not released on fills, a flipped seller cash sign, a
+  position check ignoring open orders, stale live-order records, unchecked modify increases,
+  misreported fill and cancel quantities, missed top-of-book updates.
 - **Sanitizers:** the `asan` preset runs everything under AddressSanitizer and
   UndefinedBehaviorSanitizer, locally and in CI.
 
@@ -100,8 +145,12 @@ Choices for later milestones may change once they are implemented; changes are r
 | Topic | Choice | Reason |
 |---|---|---|
 | Agent access | Messages through the exchange only; no direct access to the book | Makes latency, ownership checks and risk limits possible; no agent can corrupt the book or touch another agent's orders |
-| Order ids | Every accepted order is acknowledged with an id; cancel and modify by id | Agents need to manage resting orders to requote, which market making depends on |
+| Order ids | Agents name orders with their own client order ids; the exchange assigns order ids | Agents can cancel or requote before an acknowledgement arrives, and can never name another agent's order |
 | Accounting | Kept by the exchange; total cash and shares are conserved, checked by tests | PnL only means something if no fill is ever lost or double-counted |
+| Risk limits | Position limit with open orders counted as filled; no cash limit | The limit holds whatever fills; cash only tracks PnL, so risk is bounded by inventory, which is what market makers manage |
+| Short selling | Allowed within the position limit | Market makers routinely go short; long-only would need share endowments and make buying and selling asymmetric |
+| Bounds | Prices up to 10⁹ ticks, order sizes up to 10⁹ lots | Every notional and risk sum stays far inside `int64` |
+| Events | Ordered, FIX-style execution reports plus anonymous trades and top of book | Agents can rebuild their own state from their events, and logs replay in a well-defined order |
 | Time | `int64` nanoseconds, discrete events | Latency and queue position matter in microstructure; fixed rounds hide both |
 | Ties | Same timestamp → insertion order | Deterministic; no hidden dependence on container iteration order |
 | Prices and sizes | `int64` ticks and lots; cash in tick-lots | Exact arithmetic; no floating point in matching or accounting |
@@ -119,8 +168,8 @@ Choices for later milestones may change once they are implemented; changes are r
 |---|---|---|---|
 | M0 | CMake + Ninja presets, GoogleTest, CI (macOS and Linux, sanitizers) | CI green | Done |
 | M1 | Order book, matching and self-trade prevention | Differential tests against a reference book; benchmarks | Done |
-| M2 | Exchange: validation, order ids, ownership, accounting, risk limits | Conservation of cash and shares | Next |
-| M3 | Kernel, latency, random streams, agent API | Same seed gives an identical event log | |
+| M2 | Exchange: validation, order ids, ownership, accounting, risk limits | Conservation of cash and shares; agents' event ledgers match the exchange | Done |
+| M3 | Kernel, latency, random streams, agent API | Same seed gives an identical event log | Next |
 | M4 | Built-in agents (zero-intelligence, Avellaneda–Stoikov market maker, momentum, informed), TOML scenarios, `crowdbook` CLI | Example runs | |
 | M5 | Stylized facts and a first experiment: market-maker PnL vs informed flow and latency | Plots in the README | |
 | Later | Rule-based agents, fees, multiple instruments, live viewer | | |

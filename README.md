@@ -7,9 +7,9 @@ momentum traders, noise traders — each sending orders to a simulated exchange.
 price impact and volatility are not assumed; they emerge from how the agents interact. Writing
 your own agent means writing one C++ class and adding it to a scenario.
 
-> **Status:** early development. The build, CI and the order book with its matching engine are
-> done; the exchange is next. See [docs/design.md](docs/design.md) for the architecture, the
-> testing approach and the roadmap.
+> **Status:** early development. The order book, its matching engine and the exchange (validation,
+> position limits, settlement, market data) are done; the simulation kernel with latency is next.
+> See [docs/design.md](docs/design.md) for the architecture, the testing approach and the roadmap.
 
 ## Building
 
