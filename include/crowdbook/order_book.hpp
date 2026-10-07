@@ -44,6 +44,8 @@ public:
     [[nodiscard]] std::optional<RestingOrder> find(OrderId id) const;
     [[nodiscard]] std::optional<Price> bestBid() const noexcept;
     [[nodiscard]] std::optional<Price> bestAsk() const noexcept;
+    // The best price level on one side, or nullopt if that side is empty.
+    [[nodiscard]] std::optional<LevelSummary> bestLevel(Side side) const noexcept;
     // Price levels on one side, best price first.
     [[nodiscard]] std::vector<LevelSummary> depth(Side side,
                                                   std::size_t maxLevels = kAllLevels) const;

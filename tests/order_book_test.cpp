@@ -243,5 +243,17 @@ TEST_F(OrderBookTest, DepthListsLevelsBestFirst) {
                                          {.price = 103, .quantity = 1, .orderCount = 1}}));
 }
 
+TEST_F(OrderBookTest, BestLevelSummarizesTheTopOfEachSide) {
+    EXPECT_EQ(book_.bestLevel(Side::Buy), std::nullopt);
+
+    book_.submit(limit(1, kAlice, Side::Buy, 98, 5), fills_);
+    book_.submit(limit(2, kAlice, Side::Buy, 99, 1), fills_);
+    book_.submit(limit(3, kBob, Side::Buy, 99, 2), fills_);
+
+    EXPECT_EQ(book_.bestLevel(Side::Buy),
+              (LevelSummary{.price = 99, .quantity = 3, .orderCount = 2}));
+    EXPECT_EQ(book_.bestLevel(Side::Sell), std::nullopt);
+}
+
 } // namespace
 } // namespace crowdbook

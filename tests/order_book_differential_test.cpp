@@ -59,8 +59,12 @@ void expectSameState(const OrderBook& book, const ReferenceBook& reference) {
     for (const RestingOrder& order : resting) {
         ASSERT_EQ(book.find(order.id), order);
     }
-    ASSERT_EQ(book.depth(Side::Buy), reference.depth(Side::Buy));
-    ASSERT_EQ(book.depth(Side::Sell), reference.depth(Side::Sell));
+    for (const Side side : {Side::Buy, Side::Sell}) {
+        const std::vector<LevelSummary> levels = reference.depth(side);
+        ASSERT_EQ(book.depth(side), levels);
+        ASSERT_EQ(book.bestLevel(side),
+                  levels.empty() ? std::nullopt : std::optional{levels.front()});
+    }
 }
 
 class OrderBookDifferentialTest : public ::testing::TestWithParam<std::uint64_t> {};

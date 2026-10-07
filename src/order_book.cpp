@@ -133,6 +133,18 @@ std::optional<Price> OrderBook::bestAsk() const noexcept {
     return asks_.begin()->first;
 }
 
+std::optional<LevelSummary> OrderBook::bestLevel(Side side) const noexcept {
+    const auto summarize = [](const auto& levels) -> std::optional<LevelSummary> {
+        if (levels.empty()) {
+            return std::nullopt;
+        }
+        const Level& level = levels.begin()->second;
+        return LevelSummary{
+            .price = level.price, .quantity = level.quantity, .orderCount = level.orderCount};
+    };
+    return side == Side::Buy ? summarize(bids_) : summarize(asks_);
+}
+
 std::vector<LevelSummary> OrderBook::depth(Side side, std::size_t maxLevels) const {
     std::vector<LevelSummary> summary;
     const auto collect = [&](const auto& levels) {
