@@ -32,7 +32,7 @@ name = "noise"
 count = 20
 limit_rate = 1.0
 market_rate = 1.0
-cancel_rate = 1.0
+cancel_rate = 0.2         # each resting order lives 5 s on average unless it fills
 max_offset = 8
 latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
 account = { max_position = 1000, max_order_quantity = 10 }

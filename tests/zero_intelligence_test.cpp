@@ -15,54 +15,93 @@ namespace {
 using test::FakeContext;
 
 constexpr Price kReference = 1'000;
-constexpr int kWakeups = 7'000;
+constexpr int kOrders = 7'000;
 
-// Wakes the trader repeatedly and returns everything it sent.
-std::vector<Request> run(ZeroIntelligenceTrader& trader, FakeContext& context, int wakeups) {
+// Fires the trader's order timer `orders` times and returns everything it sent. The fake clock
+// stays at 0, so each recorded wakeup time is the delay that was asked for.
+std::vector<Request> run(ZeroIntelligenceTrader& trader, FakeContext& context, int orders) {
     trader.onStart(context);
-    for (int i = 0; i < wakeups; ++i) {
+    for (int i = 0; i < orders; ++i) {
         trader.onWakeup(context, 0);
     }
     return context.takeSent();
 }
 
-TEST(ZeroIntelligenceTest, WaitsExponentiallyWithTheTotalRate) {
-    ZeroIntelligenceTrader trader{{.limitRate = 2.0, .marketRate = 0.5, .cancelRate = 1.5},
-                                  kReference};
-    FakeContext context;
-    static_cast<void>(run(trader, context, kWakeups));
-
+double meanSeconds(const FakeContext& context, bool orderTimer) {
     double total = 0.0;
-    for (const auto& wakeup : context.wakeups) {
-        total += static_cast<double>(wakeup.first); // the clock stays at 0, so this is the delay
+    int count = 0;
+    for (const auto& [time, tag] : context.wakeups) {
+        if ((tag == 0) == orderTimer) {
+            total += static_cast<double>(time) / 1e9;
+            ++count;
+        }
     }
-    const double meanSeconds = total / static_cast<double>(context.wakeups.size()) / 1e9;
-    EXPECT_NEAR(meanSeconds, 1.0 / 4.0, 0.25 * 0.05);
+    return total / count;
 }
 
-TEST(ZeroIntelligenceTest, MixesActionsInProportionToTheirRates) {
-    ZeroIntelligenceTrader trader{{.limitRate = 2.0, .marketRate = 0.5, .cancelRate = 1.5},
-                                  kReference};
+TEST(ZeroIntelligenceTest, WaitsExponentiallyBetweenOrders) {
+    ZeroIntelligenceTrader trader{{.limitRate = 2.0, .marketRate = 0.5}, kReference};
+    FakeContext context;
+    static_cast<void>(run(trader, context, kOrders));
+    EXPECT_NEAR(meanSeconds(context, true), 1.0 / 2.5, 0.4 * 0.05);
+}
+
+TEST(ZeroIntelligenceTest, MixesLimitAndMarketOrdersByTheirRates) {
+    ZeroIntelligenceTrader trader{{.limitRate = 2.0, .marketRate = 0.5}, kReference};
     FakeContext context;
     int limits = 0;
     int markets = 0;
-    int cancels = 0;
-    for (const Request& request : run(trader, context, kWakeups)) {
-        if (const auto* order = std::get_if<NewOrder>(&request)) {
-            (order->type == OrderType::Limit ? limits : markets) += 1;
-        } else if (std::holds_alternative<CancelOrder>(request)) {
-            ++cancels;
+    for (const Request& request : run(trader, context, kOrders)) {
+        (std::get<NewOrder>(request).type == OrderType::Limit ? limits : markets) += 1;
+    }
+    EXPECT_NEAR(limits, kOrders * 0.8, kOrders * 0.02);
+    EXPECT_EQ(limits + markets, kOrders);
+}
+
+TEST(ZeroIntelligenceTest, GivesEachLimitOrderAnExponentialLifetime) {
+    ZeroIntelligenceTrader trader{{.limitRate = 1.0, .marketRate = 0.0, .cancelRate = 0.5},
+                                  kReference};
+    FakeContext context;
+    std::set<std::uint64_t> placed;
+    for (const Request& request : run(trader, context, kOrders)) {
+        placed.insert(clientOrderIdOf(request));
+    }
+    std::set<std::uint64_t> timed;
+    for (const auto& [time, tag] : context.wakeups) {
+        if (tag != 0) {
+            timed.insert(tag);
         }
     }
-    // Nothing ever fills here, so there is always an order to cancel.
-    EXPECT_NEAR(limits, kWakeups * 2.0 / 4.0, kWakeups * 0.02);
-    EXPECT_NEAR(markets, kWakeups * 0.5 / 4.0, kWakeups * 0.02);
-    EXPECT_NEAR(cancels, kWakeups * 1.5 / 4.0, kWakeups * 0.02);
+    EXPECT_EQ(timed, placed); // one lifetime per order, tagged with its client order id
+    EXPECT_NEAR(meanSeconds(context, false), 1.0 / 0.5, 2.0 * 0.05);
+}
+
+TEST(ZeroIntelligenceTest, CancelsAnOrderWhenItsLifetimeEndsUnlessItFilled) {
+    ZeroIntelligenceTrader trader{{.limitRate = 1.0, .marketRate = 0.0}, kReference};
+    FakeContext context;
+    static_cast<void>(run(trader, context, 2)); // orders 1 and 2
+    context.accept(1);
+    context.accept(2);
+    context.fill(2, context.ledger().find(2)->leaves); // order 2 fills completely
+
+    trader.onWakeup(context, 1);
+    trader.onWakeup(context, 1); // already being cancelled: nothing more to send
+    trader.onWakeup(context, 2); // already filled: nothing to cancel
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{CancelOrder{.clientOrderId = 1}}));
+}
+
+TEST(ZeroIntelligenceTest, KeepsOrdersRestingWithoutACancelRate) {
+    ZeroIntelligenceTrader trader{{.limitRate = 1.0, .marketRate = 0.0, .cancelRate = 0.0},
+                                  kReference};
+    FakeContext context;
+    static_cast<void>(run(trader, context, 100));
+    for (const auto& [time, tag] : context.wakeups) {
+        EXPECT_EQ(tag, 0U);
+    }
 }
 
 TEST(ZeroIntelligenceTest, LimitOrdersSitInsideTheOppositeQuoteWithoutCrossing) {
-    ZeroIntelligenceTrader trader{{.marketRate = 0.0, .cancelRate = 0.0, .maxOffset = 5},
-                                  kReference};
+    ZeroIntelligenceTrader trader{{.marketRate = 0.0, .maxOffset = 5}, kReference};
     FakeContext context;
     context.snapshot = {.bid = LevelSummary{.price = 990, .quantity = 1},
                         .ask = LevelSummary{.price = 1'010, .quantity = 1}};
@@ -78,8 +117,7 @@ TEST(ZeroIntelligenceTest, LimitOrdersSitInsideTheOppositeQuoteWithoutCrossing) 
 }
 
 TEST(ZeroIntelligenceTest, AnchorsOnTheReferencePriceBeforeSeeingAnyQuotes) {
-    ZeroIntelligenceTrader trader{{.marketRate = 0.0, .cancelRate = 0.0, .maxOffset = 2},
-                                  kReference};
+    ZeroIntelligenceTrader trader{{.marketRate = 0.0, .maxOffset = 2}, kReference};
     FakeContext context;
     std::set<Price> buyPrices;
     std::set<Price> sellPrices;
@@ -91,29 +129,12 @@ TEST(ZeroIntelligenceTest, AnchorsOnTheReferencePriceBeforeSeeingAnyQuotes) {
     EXPECT_EQ(sellPrices, (std::set<Price>{1'000, 1'001}));
 }
 
-TEST(ZeroIntelligenceTest, CancelsEachOfItsOwnOrdersAtMostOnce) {
-    ZeroIntelligenceTrader trader{{.limitRate = 1.0, .marketRate = 0.0, .cancelRate = 3.0},
-                                  kReference};
-    FakeContext context;
-    std::set<ClientOrderId> placed;
-    std::set<ClientOrderId> cancelled;
-    for (const Request& request : run(trader, context, 2'000)) {
-        if (const auto* cancel = std::get_if<CancelOrder>(&request)) {
-            EXPECT_TRUE(placed.contains(cancel->clientOrderId));
-            EXPECT_TRUE(cancelled.insert(cancel->clientOrderId).second);
-        } else {
-            placed.insert(clientOrderIdOf(request));
-        }
-    }
-    EXPECT_FALSE(cancelled.empty());
-}
-
 TEST(ZeroIntelligenceTest, RejectsInvalidConfigs) {
     EXPECT_THROW((ZeroIntelligenceTrader{{.limitRate = -1.0}, kReference}), std::invalid_argument);
-    EXPECT_THROW(
-        (ZeroIntelligenceTrader{{.limitRate = 0.0, .marketRate = 0.0, .cancelRate = 0.0},
-                                kReference}),
-        std::invalid_argument);
+    EXPECT_THROW((ZeroIntelligenceTrader{{.limitRate = 0.0, .marketRate = 0.0}, kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((ZeroIntelligenceTrader{{.cancelRate = -0.1}, kReference}),
+                 std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.maxOffset = 0}, kReference}), std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.minSize = 5, .maxSize = 4}, kReference}),
                  std::invalid_argument);
