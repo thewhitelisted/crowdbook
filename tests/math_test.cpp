@@ -154,7 +154,9 @@ TEST(MathTest, PowHasTheStandardSpecialCases) {
         const double ours = math::pow(x, y);
         const double theirs = std::pow(x, y);
         EXPECT_EQ(ulps(ours, theirs), 0U) << x << "^" << y;
-        EXPECT_EQ(std::signbit(ours), std::signbit(theirs)) << x << "^" << y;
+        if (!std::isnan(theirs)) { // a NaN's sign means nothing, and libraries differ on it
+            EXPECT_EQ(std::signbit(ours), std::signbit(theirs)) << x << "^" << y;
+        }
     }
 }
 
