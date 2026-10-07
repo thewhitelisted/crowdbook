@@ -11,8 +11,8 @@ interact. Writing your own agent means writing one C++ class and naming it in a 
 > **Status:** the order book, the exchange, the simulation kernel, four built-in agents, scenario
 > files, the `crowdbook` command and the Python analysis package are done, and
 > [docs/results.md](docs/results.md) reports the first experiments. You can trade in a market
-> yourself, in real time, and replay the session exactly afterwards. Next: agents whose activity
-> reacts to the market, for volatility that clusters as it does in real markets. See
+> yourself, in real time, and replay the session exactly afterwards, and a market with memory
+> shows volatility clustering for about an hour. Next: large orders worked over time. See
 > [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
 > roadmap.
 
