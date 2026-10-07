@@ -60,3 +60,15 @@ jobs:
 
       - name: Configure, build and test
         run: cmake --workflow --preset ${{ matrix.preset }}
+
+  analysis:
+    name: analysis / python
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        run: pipx install uv
+
+      - name: Test
+        run: uv run --project analysis --locked python -m unittest discover -s analysis/tests
