@@ -74,6 +74,23 @@ jobs:
           fi
           exit "$status"
 
+  container:
+    name: container / docker
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build --tag crowdbook .
+
+      - name: Run a market in it
+        run: |
+          docker run --rm crowdbook --version
+          docker run --rm crowdbook run \
+            /usr/local/share/crowdbook/examples/scenarios/market_maker.toml --duration 2s
+          docker run --rm crowdbook replay \
+            /usr/local/share/crowdbook/examples/sessions/served_demo.toml
+
   analysis:
     name: analysis / python
     runs-on: ubuntu-24.04

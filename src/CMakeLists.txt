@@ -26,7 +26,8 @@ add_library(crowdbook
 add_library(crowdbook::crowdbook ALIAS crowdbook)
 
 target_include_directories(crowdbook PUBLIC
-    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(crowdbook PUBLIC cxx_std_23)
 target_compile_definitions(crowdbook PRIVATE CROWDBOOK_VERSION="${PROJECT_VERSION}")
 crowdbook_set_warnings(crowdbook)
@@ -55,9 +56,11 @@ if(CROWDBOOK_BUILD_SCENARIOS)
         scenario_file.cpp
         session.cpp)
     add_library(crowdbook::scenario ALIAS crowdbook_scenario)
+    # toml++ is header-only and compiled into this library, so the installed package does not
+    # depend on it.
     target_link_libraries(crowdbook_scenario
         PUBLIC crowdbook::crowdbook
-        PRIVATE crowdbook::protocol tomlplusplus::tomlplusplus)
+        PRIVATE crowdbook::protocol $<BUILD_INTERFACE:tomlplusplus::tomlplusplus>)
     crowdbook_set_warnings(crowdbook_scenario)
 
     # Serving a market to clients over the protocol: the gateway, which works on bytes, and the
@@ -69,3 +72,34 @@ if(CROWDBOOK_BUILD_SCENARIOS)
     target_link_libraries(crowdbook_gateway PUBLIC crowdbook::scenario crowdbook::protocol)
     crowdbook_set_warnings(crowdbook_gateway)
 endif()
+
+# The installed package: the libraries, their headers, and a CMake config so that another project
+# can find_package(crowdbook) and link crowdbook::crowdbook, crowdbook::protocol and, with scenario
+# files, crowdbook::scenario and crowdbook::gateway.
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+set(installed crowdbook crowdbook_protocol)
+if(CROWDBOOK_BUILD_SCENARIOS)
+    list(APPEND installed crowdbook_scenario crowdbook_gateway)
+endif()
+foreach(target IN LISTS installed)
+    string(REPLACE "crowdbook_" "" name "${target}")
+    set_target_properties(${target} PROPERTIES EXPORT_NAME ${name})
+endforeach()
+install(TARGETS ${installed} EXPORT crowdbookTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/crowdbook"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(EXPORT crowdbookTargets
+    NAMESPACE crowdbook::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/crowdbook)
+configure_package_config_file("${PROJECT_SOURCE_DIR}/cmake/crowdbookConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/crowdbookConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/crowdbook)
+# Until 1.0, a minor version may change the API, so only the same minor version is compatible.
+write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/crowdbookConfigVersion.cmake"
+    COMPATIBILITY SameMinorVersion)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/crowdbookConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/crowdbookConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/crowdbook)

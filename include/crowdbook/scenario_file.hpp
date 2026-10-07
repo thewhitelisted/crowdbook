@@ -1,11 +1,16 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string_view>
 
 #include "crowdbook/scenario.hpp"
 
 namespace crowdbook {
+
+// The newest scenario format this crowdbook reads. A file may say which it was written for with
+// scenario_version; one written for a newer crowdbook is refused rather than misread.
+inline constexpr std::int64_t kScenarioVersion = 1;
 
 // Parses a scenario written in TOML; docs/scenarios.md describes the format. `source` names the
 // text in error messages. Throws ScenarioError, with the line, for syntax errors, unknown or

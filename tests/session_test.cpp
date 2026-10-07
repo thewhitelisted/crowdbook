@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <format>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -231,6 +232,30 @@ TEST(SessionTest, AReplayThatDivergesFailsLoudly) {
     std::get<NewOrder>(session.actions[1].request).clientOrderId = 7;
     EXPECT_THROW(static_cast<void>(replaySession(session, AgentRegistry::withBuiltIns())),
                  std::logic_error);
+    // A session from another crowdbook says so, since that is the likely reason.
+    session.recordedBy = "0.1.0";
+    try {
+        static_cast<void>(replaySession(session, AgentRegistry::withBuiltIns()));
+        FAIL() << "the replay did not diverge";
+    } catch (const std::logic_error& error) {
+        EXPECT_NE(std::string{error.what()}.find("recorded by crowdbook 0.1.0"),
+                  std::string::npos);
+    }
+}
+
+TEST(SessionTest, FilesSayWhichCrowdbookRecordedThem) {
+    const Session session = playScripted().first;
+    EXPECT_EQ(session.recordedBy, version());
+    std::ostringstream file;
+    writeSession(file, session);
+    EXPECT_NE(file.str().find(std::format("recorded_by = \"crowdbook {}\"", version())),
+              std::string::npos);
+    EXPECT_EQ(parseSession(file.str()).recordedBy, version());
+    // Older files do not say.
+    const Session old = parseSession(
+        "session_version = 1\nseed = 1\nend_ns = 100\n"
+        "scenario = \"[[agents]]\\ntype = \\\"momentum\\\"\"\n");
+    EXPECT_TRUE(old.recordedBy.empty());
 }
 
 // The message of the ScenarioError that parsing `text` throws, or "" if it parses.

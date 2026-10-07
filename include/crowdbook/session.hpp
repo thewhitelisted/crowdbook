@@ -14,6 +14,7 @@
 #include "crowdbook/live.hpp"
 #include "crowdbook/scenario.hpp"
 #include "crowdbook/scoring.hpp"
+#include "crowdbook/version.hpp"
 
 namespace crowdbook {
 
@@ -58,6 +59,8 @@ struct Session {
     Timestamp end = 0;      // the simulated time the session stopped at
     std::vector<std::string> seats{std::string{kParticipantGroup}};
     std::vector<SessionAction> actions{}; // each names its seat by index
+    // The crowdbook that recorded it: this one for a new session, empty when a file does not say.
+    std::string recordedBy{version()};
 
     friend bool operator==(const Session&, const Session&) = default;
 };

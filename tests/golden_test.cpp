@@ -124,6 +124,7 @@ constexpr std::uint64_t kMarketDepth = 0x3f64617a1293ca45;
 constexpr std::uint64_t kMarketResult = 0xebf5b0556bf4bf09;
 constexpr std::uint64_t kDemoReplayLog = 0xaad3c9d2f37beeed;
 constexpr std::uint64_t kServedReplayLog = 0xa2936e8ff2d3b17b;
+constexpr std::uint64_t kChallengeReplayLog = 0x38ec4ed46b3cc470;
 
 TEST(GoldenTest, AMarketsOutputsAreTheSameOnEveryPlatform) {
     const Scenario scenario = parseScenario(kMarket, "golden");
@@ -171,6 +172,20 @@ TEST(GoldenTest, TheServedSessionReplaysTheSameOnEveryPlatform) {
     CsvEventLog sink{log};
     static_cast<void>(replaySession(session, AgentRegistry::withBuiltIns(), &sink));
     EXPECT_EQ(hex(hashOf(log.str())), hex(kServedReplayLog));
+}
+
+// A scored challenge, recorded by an earlier crowdbook: its replay and its score must not move.
+TEST(GoldenTest, TheChallengeSessionReplaysAndScoresTheSameOnEveryPlatform) {
+    const Session session = loadSession(std::string{CROWDBOOK_SOURCE_DIR} +
+                                        "/examples/sessions/challenge_demo.toml");
+    EXPECT_EQ(session.recordedBy, "0.7.0");
+    std::ostringstream log;
+    CsvEventLog sink{log};
+    const RunResult result = replaySession(session, AgentRegistry::withBuiltIns(), &sink);
+    EXPECT_EQ(hex(hashOf(log.str())), hex(kChallengeReplayLog));
+    ASSERT_EQ(result.scores.size(), 1U);
+    EXPECT_EQ(result.scores[0].score.total, -217'953);
+    EXPECT_EQ(result.scores[0].score.paper, 127'953);
 }
 
 } // namespace

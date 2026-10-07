@@ -1,0 +1,6 @@
+build
+.git
+.cache
+**/__pycache__
+**/.venv
+docs/images

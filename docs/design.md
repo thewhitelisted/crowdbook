@@ -513,9 +513,9 @@ uv run --project analysis crowdbook-large-orders
   every message has landed, each agent's ledger must match the exchange exactly.
 - **Golden test:** a market with every agent type and every source of randomness runs for four
   simulated minutes, and the hashes of its event log, price and depth samples and results, and of
-  the replayed logs of the demo session and of a session served to two clients, must equal
-  committed values. CI runs it on macOS arm64 and on
-  Linux x86-64, so the two platforms have to agree byte for byte. `crowdbook::math` is checked
+  the replayed logs of the demo session, of a session served to two clients and of a scored
+  challenge, must equal committed values, and so must the challenge's score. CI runs it on macOS
+  arm64 and on Linux x86-64, so the two platforms have to agree byte for byte. `crowdbook::math` is checked
   against the standard library over its whole range, and a test fails if the compiler fuses a
   multiply and an add.
 - **Agent tests** run each built-in agent against `FakeContext`, a stand-in for the simulation
@@ -613,6 +613,13 @@ uv run --project analysis crowdbook-large-orders
   bot's ledger ends equal to the server's results, and the recording replays. The two example
   bots then trade side by side in one served market, and the example bots play every challenge:
   each session's score from the server must equal the score of its replay.
+- **Package tests** install the build into its own tree, then configure, build and run
+  `examples/consumer`, a project of its own, against the installed package. CI also builds the
+  container image and runs a market and a replay in it.
+- **Format tests** refuse a scenario for a newer crowdbook, read session files that say which
+  crowdbook recorded them and older ones that do not, and name the recording crowdbook when a
+  replay diverges. Three recorded sessions, from three formats and three versions, replay with
+  pinned logs and, for the challenge, a pinned score.
 - **Analysis tests** check each statistic in `analysis/` on inputs with known answers: a random
   walk's flat volatility signature, a normal sample's zero excess kurtosis, hand-computed spreads
   and price moves.
@@ -667,6 +674,9 @@ Choices for later milestones may change once they are implemented; changes are r
 | Counterfactual | The session replayed without the seat's requests, its participant kept but silent | Every other agent keeps its id and its random streams, so the difference is the seat's doing alone |
 | Reports | Built from the session file by replaying it | A report is as checkable as a score; the live market carries no extra bookkeeping |
 | Rewind | A session file cut at a moment, then played on | Nothing new to save or restore: the recording already determines every state |
+| Library | Four CMake targets, installed with a package config; formats versioned apart from the library | A host links only what it uses; a file's version changes only when its format does |
+| Compatibility | Old session files replay in CI with their logs and scores pinned | A change to how markets behave has to be made on purpose |
+| Container | A two-stage image with the command linked to its C++ runtime, run as a non-root user | Small, and the same everywhere it runs |
 | Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
@@ -702,9 +712,9 @@ Choices for later milestones may change once they are implemented; changes are r
 | M11 | Python client and example bots: a package installable with pip, using only the standard library; a market maker and a momentum bot as examples | A Python bot trades under the same limits, latency and fees as built-in agents, in CI | Done |
 | M12 | Scoring and challenges: a scoring section in scenarios (PnL, risk-adjusted PnL, slippage against a benchmark, inventory and loss limits), computed by the engine; challenges with briefings (make markets within a risk limit, work a large order, trade the news, find the informed flow) | A score recomputed from the session's replay equals the live one; the example bots play every challenge in CI | Done |
 | M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Done |
-| M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Next |
+| M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Done |
 | M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Planned (hosted product) |
-| M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |
+| M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Next |
 | M17 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
 | M18 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Planned |
 | M19 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules | A learning agent's runs reproduce from their seeds; throughput benchmark | Planned |

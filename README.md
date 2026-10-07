@@ -18,8 +18,9 @@ or writing a program in any language that trades over the network.
 > score them, and a report after each session shows who you traded with, what they knew and what the
 > market would have done without you. A market with memory shows volatility clustering for about an
 > hour, and brokers working large orders give order flow long memory and price impact whose shape
-> depends on how long the book remembers. Next: the engine as a library, with versioned formats and
-> packaging. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
+> depends on how long the book remembers. The engine is also a library, with versioned formats, a
+> package to install and a container image. Next: the trading day, with opening and closing auctions
+> and halts. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
 > approach and the roadmap.
 
 ## Quick start
@@ -274,6 +275,13 @@ registry.add("mean_reverter", [](const crowdbook::Parameters& parameters,
 
 [examples/custom_agent.cpp](examples/custom_agent.cpp) is the complete program, with a position
 limit, and builds with the project.
+
+## Use it as a library
+
+Everything the `crowdbook` command does is a library call: run markets, serve them over your own
+transport through the gateway, score and report on sessions. Install a build and
+`find_package(crowdbook)`; [docs/library.md](docs/library.md) maps what to use for what, the
+version numbers of the formats, the capacity per core, and the container image.
 
 ## Building
 

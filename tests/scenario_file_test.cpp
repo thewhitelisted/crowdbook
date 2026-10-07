@@ -123,9 +123,9 @@ TEST(ScenarioFileTest, ReportsSyntaxErrorsWithTheirLine) {
 
 TEST(ScenarioFileTest, RejectsUnknownKeysWithTheirLine) {
     EXPECT_EQ(parseError("seed = 1\nduraton = \"5s\"\n[[agents]]\ntype = \"momentum\"\n"),
-              "test.toml:2: unknown key 'duraton' at the top level; expected one of: seed, "
-              "duration, reference_price, fundamental, exchange, agents, participant, scoring, "
-              "challenge");
+              "test.toml:2: unknown key 'duraton' at the top level; expected one of: "
+              "scenario_version, seed, duration, reference_price, fundamental, exchange, agents, "
+              "participant, scoring, challenge");
     EXPECT_EQ(parseError("[[agents]]\ntype = \"momentum\"\n"
                          "latency = { to_exchange = \"1us\", jiter = \"1us\" }\n"),
               "test.toml:3: unknown key 'jiter' in latency; expected one of: to_exchange, "
@@ -167,6 +167,10 @@ TEST(ScenarioFileTest, RejectsValuesOfTheWrongKindOrRange) {
         {"[scoring.target]\nside = \"buy\"\nquantity = 5\nbenchmark = \"twap\"\n" + agent,
          "'benchmark' must be \"vwap\" or \"reference\""},
         {"[challenge]\nbriefing = \"go\"\n" + agent, "missing 'name'"},
+        {"scenario_version = 2\n" + agent,
+         "this scenario is for a newer crowdbook: it has scenario_version 2, and this one reads "
+         "up to 1"},
+        {"scenario_version = 0\n" + agent, "'scenario_version' must be a whole number from 1"},
         {"[challenge]\nname = \"\"\nbriefing = \"go\"\n" + agent, "a challenge needs a name"},
     };
     for (const auto& [text, expected] : cases) {
@@ -210,6 +214,8 @@ type = "momentum"
     EXPECT_EQ(scenario.scoring->target->benchmark, Benchmark::Reference);
     EXPECT_EQ(scenario.scoring->target->unfinishedPenalty, 10'500);
     EXPECT_FALSE(parseScenario("[[agents]]\ntype = \"momentum\"\n").scoring);
+    EXPECT_NO_THROW(static_cast<void>(
+        parseScenario("scenario_version = 1\n[[agents]]\ntype = \"momentum\"\n")));
 }
 
 TEST(ScenarioFileTest, LoadsFilesAndReportsMissingOnes) {

@@ -256,8 +256,11 @@ RunResult SessionMarket::result() {
 
 void writeSession(std::ostream& out, const Session& session) {
     out << "# A crowdbook session. Replay it with: crowdbook replay <this file>\n";
-    out << std::format("session_version = {}\nseed = {}\nend_ns = {}\nseats = [",
-                       kSessionVersion, session.seed, session.end);
+    out << std::format("session_version = {}\n", kSessionVersion);
+    if (!session.recordedBy.empty()) {
+        out << std::format("recorded_by = {}\n", tomlString("crowdbook " + session.recordedBy));
+    }
+    out << std::format("seed = {}\nend_ns = {}\nseats = [", session.seed, session.end);
     for (std::size_t i = 0; i < session.seats.size(); ++i) {
         out << (i > 0 ? ", " : "") << tomlString(session.seats[i]);
     }
@@ -287,6 +290,12 @@ Session parseSession(std::string_view text, std::string_view source) {
             reader.integer(reader.required(root, "seed"), "seed", 0, kMaxInt)),
         .end = reader.integer(reader.required(root, "end_ns"), "end_ns", 0, kMaxInt)};
     static_cast<void>(parseScenario(session.scenario, std::format("{} (its scenario)", source)));
+    session.recordedBy.clear();
+    if (const toml::node* node = root.get("recorded_by")) {
+        const std::string recorded = reader.text(*node, "recorded_by");
+        session.recordedBy =
+            recorded.starts_with("crowdbook ") ? recorded.substr(10) : recorded;
+    }
     if (version > 1) {
         const toml::node& node = reader.required(root, "seats");
         const auto* list = node.as_array();
@@ -376,8 +385,18 @@ RunResult replaySession(const Session& session, const AgentRegistry& registry, E
             continue;
         }
         market.run.runUntil(action.time);
-        static_cast<void>(
-            perform(market.run.simulation(), market.seats.at(action.seat).agent, action));
+        try {
+            static_cast<void>(
+                perform(market.run.simulation(), market.seats.at(action.seat).agent, action));
+        } catch (const std::logic_error& error) {
+            if (session.recordedBy.empty() || session.recordedBy == version()) {
+                throw;
+            }
+            throw std::logic_error(std::format(
+                "{}; the session was recorded by crowdbook {}, and this is {}, whose markets "
+                "may come out differently",
+                error.what(), session.recordedBy, version()));
+        }
     }
     market.run.runUntil(session.end);
     return market.result();

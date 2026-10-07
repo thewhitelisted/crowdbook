@@ -358,9 +358,20 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
 
     const Reader reader{source};
     reader.allowOnly(root,
-                     {"seed", "duration", "reference_price", "fundamental", "exchange", "agents",
-                      "participant", "scoring", "challenge"},
+                     {"scenario_version", "seed", "duration", "reference_price", "fundamental",
+                      "exchange", "agents", "participant", "scoring", "challenge"},
                      "at the top level");
+    if (const auto* node = root.get("scenario_version")) {
+        const auto* value = node->as_integer();
+        if (value == nullptr || value->get() < 1) {
+            reader.fail(*node, "'scenario_version' must be a whole number from 1");
+        }
+        if (value->get() > kScenarioVersion) {
+            reader.fail(*node, std::format("this scenario is for a newer crowdbook: it has "
+                                           "scenario_version {}, and this one reads up to {}",
+                                           value->get(), kScenarioVersion));
+        }
+    }
 
     Scenario scenario;
     if (const auto* node = root.get("seed")) {
