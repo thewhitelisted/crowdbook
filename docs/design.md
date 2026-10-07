@@ -2,13 +2,27 @@
 
 ## Goal
 
-Simulate a continuous double-auction market as the sum of individual agents, so that market
-microstructure — spreads, depth, price impact, volatility — emerges from agent behaviour instead
-of being assumed. Anyone should be able to add an agent by writing a C++ class against a small
-API and run it against other agents in a reproducible scenario.
+crowdbook is a research tool and a game built on one engine: a market realistic enough to study
+that you can also trade in yourself.
 
-Out of scope for the first release: multiple instruments or venues, connectivity to real
-exchanges, real-time execution, and a GUI.
+- **Research.** Simulate a continuous double-auction market as the sum of individual agents, so
+  that market microstructure — spreads, depth, price impact, volatility — emerges from agent
+  behaviour instead of being assumed. Measure it against real markets, and run experiments no real
+  exchange allows: change the tick size, the fees or the speed of the connections, or replay the
+  same market without one of its traders.
+- **Game.** Trade in the simulated market while it runs, by hand on a trading screen or with your
+  own bot, against a crowd of agents. Afterwards, see what a real market never shows: who you
+  traded with, which of them knew the true value, and what the market would have done without
+  you.
+- **Toolkit.** Anyone can add an agent: today a C++ class against a small API, later any program
+  that speaks the gateway's protocol. Every run is reproducible from its seed and its recorded
+  inputs.
+
+"Realistic" has a finish line: a scorecard of statistics measured the same way on the simulated
+market and on a real one (M11).
+
+Out of scope: connecting to real exchanges or trading real money, and multiple instruments or
+venues until the single-instrument market is calibrated.
 
 ## Architecture
 
@@ -334,6 +348,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | Scenario format | TOML, read by toml++ in a separate library | Comments can document an experiment's choices; the core library keeps no dependencies |
 | Unknown parameters | An error, not ignored | A typo would otherwise run the experiment with a default nobody chose |
 | Market maker's fair price | A running average of trade prices | The mid is often its own quotes; skewing around them made prices run away |
+| Direction | One engine for research and play: the same agents and rules in a batch experiment and in a live session | Experiments then describe the market people trade in, and every played session is reproducible data |
+| Realism | Defined by a scorecard measured the same way on simulated and real data | Without a target, tuning never ends |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
 | Analysis | Python (polars, matplotlib) in its own uv project, driving the command line | The C++ build keeps no analysis dependencies, and the analysis uses only what any user gets |
@@ -350,7 +366,18 @@ Choices for later milestones may change once they are implemented; changes are r
 | M4 | Built-in agents (zero-intelligence, Avellaneda–Stoikov market maker, momentum, informed), fundamental value, TOML scenarios, `crowdbook` CLI | Agent tests against a fake context; every example runs in CI | Done |
 | M5a | On-demand market data, so crowds of thousands of agents run faster than real time | Scaling benchmark: 10,000 traders at 52× real time | Done |
 | M5b | Analysis package; stylized facts, crowd size and price impact by trader type in the thousand-trader markets; market-maker self-impact and PnL against informed flow and latency | [results.md](results.md): four simulated days per market, 32 seeds per experiment point | Done |
-| Later | Agents whose activity reacts to the market (for volatility clustering), rule-based agents, post-only orders, depth snapshots, fees, multiple instruments, live viewer | | |
+| M6 | Depth and order types: the best levels of the book in market data, post-only orders, maker–taker fees | Depth matches the reference book in differential tests; cash plus fees is conserved | Next |
+| M7 | Playable slice: real time at adjustable speed, an outside participant whose orders arrive through a queue, a bare price ladder, sessions recorded for replay | A recorded session replays to a byte-identical log | Planned |
+| M8 | Memory in the crowd: news jumps in the true value, self-exciting activity (Hawkes processes), traders who switch between value and trend strategies by recent PnL | Volatility clustering at one minute that lasts hours; fat one-minute tails; ablations name the cause | Planned |
+| M9 | Large orders worked over time: execution agents slicing parent orders (TWAP, VWAP, percentage of volume) | Long memory in the signs of market orders; square-root impact of parent orders | Planned |
+| M10 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |
+| M11 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
+| M12 | Gateway: one network protocol for market data and orders, used by humans and bots alike; a Python client | A Python bot trades through it under the same limits, latency and fees as built-in agents | Planned |
+| M13 | Trading screen: price ladder with click-to-trade, chart, trade tape, position and PnL, and a report after each session | A full session played by hand, with its report | Planned |
+| M14 | Truth and counterfactuals: after a session, who you traded with and what they knew; the session replayed without your orders; rewind and re-trade | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Planned |
+| M15 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
+| M16 | Challenges and tournaments: scored scenarios (work a large order against VWAP, make markets within a risk limit, trade the news), bot tournaments, leaderboards | Scenarios with published scoring; a tournament of the example bots | Planned |
+| Later | Multiplayer markets hosted online, multiple instruments, an environment for training learning agents, rule-based agents | | |
 
 ## Code conventions
 
