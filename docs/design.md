@@ -113,20 +113,32 @@ second on a mixed stream of passive orders, cancels, crossing orders and market 
   `position − open sells − new quantity ≥ −maxPosition` for sells — so no sequence of fills can
   breach it. A modify is checked only when it adds quantity. Short selling is allowed within the
   limit.
-- **Accounts:** cash (in tick-lots) and position. Cash has no limit and may go negative, so risk is
-  bounded by position alone. Each trade moves `price × quantity` of cash from buyer to seller and
-  `quantity` shares the other way, so total cash and total shares never change.
+- **Post-only orders** are a time in force, as on several real exchanges: the order rests like
+  good-till-cancel, but the exchange rejects it, or a later modify of it, if it would trade on
+  arrival. It is rejected even when the order it would meet is the agent's own, where self-trade
+  prevention would otherwise step in.
+- **Accounts:** cash (in tick-lots), position and fees. Cash has no limit and may go negative, so
+  risk is bounded by position alone. Each trade moves `price × quantity` of cash from buyer to
+  seller and `quantity` shares the other way, so total cash and total shares never change.
+- **Fees:** with maker–taker pricing, every fill charges the owner of the resting order the maker
+  fee and the owner of the incoming order the taker fee, per lot; a negative fee is a rebate.
+  Fees are counted in thousandths of a tick-lot, so rates finer than a tick per lot stay exact,
+  and kept apart from cash. The fees agents pay always add up to what the exchange collects, and
+  maker plus taker fee may not be negative.
 - **Events** for each request are appended in a fixed order, in the style of FIX execution reports:
   1. the sender's `OrderAccepted`, `OrderModified`, `OrderCancelled` or `OrderRejected`;
   2. for each execution, the maker's `OrderFilled`, the taker's `OrderFilled` and a public `Trade`;
   3. `OrderCancelled` for quantity that could not rest (immediate-or-cancel or market remainder,
      self-trade prevention);
-  4. `TopOfBook`, if the best bid or ask changed in price or size.
+  4. `TopOfBook`, if the best bid or ask changed in price or size;
+  5. `BookDepth`, with a depth feed, if any of the published levels changed.
 
   Every request gets at least one event, and the first always answers the sender. Fills carry the
-  order's remaining open quantity, so an agent can track its own orders and balances from its
-  events alone.
-- **Market data:** `Trade` and `TopOfBook` are public and never identify agents or orders.
+  order's remaining open quantity and its fee, so an agent can track its own orders and balances
+  from its events alone.
+- **Market data:** `Trade`, `TopOfBook` and `BookDepth` are public and never identify agents or
+  orders. `BookDepth` is the depth feed: the best levels on each side, as many as the exchange is
+  configured to publish, sent whenever one of them changes.
 
 ## Simulation
 
@@ -160,9 +172,10 @@ time order. Items due at the same nanosecond run in the order they were schedule
   returns what the exchange had published one `fromExchange` latency earlier: never anything they
   could not have seen yet. Streaming every update to every agent costs N² as the crowd grows, so
   the built-in traders that only look at the market when they act use snapshots; the market
-  maker, which reacts to every trade, streams. The kernel keeps a short history of public states
-  for snapshot reads and drops each state once no agent's latency can reach back to it, so memory
-  does not grow with the length of a run.
+  maker, which reacts to every trade, streams. With a depth feed, snapshots carry the published
+  levels too, and streaming agents receive `onDepth`. The kernel keeps a short history of public
+  states for snapshot reads and drops each state once no agent's latency can reach back to it, so
+  memory does not grow with the length of a run.
 - **Event log:** `CsvEventLog` writes every request the exchange receives and every event it
   produces, one row each, in processing order, optionally only rows of chosen kinds. Two runs with
   the same seed produce byte-identical logs. `PriceSampler` writes the best bid, best ask and last
@@ -271,13 +284,15 @@ uv run --project analysis crowdbook-experiments
   end of every unit test.
 - **Exchange unit tests** pin down the exact event sequence for each rule.
 - **Randomized exchange tests:** six agents with different limits send random requests, including
-  invalid ones and some from an agent with no account, for 30 seeds of 2,000 steps. After every
-  step:
+  invalid ones, post-only orders and some from an agent with no account, for 30 seeds of 2,000
+  steps, on an exchange with maker–taker fees and a three-level depth feed. After every step:
   - `Exchange::audit()` cross-checks accounts, live orders and the book, and checks that cash and
-    shares are conserved and no position limit can be breached;
-  - the public feed must agree with the book;
-  - each agent's ledger, rebuilt only from its own events, must match its account and open orders
-    exactly.
+    shares are conserved, the fees agents paid add up to what the exchange collected, and no
+    position limit can be breached;
+  - the top-of-book and depth feeds must agree with the book;
+  - a post-only order must never have taken liquidity;
+  - each agent's ledger, rebuilt only from its own events, must match its account, fees and open
+    orders exactly.
 - **Random tests** compare the generator with reference outputs from an independent Python
   implementation, itself checked against the algorithms' published values, and check each
   distribution's moments. CI runs them on macOS and Linux.
@@ -311,7 +326,9 @@ uv run --project analysis crowdbook-experiments
   misreported fill and cancel quantities, missed top-of-book updates. Seven in the kernel: links
   that reorder messages, no same-time tie-break, the ledger updated after the callback, market
   data sent to one agent only, jitter drawn from the agent's own stream, wakeups scheduled in the
-  past, start times ignored.
+  past, start times ignored. Later features got the same treatment: four planted bugs in post-only
+  orders, six in fees, seven in the depth feed and three in the market maker's post-only quoting
+  were each caught.
 - **Analysis tests** check each statistic in `analysis/` on inputs with known answers: a random
   walk's flat volatility signature, a normal sample's zero excess kurtosis, hand-computed spreads
   and price moves.
@@ -352,6 +369,9 @@ Choices for later milestones may change once they are implemented; changes are r
 | Realism | Defined by a scorecard measured the same way on simulated and real data | Without a target, tuning never ends |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
+| Post-only | A time in force, rejected if it would trade | Several exchanges model it this way ("good till crossing"), and it needs no new order field |
+| Fee units | Thousandths of a tick-lot, kept apart from cash | Real fees are fractions of a tick; a separate integer keeps accounting exact without shrinking the price range |
+| Depth feed | Optional, published as events when the best levels change | Agents, the analysis and a trading screen need depth; computing it costs about half again the run time, so markets that do not need it do not pay |
 | Analysis | Python (polars, matplotlib) in its own uv project, driving the command line | The C++ build keeps no analysis dependencies, and the analysis uses only what any user gets |
 | Long runs | Prices sampled at fixed times, or a log filtered by row kind | The full log of the thousand-trader market comes to about 12 GB per simulated day |
 
@@ -366,8 +386,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M4 | Built-in agents (zero-intelligence, Avellaneda–Stoikov market maker, momentum, informed), fundamental value, TOML scenarios, `crowdbook` CLI | Agent tests against a fake context; every example runs in CI | Done |
 | M5a | On-demand market data, so crowds of thousands of agents run faster than real time | Scaling benchmark: 10,000 traders at 52× real time | Done |
 | M5b | Analysis package; stylized facts, crowd size and price impact by trader type in the thousand-trader markets; market-maker self-impact and PnL against informed flow and latency | [results.md](results.md): four simulated days per market, 32 seeds per experiment point | Done |
-| M6 | Depth and order types: the best levels of the book in market data, post-only orders, maker–taker fees | Depth matches the reference book in differential tests; cash plus fees is conserved | Next |
-| M7 | Playable slice: real time at adjustable speed, an outside participant whose orders arrive through a queue, a bare price ladder, sessions recorded for replay | A recorded session replays to a byte-identical log | Planned |
+| M6 | Depth and order types: the best levels of the book in market data, post-only orders, maker–taker fees | The published depth matches the book after every random request; fees paid add up to fees collected; planted bugs caught | Done |
+| M7 | Playable slice: real time at adjustable speed, an outside participant whose orders arrive through a queue, a bare price ladder, sessions recorded for replay | A recorded session replays to a byte-identical log | Next |
 | M8 | Memory in the crowd: news jumps in the true value, self-exciting activity (Hawkes processes), traders who switch between value and trend strategies by recent PnL | Volatility clustering at one minute that lasts hours; fat one-minute tails; ablations name the cause | Planned |
 | M9 | Large orders worked over time: execution agents slicing parent orders (TWAP, VWAP, percentage of volume) | Long memory in the signs of market orders; square-root impact of parent orders | Planned |
 | M10 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |

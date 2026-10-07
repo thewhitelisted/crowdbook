@@ -10,8 +10,9 @@ interact. Writing your own agent means writing one C++ class and naming it in a 
 
 > **Status:** the order book, the exchange, the simulation kernel, four built-in agents, scenario
 > files, the `crowdbook` command and the Python analysis package are done, and
-> [docs/results.md](docs/results.md) reports the first experiments. Next come depth data and more
-> order types, then a first playable slice: the market in real time, with you in it. See
+> [docs/results.md](docs/results.md) reports the first experiments. The exchange also publishes
+> depth, takes post-only orders and charges maker–taker fees. Next comes a first playable slice:
+> the market in real time, with you in it. See
 > [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
 > roadmap.
 

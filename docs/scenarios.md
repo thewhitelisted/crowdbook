@@ -12,8 +12,9 @@ asset's true value, and groups of agents. Run one with:
 | `--seed N`, `--duration D` | Override the file's values |
 | `--log FILE` | Write every request the exchange receives and every event it produces as CSV ([the event log](#the-event-log)) |
 | `--log-only KIND,...` | Keep only these kinds of log rows, such as `trade,top_of_book` |
-| `--prices FILE` | Write the best bid, best ask and last trade price at regular times ([price samples](#price-samples)) |
-| `--price-interval D` | How often `--prices` samples; `"1s"` unless given |
+| `--prices FILE` | Write the best bid, best ask and last trade price at regular times ([samples](#price-and-depth-samples)) |
+| `--depth FILE` | Write the book's best levels at regular times; needs a depth feed ([samples](#price-and-depth-samples)) |
+| `--sample-interval D` | How often `--prices` and `--depth` sample; `"1s"` unless given |
 | `--json FILE` | Write the results for analysis scripts ([results as JSON](#results-as-json)) |
 
 `crowdbook agents` lists the agent types.
@@ -41,6 +42,24 @@ Ornstein–Uhlenbeck process, or a random walk when `mean_reversion` is 0.
 | `mean_reversion` | number | `0` | Per second; 0 makes the value a random walk |
 | `volatility` | number | `1` | Ticks per square root of a second |
 | `step` | duration | `"100ms"` | How often the value changes |
+
+## `[exchange]` (optional)
+
+Rules and market data that apply to everyone.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `depth_levels` | integer | `0` | Price levels per side in the public depth feed, up to 1,000; 0 publishes only the best bid and ask |
+| `maker_fee` | number | `0` | Ticks per lot paid by the owner of the resting order in every trade; negative is a rebate |
+| `taker_fee` | number | `0` | Ticks per lot paid by the owner of the incoming order |
+
+Fees take at most three decimals, such as `-0.25`, and `maker_fee + taker_fee` must not be
+negative: no exchange pays out more in rebates than it collects. Fees are kept apart from cash,
+which only trades move, and every fill reports its own fee.
+
+A depth feed lets agents see the book beyond the best prices, both in `context.market()` and, for
+agents that stream market data, in `onDepth`. It costs time: ten levels add about half again to
+the run time of the thousand-trader example market, so it is off unless a scenario asks for it.
 
 ## `[[agents]]`
 
@@ -96,6 +115,7 @@ Avellaneda and Stoikov (2008): `r = s − q·γ·σ²·τ`, with a half spread o
 | `max_inventory` | `50` | Never quotes a side that could take its position past this |
 | `requote_interval` | `"100ms"` | How often it requotes; it also requotes after each of its fills |
 | `fair_value_weight` | `0.2` | How far each trade moves its fair price toward the trade's price |
+| `post_only` | `false` | Quote with post-only orders, a tick off the far side of the book it last saw, so it only ever adds liquidity |
 
 Keep γ·σ²·τ, the skew per lot of inventory, small. When other traders anchor on the market maker's
 quotes, a large skew drags the whole market against its own inventory.
@@ -151,20 +171,27 @@ Columns that do not apply to a row are empty.
 | `time` | Nanoseconds since the start of the run |
 | `kind` | `new`, `cancel`, `modify` (requests as they reach the exchange); `accepted`, `rejected`, `modified`, `filled`, `cancelled` (reports to one agent); `trade`, `top_of_book` (public) |
 | `agent`, `client_order_id`, `order_id` | Who and which order |
-| `side`, `type`, `time_in_force` | `buy` or `sell`; `limit` or `market`; for trades, the side is the aggressor's |
+| `side`, `type`, `time_in_force` | `buy` or `sell`; `limit` or `market`; `good-till-cancel`, `immediate-or-cancel` or `post-only`. For trades, the side is the aggressor's |
 | `price`, `quantity`, `leaves` | Ticks and lots; `leaves` is the open quantity after a fill |
-| `liquidity` | `maker` or `taker`, for fills |
+| `liquidity`, `fee` | For fills: `maker` or `taker`, and the fill's fee in tick-lots (negative for a rebate) |
 | `request`, `reason` | For rejections, the request kind and why; for cancellations, why |
 | `bid_price`, `bid_quantity`, `ask_price`, `ask_quantity` | For `top_of_book` |
 
-## Price samples
+Updates of the depth feed are not logged: the log's orders already determine the whole book, and
+`--depth` records the levels at regular times.
 
-`--prices` writes `time,bid,ask,last_trade` every `--price-interval`, from time 0 to the end of the
-run: the best bid and ask as the market stood at that time, after everything that happened at it,
-and the price of the last trade so far. A field is empty while there is no such price. A simulated
-day sampled every second is 86,400 rows, about 3 MB, where the full event log of the
+## Price and depth samples
+
+`--prices` writes `time,bid,ask,last_trade` every `--sample-interval`, from time 0 to the end of
+the run: the best bid and ask as the market stood at that time, after everything that happened at
+it, and the price of the last trade so far. A field is empty while there is no such price. A
+simulated day sampled every second is 86,400 rows, about 3 MB, where the full event log of the
 thousand-trader example market is about 12 GB, so long runs for return statistics use this
 instead of `--log`.
+
+`--depth` writes the depth feed the same way, with the columns `time`, then `bid_price_1`,
+`bid_quantity_1` and so on to the feed's depth, then the same for asks. Levels the book does not
+have are empty.
 
 ## Results as JSON
 
@@ -181,7 +208,8 @@ instead of `--log`.
   "final_value": 9977.291935501687,
   "groups": [
     {"name": "maker", "type": "market_maker", "agents": 1, "agent_ids": [1], "traded": 3287,
-     "initial_cash": 0, "initial_position": 0, "cash": -42719, "position": 5, "pnl": 7171},
+     "initial_cash": 0, "initial_position": 0, "cash": -42719, "position": 5, "pnl": 7171,
+     "fees": 0},
     ...
   ]
 }
@@ -194,4 +222,5 @@ instead of `--log`.
 | `final_value` | The fundamental value at the end, or `null` without a `[fundamental]` section |
 | `agent_ids` | The group's agents, as they appear in the event log's `agent` column |
 | `traded` | Lots the group bought plus lots it sold |
-| `cash`, `pnl` | In tick-lots; `pnl` is the change in cash plus the change in position valued at `last_price` |
+| `cash`, `pnl` | In tick-lots; `pnl` is the change in cash plus the change in position valued at `last_price`, before fees |
+| `fees` | Fees paid net of rebates, in tick-lots |
