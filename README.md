@@ -1,7 +1,8 @@
 # crowdbook
 
-An agent-based limit order book simulator in C++23, built to be both a research tool for market
-microstructure and, as it grows, a market you can trade in yourself.
+An agent-based limit order book simulator in C++23: a research tool for market microstructure,
+and a market you can trade in yourself, by hand or with your own bot, that shows you afterwards who
+you traded with and what they knew.
 
 crowdbook models a market as a crowd of individual traders — market makers, informed traders,
 trend followers, noise traders — each sending orders to a simulated exchange over its own network
@@ -13,7 +14,8 @@ interact. Writing your own agent means writing one C++ class and naming it in a 
 > [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself,
 > in real time, and replay the session exactly afterwards. A market with memory shows volatility
 > clustering for about an hour, and brokers working large orders give order flow long memory and
-> price impact whose shape depends on how long the book remembers. Next: the trading day. See
+> price impact whose shape depends on how long the book remembers. Next: a network gateway, so
+people and bots from outside can trade in the same market. See
 > [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
 > roadmap.
 

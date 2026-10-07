@@ -2,24 +2,30 @@
 
 ## Goal
 
-crowdbook is a research tool and a game built on one engine: a market realistic enough to study
-that you can also trade in yourself.
+crowdbook is a market realistic enough to study that you can also trade in, by hand or with your
+own bot, and that tells you the truth afterwards. One engine serves four uses:
 
 - **Research.** Simulate a continuous double-auction market as the sum of individual agents, so
   that market microstructure — spreads, depth, price impact, volatility — emerges from agent
   behaviour instead of being assumed. Measure it against real markets, and run experiments no real
   exchange allows: change the tick size, the fees or the speed of the connections, or replay the
   same market without one of its traders.
-- **Game.** Trade in the simulated market while it runs, by hand on a trading screen or with your
-  own bot, against a crowd of agents. Afterwards, see what a real market never shows: who you
-  traded with, which of them knew the true value, and what the market would have done without
-  you.
-- **Toolkit.** Anyone can add an agent: today a C++ class against a small API, later any program
-  that speaks the gateway's protocol. Every run is reproducible from its seed and its recorded
-  inputs.
+- **Practice and assessment.** Trade in the simulated market while it runs, by hand or with a bot,
+  against a crowd of agents and other people, in challenges with published scoring. Afterwards,
+  see what a real market never shows: who you traded with, which of them knew the true value, and
+  what the market would have done without you. Every session replays exactly, so anyone holding
+  its file can check a score, which is what training, interviews and competitions need.
+- **Testing strategies and systems.** A backtest on recorded data cannot react to your orders;
+  this market does, with price impact, queue position and informed traders who pick off stale
+  quotes. Strategies and execution algorithms connect through the same gateway as everyone else,
+  and later trading systems connect through industry-standard protocols, so the engine also works
+  as a test exchange with realistic order flow behind it.
+- **Toolkit.** Anyone can add an agent: a C++ class against a small API for the built-in crowd, or
+  any program that speaks the gateway's protocol, with a Python client provided. Every run is
+  reproducible from its seed and its recorded inputs.
 
 "Realistic" has a finish line: a scorecard of statistics measured the same way on the simulated
-market and on a real one (M11).
+market and on a real one (M17).
 
 Out of scope: connecting to real exchanges or trading real money, and multiple instruments or
 venues until the single-instrument market is calibrated.
@@ -455,6 +461,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | Market maker's fair price | A running average of trade prices | The mid is often its own quotes; skewing around them made prices run away |
 | Direction | One engine for research and play: the same agents and rules in a batch experiment and in a live session | Experiments then describe the market people trade in, and every played session is reproducible data |
 | Realism | Defined by a scorecard measured the same way on simulated and real data | Without a target, tuning never ends |
+| Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
 | Market memory | Noise traders who respond to recent activity and volatility, measured from their own snapshots | Feedback on volatility through liquidity produced long-lived clustering where feedback on activity alone did not, and snapshots keep it cheap for a thousand traders |
@@ -485,17 +492,25 @@ Choices for later milestones may change once they are implemented; changes are r
 | M7 | Playable slice: real time at adjustable speed, an outside participant, a terminal price ladder, sessions recorded for replay | A recorded session, scripted and played through the real screen, replays to a byte-identical log | Done |
 | M8 | Memory in the crowd: news jumps in the true value, noise traders whose pace follows activity and whose limit orders stand back when prices jump, traders who switch between value and trend strategies by their track records | Volatility clustering at one minute that lasts hours, fat one-minute tails, and ablations naming the cause, in [results.md](results.md) | Done |
 | M9 | Large orders worked over time: execution agents slicing parent orders (TWAP and percentage of volume), parent ids in the log | Long memory in the signs of market orders; how the impact of parent orders grows with their size, in [results.md](results.md) | Done |
-| M10 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Next |
-| M11 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
-| M12 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
-| M13 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |
-| M14 | Gateway: one network protocol for market data and orders, used by humans and bots alike; a Python client | A Python bot trades through it under the same limits, latency and fees as built-in agents | Planned |
-| M15 | Trading screen in the browser, part of the hosted product: price ladder with click-to-trade, chart, trade tape, position and PnL, and a report after each session | A full session played by hand, with its report | Planned (hosted product) |
-| M16 | Truth and counterfactuals: after a session, who you traded with and what they knew; the session replayed without your orders; rewind and re-trade | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Planned |
-| M17 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Planned |
-| M18 | Options research and game: whether a volatility smile emerges from supply and demand, dealers' hedging feeding back into the stock, pinning at expiry; an options market-making challenge | Results in results.md; the challenge playable on the trading screen | Planned |
-| M19 | Challenges and tournaments: scored scenarios (work a large order against VWAP, make markets within a risk limit, trade the news); bot tournaments and leaderboards are part of the hosted product | Scenarios with published scoring, played by the example bots | Planned (tournaments and leaderboards: hosted product) |
-| Later | Multiplayer markets hosted online (hosted product), one stock on several exchanges, ETFs and their constituents, an environment for training learning agents, rule-based agents | | |
+| M10 | Gateway: a network protocol for orders and market data, its messages kept apart from their encoding (JSON lines first); `crowdbook serve`, a market with seats for several people and bots at once; every arrival recorded, so a session with many participants still replays exactly; input treated as untrusted, with size and rate limits; the terminal screen as a client over the network | A bot and the terminal screen trade in one served market, and its recording replays byte for byte; the parser survives randomized malformed input; planted bugs caught | Next |
+| M11 | Python client and example bots: a package installable with pip, using only the standard library; a market maker and a momentum bot as examples | A Python bot trades under the same limits, latency and fees as built-in agents, in CI | Planned |
+| M12 | Scoring and challenges: a scoring section in scenarios (PnL, risk-adjusted PnL, slippage against a benchmark, inventory and loss limits), computed by the engine; challenges with briefings (make markets within a risk limit, work a large order, trade the news, find the informed flow) | A score recomputed from the session's replay equals the live one; the example bots play every challenge in CI | Planned |
+| M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Planned |
+| M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Planned |
+| M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Planned (hosted product) |
+| M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |
+| M17 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
+| M18 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Planned |
+| M19 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules | A learning agent's runs reproduce from their seeds; throughput benchmark | Planned |
+| M20 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
+| M21 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |
+| M22 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Planned |
+| M23 | Options research and challenges: whether a volatility smile emerges from supply and demand, dealers' hedging feeding back into the stock, pinning at expiry; an options market-making challenge | Results in results.md; the challenge playable through the gateway | Planned |
+| Later | One stock on several exchanges, ETFs and their constituents, rule-based agents | | |
+
+The order puts outside participants, scores and reports before more realism: every use above
+needs people and programs from outside to trade and get a result, and the realism work that
+follows (M16, M17) is then measured on the markets people actually use.
 
 ## Code conventions
 
