@@ -1,0 +1,18 @@
+[project]
+name = "crowdbook-analysis"
+version = "0.1.0"
+description = "Analysis and experiments for crowdbook simulation runs"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.9",
+    "numpy>=2.0",
+    "polars>=1.0",
+]
+
+[project.scripts]
+crowdbook-facts = "crowdbook_analysis.stylized_facts:main"
+crowdbook-experiments = "crowdbook_analysis.experiments:main"
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"
