@@ -172,6 +172,52 @@ TEST(SimulationTest, LedgerShowsOrdersInFlightThenCatchesUp) {
     }
 }
 
+// Buys at the market on start and records the position its ledger shows on each fill.
+class FillProbe final : public Agent {
+public:
+    std::vector<Quantity> positionsSeen;
+
+    void onStart(AgentContext& context) override { context.submitMarket(Side::Buy, 3); }
+    void onFilled(AgentContext& context, const OrderFilled& /*event*/) override {
+        positionsSeen.push_back(context.ledger().position());
+    }
+};
+
+TEST(SimulationTest, OwnEventsReachTheLedgerBeforeTheCallbackRuns) {
+    Simulation simulation{1};
+    auto& seller = add<RecordingAgent>(simulation, {});
+    seller.startHook = [](AgentContext& context) { context.submitLimit(Side::Sell, 100, 5); };
+    auto& probe = add<FillProbe>(simulation, {.startTime = 1'000});
+
+    simulation.runUntil(10'000);
+
+    EXPECT_EQ(probe.positionsSeen, std::vector<Quantity>{3});
+}
+
+// An agent's draws around one order: one at start, then one at a later wakeup.
+std::vector<std::uint64_t> drawsAroundAnOrder(Duration jitter) {
+    Simulation simulation{3};
+    auto& agent = add<RecordingAgent>(
+        simulation, {.latency = {.toExchange = 100, .fromExchange = 100, .jitter = jitter}});
+    std::vector<std::uint64_t> draws;
+    agent.startHook = [&draws](AgentContext& context) {
+        draws.push_back(context.random().next());
+        context.submitLimit(Side::Buy, 99, 1);
+        context.wakeAfter(10'000);
+    };
+    agent.wakeupHook = [&draws](AgentContext& context, std::uint64_t /*tag*/) {
+        draws.push_back(context.random().next());
+    };
+    simulation.runUntil(100'000);
+    return draws;
+}
+
+TEST(SimulationTest, JitterDoesNotDisturbTheAgentsOwnRandomStream) {
+    const std::vector<std::uint64_t> withoutJitter = drawsAroundAnOrder(0);
+    ASSERT_EQ(withoutJitter.size(), 2U);
+    EXPECT_EQ(drawsAroundAnOrder(5'000), withoutJitter);
+}
+
 // The first number each of two agents draws in a run with the given seed.
 std::vector<std::uint64_t> firstDraws(std::uint64_t seed) {
     Simulation simulation{seed};
