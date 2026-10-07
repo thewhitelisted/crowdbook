@@ -8,8 +8,9 @@ link. Spreads, depth, price impact and volatility are not assumed; they emerge f
 interact. Writing your own agent means writing one C++ class and naming it in a scenario file.
 
 > **Status:** the order book, the exchange, the simulation kernel, four built-in agents, scenario
-> files and the `crowdbook` command are done; analysis tooling and the first experiments are next.
-> See [docs/design.md](docs/design.md) for the architecture, the testing approach and the roadmap.
+> files, the `crowdbook` command and the Python analysis package are done, and
+> [docs/results.md](docs/results.md) reports the first experiments. See
+> [docs/design.md](docs/design.md) for the architecture, the testing approach and the roadmap.
 
 ## Quick start
 
@@ -24,12 +25,12 @@ cmake --workflow --preset dev
 ```
 
 ```
-examples/scenarios/market_maker.toml (seed 7): simulated 60s in 0.07s
-1726 trades, 6247 lots traded, last price 10010
+examples/scenarios/market_maker.toml (seed 7): simulated 60s in 0.05s
+1842 trades, 6338 lots traded, last price 9924
 
 group                 agents   position           cash          pnl
-maker                      1        -46         463356        +2896
-noise                     20         46        -463356        -2896
+maker                      1          0           1575        +1575
+noise                     20          0          -1575        -1575
 ```
 
 A market maker with a fast connection earns the spread from twenty zero-intelligence traders.
@@ -38,6 +39,35 @@ reproduces the same run, byte for byte. [examples/scenarios](examples/scenarios)
 scenarios, including one with trend followers and one where informed traders know the asset's
 true value; [docs/scenarios.md](docs/scenarios.md) describes the file format and every agent
 parameter.
+
+## Results
+
+A day of a 1,041-agent market — a thousand noise traders, a market maker, twenty trend followers
+and twenty informed traders who know the asset's true value — simulates in 37 seconds. Measured
+over four such days and more than a thousand smaller markets ([docs/results.md](docs/results.md)):
+
+- **Who moves prices.** Noise traders' orders move the mid a tenth of a tick, and the move is gone
+  within a second. Informed traders' orders move it two ticks, for good. Trend followers' orders
+  arrive as moves end, and the price reverses two ticks against them, which costs them 3.3 ticks
+  on every lot.
+- **Headcount is not what matters.** The same order flow from 100 or 1,000 noise traders gives the
+  same market. Fat tails and volatility clustering appear only when agents react to prices: here,
+  over about ten seconds, from the trend followers.
+- **Informed traders barely cost the market maker.** Its fills against them lose about 0.9 ticks
+  per lot. But by pulling prices back to value they make its fills against noise traders worth
+  one to two ticks more, and the noise traders pay for both.
+- **What's missing.** Agents act at constant rates, so nothing makes volatility cluster for hours
+  as it does in real markets. That points to the next agents to build.
+
+![Mid move after the aggressive orders of noise traders, trend followers and informed traders](docs/images/impact.png)
+
+The analysis is a separate Python package that drives the `crowdbook` command:
+
+```bash
+cmake --workflow --preset release
+uv run --project analysis crowdbook-facts
+uv run --project analysis crowdbook-experiments
+```
 
 ## Writing an agent
 
@@ -93,7 +123,9 @@ Each workflow preset configures, builds and runs the test suite, with output in 
 | `asan`    | Debug with AddressSanitizer and UndefinedBehaviorSanitizer |
 
 The core library has no dependencies. Scenario files use [toml++](https://github.com/marzer/tomlplusplus)
-and the tests use GoogleTest; CMake fetches both at pinned versions.
+and the tests use GoogleTest; CMake fetches both at pinned versions. The analysis in `analysis/`
+is a [uv](https://docs.astral.sh/uv/) project using polars, NumPy and matplotlib; nothing in the
+C++ build depends on it.
 
 ## Performance
 
@@ -101,6 +133,9 @@ Measured on an Apple M5 with a Release build:
 
 - The matching engine handles about 15 million operations per second (roughly 65 ns each) on a
   mixed stream of passive orders, cancels, crossing orders and market orders.
+- A simulated day of the 1,041-agent mixed market in
+  [large_market.toml](examples/scenarios/large_market.toml), 17 million trades, takes 37 seconds
+  on one core: about 2,400 times faster than real time.
 - Whole markets of zero-intelligence traders, each acting about four times a second, simulate
   this many seconds per second of wall-clock time:
 

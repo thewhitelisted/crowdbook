@@ -39,7 +39,9 @@ exchanges, real-time execution, and a GUI.
   without recompiling. Agents register under a name, so user-defined agents work in scenarios too.
   See [Agents and scenarios](#agents-and-scenarios) and [scenarios.md](scenarios.md).
 - **Event log** — every request the exchange receives and every event it produces, written as CSV
-  and analysed in Python (`analysis/`).
+  and analysed in Python (`analysis/`). Long runs can keep only chosen kinds of rows or sample
+  prices at fixed times instead, and each run's results can be written as JSON. See
+  [Analysis](#analysis).
 
 ## Order book
 
@@ -125,8 +127,10 @@ time order. Items due at the same nanosecond run in the order they were schedule
 - **Agents** subclass `Agent` and override the callbacks they need: `onStart`, `onWakeup`,
   `onAccepted`, `onRejected`, `onModified`, `onFilled`, `onCancelled`, `onTrade` and
   `onTopOfBook`. Each callback gets an `AgentContext` to act through: `submitLimit`,
-  `submitMarket`, `cancel`, `modify`, `wakeAt` and `wakeAfter`, plus `now()`, `random()` and
-  `ledger()`. The context assigns client order ids, so agents never manage them.
+  `submitMarket`, `cancel`, `modify`, `wakeAt`, `wakeAfter` and `wakeWithin`, plus `now()`,
+  `random()` and `ledger()`. The context assigns client order ids, so agents never manage them.
+  `wakeWithin(interval)` wakes the agent at a random time within the interval; agents on a fixed
+  timer start it that way, so a group of them started together does not act in lockstep.
 - **Ledger:** each agent's own view of its cash, position and orders, built only from what it sent
   and what it heard back. It shows orders in flight before they are acknowledged, and an event is
   applied to it before the agent's callback for that event runs. Once nothing is in flight it
@@ -146,8 +150,10 @@ time order. Items due at the same nanosecond run in the order they were schedule
   for snapshot reads and drops each state once no agent's latency can reach back to it, so memory
   does not grow with the length of a run.
 - **Event log:** `CsvEventLog` writes every request the exchange receives and every event it
-  produces, one row each, in processing order. Two runs with the same seed produce byte-identical
-  logs.
+  produces, one row each, in processing order, optionally only rows of chosen kinds. Two runs with
+  the same seed produce byte-identical logs. `PriceSampler` writes the best bid, best ask and last
+  trade price at fixed times instead, which is all that return statistics over long runs need, and
+  `BroadcastSink` feeds one run to several sinks.
 
 One trap for agent authors: C++ leaves the evaluation order of function arguments unspecified, so
 `context.modify(id, random.uniformInt(...), random.uniformInt(...))` may consume the random stream
@@ -158,9 +164,9 @@ in a different order on another compiler. Draw into local variables first.
 Four agent types are built in. Each is a plain class configured by a struct, so it can be used
 from C++ directly; [scenarios.md](scenarios.md) lists their parameters.
 
-- **Zero-intelligence trader** (Farmer, Patelli and Zovko, 2005): limit orders, market orders and
-  cancellations at Poisson times, on random sides, with limit prices drawn inside the opposite
-  best quote.
+- **Zero-intelligence trader** (Farmer, Patelli and Zovko, 2005): limit and market orders at
+  Poisson times, on random sides, with limit prices drawn inside the opposite best quote. Each
+  resting order is cancelled after its own exponentially distributed lifetime.
 - **Market maker** (Avellaneda and Stoikov, 2008): one bid and one ask around a reservation price
   that leans against inventory, requoted on a timer and after every fill. Its fair price is a
   running average of trade prices rather than the mid, because the mid is often its own quotes.
@@ -170,8 +176,8 @@ from C++ directly; [scenarios.md](scenarios.md) lists their parameters.
   immediate-or-cancel orders priced to keep its edge, so it never sweeps the book past its
   estimate.
 
-The fundamental value is an Ornstein–Uhlenbeck process (a random walk without mean reversion)
-stepped with its exact discrete-time formulas from its own random stream, so its path does not
+The fundamental value is an Ornstein–Uhlenbeck process (a random walk when its mean reversion is
+zero, the default) stepped with its exact discrete-time formulas from its own random stream, so its path does not
 depend on who reads it or when.
 
 A scenario names agent groups with shared settings. `AgentRegistry` maps type names to factories
@@ -181,14 +187,62 @@ a `Scenario` struct and reports trades, volume, the last price, the fundamental'
 each group's position, cash and PnL. Scenario files are only one way to fill in that struct: the
 TOML reader lives in its own library, so the core library stays free of dependencies.
 
-Running the examples taught one thing worth keeping. In Avellaneda–Stoikov the mid price is
+Running the examples and analysing the results taught four things worth keeping.
+
+**Market-maker self-impact.** In Avellaneda–Stoikov the mid price is
 exogenous, but here the zero-intelligence traders anchor on the best quotes, which are often the
 market maker's own. The market maker's inventory skew, γσ²τ per lot, therefore moves the market,
 and with the paper's parameters, rescaled to ticks, the skew was large enough to drag prices
 against its own inventory: it lost money even against pure noise, and more the wider it quoted.
 With a skew of about 0.05 ticks per lot it earns the spread. The defaults are set for that regime,
-and measuring how this self-impact depends on the skew and on how much liquidity others provide is
-one of the first experiments.
+and [results.md](results.md) measures how this self-impact depends on the skew and on how much
+liquidity others provide.
+
+**Cancel per order, not per trader.** The zero-intelligence traders first cancelled one of their
+own orders at a fixed rate per trader. Orders then arrived faster than they were cancelled, the
+book grew without limit (from 4,500 resting orders to 12,500 in ten simulated minutes, with a
+thousand traders), and the orders piling up around the early prices pinned the price for hours.
+Giving each order its own exponential lifetime makes total cancellations grow with the book, which
+settles at a steady size, about a thousand orders for that market, and the price then wanders
+freely.
+
+**Desynchronize timers.** Momentum and informed traders first started their timers at exactly
+one interval. Every agent of a group then acted within microseconds of the others for the whole
+run, so twenty informed traders hit the book as one burst five times a second. Measuring price
+impact by trader type exposed it: the price kept moving within a millisecond of an informed order,
+as the rest of the burst arrived. Timers now start at a random point within the first interval.
+
+**Size limits to the flow an agent must absorb.** Informed traders who hold the price to the true
+value must take the other side of the noise traders' net order flow, which wanders like a random
+walk: tens of thousands of lots over a simulated day. With limits of a hundred lots each they
+filled up within half an hour, the price then drifted hundreds of ticks from the value, and the
+fat tails that market showed were an artifact of the drift. Long runs need a check that every
+agent can still act, so the analysis reports each group's volume and PnL.
+
+## Analysis
+
+`analysis/` is a Python project, managed with [uv](https://docs.astral.sh/uv/), that drives the
+Release build of `crowdbook` through its command line and reads its CSV and JSON output, the same
+interface any user has. Nothing in the C++ build depends on it.
+
+- `log` reads event logs and price samples into [polars](https://pola.rs) data frames, and pairs
+  each execution's maker with its taker.
+- `facts` holds the statistics: returns over a horizon, excess kurtosis, autocorrelation, tail
+  distributions, volatility at each horizon (the signature plot), the time-weighted spread
+  distribution, the mid's move after aggressive orders by group and horizon, and markouts of
+  each execution for the agent whose resting order it filled.
+- `runner` writes a scenario, runs it, and runs many in parallel.
+- `style` gives every chart the same thin marks and recessive axes, with series colors checked as a
+  set for color-vision deficiencies.
+- `crowdbook-facts` measures stylized facts of the large example markets, and `crowdbook-experiments`
+  runs the market-maker experiments. Both print their tables as Markdown and save their charts to
+  `docs/images`; [results.md](results.md) reports what they found.
+
+```bash
+cmake --workflow --preset release
+uv run --project analysis crowdbook-facts
+uv run --project analysis crowdbook-experiments
+```
 
 ## Testing
 
@@ -223,7 +277,8 @@ one of the first experiments.
 - **Agent tests** run each built-in agent against `FakeContext`, a stand-in for the simulation
   that records what the agent sends and lets the test play the exchange. They check decisions
   exactly: Avellaneda–Stoikov quotes against hand-computed values, prices relative to the book,
-  position limits including orders in flight, and the mix and timing of random actions.
+  position limits including orders in flight, the mix and timing of random actions, and that
+  agents started together spread their first decisions over the first interval.
 - **Scenario tests** run small markets and check that the groups' cash, positions and PnL sum to
   zero and that the same scenario gives the same result. Scenario file tests check that every
   setting is read and that syntax errors, unknown keys and bad values are reported with their line.
@@ -243,6 +298,9 @@ one of the first experiments.
   that reorder messages, no same-time tie-break, the ledger updated after the callback, market
   data sent to one agent only, jitter drawn from the agent's own stream, wakeups scheduled in the
   past, start times ignored.
+- **Analysis tests** check each statistic in `analysis/` on inputs with known answers: a random
+  walk's flat volatility signature, a normal sample's zero excess kurtosis, hand-computed spreads
+  and price moves.
 - **Sanitizers:** the `asan` preset runs everything under AddressSanitizer and
   UndefinedBehaviorSanitizer, locally and in CI.
 
@@ -276,6 +334,10 @@ Choices for later milestones may change once they are implemented; changes are r
 | Scenario format | TOML, read by toml++ in a separate library | Comments can document an experiment's choices; the core library keeps no dependencies |
 | Unknown parameters | An error, not ignored | A typo would otherwise run the experiment with a default nobody chose |
 | Market maker's fair price | A running average of trade prices | The mid is often its own quotes; skewing around them made prices run away |
+| Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
+| Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
+| Analysis | Python (polars, matplotlib) in its own uv project, driving the command line | The C++ build keeps no analysis dependencies, and the analysis uses only what any user gets |
+| Long runs | Prices sampled at fixed times, or a log filtered by row kind | The full log of the thousand-trader market comes to about 12 GB per simulated day |
 
 ## Milestones
 
@@ -287,8 +349,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M3 | Kernel, latency, random streams, agent API, ledger, CSV event log | Same seed gives a byte-identical event log; ledgers match the exchange | Done |
 | M4 | Built-in agents (zero-intelligence, Avellaneda–Stoikov market maker, momentum, informed), fundamental value, TOML scenarios, `crowdbook` CLI | Agent tests against a fake context; every example runs in CI | Done |
 | M5a | On-demand market data, so crowds of thousands of agents run faster than real time | Scaling benchmark: 10,000 traders at 52× real time | Done |
-| M5b | Stylized facts and first experiments: market-maker self-impact and PnL against informed flow and latency | Plots in the README | Next |
-| Later | Rule-based agents, post-only orders, depth snapshots, fees, multiple instruments, live viewer | | |
+| M5b | Analysis package; stylized facts, crowd size and price impact by trader type in the thousand-trader markets; market-maker self-impact and PnL against informed flow and latency | [results.md](results.md): four simulated days per market, 32 seeds per experiment point | Done |
+| Later | Agents whose activity reacts to the market (for volatility clustering), rule-based agents, post-only orders, depth snapshots, fees, multiple instruments, live viewer | | |
 
 ## Code conventions
 

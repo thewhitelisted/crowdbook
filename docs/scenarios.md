@@ -7,8 +7,16 @@ asset's true value, and groups of agents. Run one with:
 ./build/dev/apps/crowdbook run examples/scenarios/market_maker.toml --seed 42 --log run.csv
 ```
 
-`--seed` and `--duration` override the file's values, and `--log` writes every request the
-exchange receives and every event it produces as CSV. `crowdbook agents` lists the agent types.
+| Option | Meaning |
+|---|---|
+| `--seed N`, `--duration D` | Override the file's values |
+| `--log FILE` | Write every request the exchange receives and every event it produces as CSV ([the event log](#the-event-log)) |
+| `--log-only KIND,...` | Keep only these kinds of log rows, such as `trade,top_of_book` |
+| `--prices FILE` | Write the best bid, best ask and last trade price at regular times ([price samples](#price-samples)) |
+| `--price-interval D` | How often `--prices` samples; `"1s"` unless given |
+| `--json FILE` | Write the results for analysis scripts ([results as JSON](#results-as-json)) |
+
+`crowdbook agents` lists the agent types.
 
 Durations are written as text with a unit: `"250ns"`, `"50us"`, `"1.5ms"`, `"2s"`. Prices are in
 ticks and quantities in lots. Any key crowdbook does not know is an error, so a typo stops the run
@@ -55,18 +63,20 @@ within it. Cash has no limit. Every other key in the table is a parameter of the
 
 The market maker receives every trade and quote change as it happens. The other three read the
 market on demand when they act, which keeps crowds of thousands fast; either way, each sees the
-market only after its own `from_exchange` latency.
+market only after its own `from_exchange` latency. Agents that act on a timer (the market maker,
+momentum and informed traders) start it at a random point within the first interval, so a group
+of them does not act in lockstep.
 
 ### `zero_intelligence`
 
-Random limit orders, market orders and cancellations at Poisson times, after Farmer, Patelli and
-Zovko (2005).
+Random limit and market orders at Poisson times, after Farmer, Patelli and Zovko (2005). Each
+limit order that rests is cancelled after its own random lifetime.
 
 | Parameter | Default | Meaning |
 |---|---|---|
 | `limit_rate` | `2.0` | Limit orders per second |
 | `market_rate` | `0.5` | Market orders per second |
-| `cancel_rate` | `1.0` | Cancellations of its own orders per second |
+| `cancel_rate` | `0.2` | Per resting order per second: an order that never fills rests 1/`cancel_rate` seconds on average; `0` keeps orders until they fill |
 | `max_offset` | `10` | Limit prices are 1 to `max_offset` ticks inside the opposite best quote |
 | `min_size`, `max_size` | `1`, `10` | Range of order sizes, in lots |
 
@@ -109,6 +119,11 @@ direction of the trend.
 Observes the fundamental value with noise and trades when the book is far enough from it, using
 immediate-or-cancel orders priced to keep its edge. Needs a `[fundamental]` section.
 
+To hold the price to the value over a long run, informed traders must absorb the other traders'
+net order flow, so give them room: with small position limits they fill up, and the price drifts
+away from the value. [large_market.toml](../examples/scenarios/large_market.toml) shows a setting
+that holds for a simulated day.
+
 | Parameter | Default | Meaning |
 |---|---|---|
 | `interval` | `"100ms"` | How often it looks at the value |
@@ -141,3 +156,42 @@ Columns that do not apply to a row are empty.
 | `liquidity` | `maker` or `taker`, for fills |
 | `request`, `reason` | For rejections, the request kind and why; for cancellations, why |
 | `bid_price`, `bid_quantity`, `ask_price`, `ask_quantity` | For `top_of_book` |
+
+## Price samples
+
+`--prices` writes `time,bid,ask,last_trade` every `--price-interval`, from time 0 to the end of the
+run: the best bid and ask as the market stood at that time, after everything that happened at it,
+and the price of the last trade so far. A field is empty while there is no such price. A simulated
+day sampled every second is 86,400 rows, about 3 MB, where the full event log of the
+thousand-trader example market is about 12 GB, so long runs for return statistics use this
+instead of `--log`.
+
+## Results as JSON
+
+`--json` writes the run's settings and results as one object:
+
+```json
+{
+  "seed": 11,
+  "duration_ns": 60000000000,
+  "reference_price": 10000,
+  "trades": 2387,
+  "volume": 8994,
+  "last_price": 9978,
+  "final_value": 9977.291935501687,
+  "groups": [
+    {"name": "maker", "type": "market_maker", "agents": 1, "agent_ids": [1], "traded": 3287,
+     "initial_cash": 0, "initial_position": 0, "cash": -42719, "position": 5, "pnl": 7171},
+    ...
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `trades`, `volume` | Trades printed and lots traded |
+| `last_price` | The last trade's price, or the reference price if nothing traded |
+| `final_value` | The fundamental value at the end, or `null` without a `[fundamental]` section |
+| `agent_ids` | The group's agents, as they appear in the event log's `agent` column |
+| `traded` | Lots the group bought plus lots it sold |
+| `cash`, `pnl` | In tick-lots; `pnl` is the change in cash plus the change in position valued at `last_price` |
