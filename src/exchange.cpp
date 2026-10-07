@@ -182,12 +182,18 @@ void Exchange::submit(AgentId agent, AgentState& state, const NewOrder& order,
                               order.quantity)) {
         return reject(RejectReason::PositionLimit);
     }
+    const bool postOnly =
+        order.type == OrderType::Limit && order.timeInForce == TimeInForce::PostOnly;
+    if (postOnly && wouldTrade(order.side, order.price)) {
+        return reject(RejectReason::PostOnlyWouldTrade);
+    }
 
     const IncomingOrder incoming{.agent = agent,
                                  .clientOrderId = order.clientOrderId,
                                  .id = nextOrderId_++,
                                  .side = order.side,
-                                 .quantity = order.quantity};
+                                 .quantity = order.quantity,
+                                 .postOnly = postOnly};
     events.push_back(OrderAccepted{.agent = agent,
                                    .clientOrderId = order.clientOrderId,
                                    .orderId = incoming.id,
@@ -268,13 +274,18 @@ void Exchange::modify(AgentId agent, AgentState& state, const ModifyOrder& reque
                               request.quantity - current->remaining)) {
         return reject(RejectReason::PositionLimit);
     }
+    const bool postOnly = liveOrders_.at(id).postOnly;
+    if (postOnly && wouldTrade(current->side, request.price)) {
+        return reject(RejectReason::PostOnlyWouldTrade);
+    }
 
     const IncomingOrder incoming{.agent = agent,
                                  .clientOrderId = request.clientOrderId,
                                  .id = id,
                                  .side = current->side,
                                  .quantity = request.quantity,
-                                 .restingBefore = current->remaining};
+                                 .restingBefore = current->remaining,
+                                 .postOnly = postOnly};
     events.push_back(OrderModified{.agent = agent,
                                    .clientOrderId = request.clientOrderId,
                                    .orderId = id,
@@ -340,7 +351,8 @@ void Exchange::finish(const IncomingOrder& incoming, AgentState& state, const Or
         state.liveOrders.insert_or_assign(incoming.clientOrderId, incoming.id);
         liveOrders_.insert_or_assign(incoming.id, LiveOrder{.agent = incoming.agent,
                                                             .clientOrderId = incoming.clientOrderId,
-                                                            .side = incoming.side});
+                                                            .side = incoming.side,
+                                                            .postOnly = incoming.postOnly});
     } else {
         state.liveOrders.erase(incoming.clientOrderId);
         liveOrders_.erase(incoming.id);
@@ -353,6 +365,15 @@ void Exchange::finish(const IncomingOrder& incoming, AgentState& state, const Or
                                         .quantity = incoming.quantity - result.filled,
                                         .reason = result.cancelReason});
     }
+}
+
+bool Exchange::wouldTrade(Side side, Price price) const noexcept {
+    if (side == Side::Buy) {
+        const std::optional<Price> ask = book_.bestAsk();
+        return ask && price >= *ask;
+    }
+    const std::optional<Price> bid = book_.bestBid();
+    return bid && price <= *bid;
 }
 
 void Exchange::publishTopOfBook(std::vector<Event>& events) {

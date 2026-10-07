@@ -291,6 +291,78 @@ TEST_F(ExchangeTest, ModifyThatCrossesTradesImmediately) {
               (Account{.cash = 200, .position = -2, .openSellQuantity = 1}));
 }
 
+TEST_F(ExchangeTest, PostOnlyOrderRestsWhenItWouldNotTrade) {
+    send(kBob, limitOrder(1, Side::Sell, 101, 3));
+
+    EXPECT_EQ(send(kAlice, limitOrder(1, Side::Buy, 100, 5, TimeInForce::PostOnly)),
+              (std::vector<Event>{
+                  OrderAccepted{.agent = kAlice,
+                                .clientOrderId = 1,
+                                .orderId = 2,
+                                .side = Side::Buy,
+                                .timeInForce = TimeInForce::PostOnly,
+                                .price = 100,
+                                .quantity = 5},
+                  TopOfBook{.bid = LevelSummary{.price = 100, .quantity = 5, .orderCount = 1},
+                            .ask = LevelSummary{.price = 101, .quantity = 3, .orderCount = 1}},
+              }));
+}
+
+TEST_F(ExchangeTest, RejectsPostOnlyOrdersAtOrThroughTheOppositeBestPrice) {
+    send(kBob, limitOrder(1, Side::Sell, 101, 3));
+    send(kBob, limitOrder(2, Side::Buy, 99, 3));
+
+    for (const auto& [side, price] : {std::pair{Side::Buy, Price{101}},
+                                      std::pair{Side::Buy, Price{102}},
+                                      std::pair{Side::Sell, Price{99}},
+                                      std::pair{Side::Sell, Price{98}}}) {
+        EXPECT_EQ(send(kAlice, limitOrder(1, side, price, 5, TimeInForce::PostOnly)),
+                  (std::vector<Event>{OrderRejected{.agent = kAlice,
+                                                    .clientOrderId = 1,
+                                                    .request = RequestKind::New,
+                                                    .reason = RejectReason::PostOnlyWouldTrade}}));
+    }
+    EXPECT_EQ(exchange_.account(kAlice), Account{});
+}
+
+TEST_F(ExchangeTest, PostOnlyOrderAgainstTheAgentsOwnOrderIsRejected) {
+    send(kAlice, limitOrder(1, Side::Sell, 101, 3));
+
+    // Self-trade prevention would cancel the incoming order; a post-only order never gets there.
+    EXPECT_EQ(send(kAlice, limitOrder(2, Side::Buy, 101, 1, TimeInForce::PostOnly)),
+              (std::vector<Event>{OrderRejected{.agent = kAlice,
+                                                .clientOrderId = 2,
+                                                .request = RequestKind::New,
+                                                .reason = RejectReason::PostOnlyWouldTrade}}));
+}
+
+TEST_F(ExchangeTest, ModifyCannotMakeAPostOnlyOrderTrade) {
+    send(kAlice, limitOrder(1, Side::Buy, 99, 2, TimeInForce::PostOnly));
+    send(kBob, limitOrder(1, Side::Sell, 101, 3));
+    const Event rejected = OrderRejected{.agent = kAlice,
+                                         .clientOrderId = 1,
+                                         .request = RequestKind::Modify,
+                                         .reason = RejectReason::PostOnlyWouldTrade};
+
+    EXPECT_EQ(send(kAlice, ModifyOrder{.clientOrderId = 1, .price = 101, .quantity = 2}),
+              std::vector<Event>{rejected});
+    EXPECT_EQ(exchange_.book().find(1), (RestingOrder{.id = 1,
+                                                      .owner = kAlice,
+                                                      .side = Side::Buy,
+                                                      .price = 99,
+                                                      .remaining = 2}));
+
+    // A modify that keeps it passive goes through, and it stays post-only afterwards.
+    EXPECT_EQ(send(kAlice, ModifyOrder{.clientOrderId = 1, .price = 100, .quantity = 2}).front(),
+              (Event{OrderModified{.agent = kAlice,
+                                   .clientOrderId = 1,
+                                   .orderId = 1,
+                                   .price = 100,
+                                   .quantity = 2}}));
+    EXPECT_EQ(send(kAlice, ModifyOrder{.clientOrderId = 1, .price = 102, .quantity = 2}),
+              std::vector<Event>{rejected});
+}
+
 TEST_F(ExchangeTest, PublishesTopOfBookOnlyWhenItChanges) {
     EXPECT_EQ(send(kAlice, limitOrder(1, Side::Buy, 99, 5)).size(), 2U);
     EXPECT_EQ(send(kBob, limitOrder(1, Side::Buy, 98, 1)).size(), 1U); // behind the best bid

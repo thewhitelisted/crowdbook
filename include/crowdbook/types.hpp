@@ -44,6 +44,9 @@ enum class OrderType : std::uint8_t {
 enum class TimeInForce : std::uint8_t {
     GoodTillCancel,    // rests on the book until filled or cancelled
     ImmediateOrCancel, // is cancelled
+    // Rests like good-till-cancel, but only ever adds liquidity: the exchange rejects the order,
+    // or a modify of it, if it would trade on arrival.
+    PostOnly,
 };
 
 struct OrderRequest {
@@ -96,6 +99,7 @@ enum class RejectReason : std::uint8_t {
     DuplicateClientOrderId, // the agent already has a live order with this client order id
     UnknownOrderId,         // no such live order
     UnknownAgent,           // the agent has no account
+    PostOnlyWouldTrade,     // a post-only order or modify would have traded on arrival
 };
 
 struct OrderResult {

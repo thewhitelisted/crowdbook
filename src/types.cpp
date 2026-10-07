@@ -28,6 +28,8 @@ std::string_view toString(TimeInForce timeInForce) noexcept {
         return "good-till-cancel";
     case TimeInForce::ImmediateOrCancel:
         return "immediate-or-cancel";
+    case TimeInForce::PostOnly:
+        return "post-only";
     }
     return "unknown";
 }
@@ -80,6 +82,8 @@ std::string_view toString(RejectReason reason) noexcept {
         return "unknown order id";
     case RejectReason::UnknownAgent:
         return "unknown agent";
+    case RejectReason::PostOnlyWouldTrade:
+        return "post-only would trade";
     }
     return "unknown";
 }

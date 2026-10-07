@@ -162,6 +162,8 @@ TEST_P(ExchangeRandomTest, AccountsBooksAndEventsStayConsistent) {
                 order.timeInForce = TimeInForce::ImmediateOrCancel;
             } else if (kind < 4) {
                 order.type = OrderType::Market;
+            } else if (kind < 5) {
+                order.timeInForce = TimeInForce::PostOnly;
             }
             order.price = below(25) == 0 ? 0 : between(95, 105); // 0 is an invalid limit price
             order.quantity = between(0, 30); // 0 is invalid; large sizes hit size limits
@@ -202,6 +204,12 @@ TEST_P(ExchangeRandomTest, AccountsBooksAndEventsStayConsistent) {
         }
 
         ASSERT_EQ(traded, takerFilled);
+        // A post-only order never takes liquidity.
+        if (const auto* order = std::get_if<NewOrder>(&request);
+            order != nullptr && order->type == OrderType::Limit &&
+            order->timeInForce == TimeInForce::PostOnly) {
+            ASSERT_EQ(takerFilled, 0);
+        }
         ASSERT_EQ(feed, exchange.topOfBook());
         ASSERT_EQ(exchange.audit(), std::nullopt);
         ASSERT_NO_FATAL_FAILURE(expectLedgersMatch(exchange, ledgers));

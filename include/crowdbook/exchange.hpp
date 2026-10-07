@@ -72,6 +72,7 @@ private:
         AgentId agent = 0;
         ClientOrderId clientOrderId = 0;
         Side side = Side::Buy;
+        bool postOnly = false;
     };
 
     // An order that has just been through matching: new, or re-entered by a modify.
@@ -82,6 +83,7 @@ private:
         Side side = Side::Buy;
         Quantity quantity = 0;      // quantity sent to the book
         Quantity restingBefore = 0; // open quantity it had on the book beforehand
+        bool postOnly = false;
     };
 
     void submit(AgentId agent, AgentState& state, const NewOrder& order,
@@ -96,6 +98,8 @@ private:
     void finish(const IncomingOrder& incoming, AgentState& state, const OrderResult& result,
                 std::vector<Event>& events);
     void publishTopOfBook(std::vector<Event>& events);
+    // Whether a limit order on `side` at `price` would trade against the book now.
+    [[nodiscard]] bool wouldTrade(Side side, Price price) const noexcept;
 
     OrderBook book_;
     std::unordered_map<AgentId, AgentState> agents_;

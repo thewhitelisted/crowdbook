@@ -30,7 +30,8 @@ public:
     ~OrderBook() = default;
 
     // Matches the request against the opposite side, then rests whatever is left of a
-    // good-till-cancel limit order. Executions are appended to `fills`.
+    // good-till-cancel or post-only limit order. Executions are appended to `fills`. The exchange
+    // rejects a post-only order that would trade before it reaches the book.
     OrderResult submit(const OrderRequest& request, std::vector<Fill>& fills);
 
     // Sets a resting order's price and open quantity. Lowering the quantity at the same price keeps
