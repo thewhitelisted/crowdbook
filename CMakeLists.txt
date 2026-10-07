@@ -8,8 +8,14 @@ project(crowdbook
 option(CROWDBOOK_BUILD_TESTS "Build the crowdbook test suite" ${PROJECT_IS_TOP_LEVEL})
 option(CROWDBOOK_BUILD_APPS "Build the crowdbook command-line tool" ${PROJECT_IS_TOP_LEVEL})
 option(CROWDBOOK_BUILD_BENCHMARKS "Build the crowdbook benchmarks" OFF)
+option(CROWDBOOK_BUILD_SCENARIOS "Build TOML scenario file support (fetches toml++)"
+    ${PROJECT_IS_TOP_LEVEL})
 option(CROWDBOOK_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(CROWDBOOK_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+
+if((CROWDBOOK_BUILD_TESTS OR CROWDBOOK_BUILD_APPS) AND NOT CROWDBOOK_BUILD_SCENARIOS)
+    message(FATAL_ERROR "The tests and the crowdbook tool need CROWDBOOK_BUILD_SCENARIOS=ON")
+endif()
 
 if(PROJECT_IS_TOP_LEVEL)
     set(CMAKE_CXX_EXTENSIONS OFF)
