@@ -4,6 +4,7 @@
 #include <optional>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 #include "crowdbook/types.hpp"
 
@@ -126,18 +127,30 @@ struct TopOfBook {
     friend bool operator==(const TopOfBook&, const TopOfBook&) = default;
 };
 
-// The public market as one agent can see it: the best bid and ask and the last trade price, as
-// the exchange had published them one of the agent's latencies ago.
+// The best price levels on each side, best first, as deep as the exchange's depth feed goes.
+// Published only by an exchange configured with a depth feed.
+struct BookDepth {
+    std::vector<LevelSummary> bids{};
+    std::vector<LevelSummary> asks{};
+
+    friend bool operator==(const BookDepth&, const BookDepth&) = default;
+};
+
+// The public market as one agent can see it: the best bid and ask, the last trade price and, with
+// a depth feed, the best levels on each side, as the exchange had published them one of the
+// agent's latencies ago.
 struct MarketSnapshot {
     std::optional<LevelSummary> bid{};
     std::optional<LevelSummary> ask{};
     std::optional<Price> lastTrade{};
+    std::vector<LevelSummary> bids{}; // best first; empty without a depth feed
+    std::vector<LevelSummary> asks{};
 
     friend bool operator==(const MarketSnapshot&, const MarketSnapshot&) = default;
 };
 
 using Event = std::variant<OrderAccepted, OrderRejected, OrderModified, OrderFilled,
-                           OrderCancelled, Trade, TopOfBook>;
+                           OrderCancelled, Trade, TopOfBook, BookDepth>;
 
 // The agent a private event is addressed to, or nullopt for public market data.
 [[nodiscard]] std::optional<AgentId> recipient(const Event& event);

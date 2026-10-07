@@ -146,14 +146,20 @@ std::optional<LevelSummary> OrderBook::bestLevel(Side side) const noexcept {
 }
 
 std::vector<LevelSummary> OrderBook::depth(Side side, std::size_t maxLevels) const {
-    std::vector<LevelSummary> summary;
-    const auto collect = [&](const auto& levels) {
-        summary.reserve(std::min(maxLevels, levels.size()));
-        for (const auto& [price, level] : levels) {
-            if (summary.size() == maxLevels) {
+    std::vector<LevelSummary> levels;
+    depth(side, maxLevels, levels);
+    return levels;
+}
+
+void OrderBook::depth(Side side, std::size_t maxLevels, std::vector<LevelSummary>& levels) const {
+    levels.clear();
+    const auto collect = [&](const auto& book) {
+        levels.reserve(std::min(maxLevels, book.size()));
+        for (const auto& [price, level] : book) {
+            if (levels.size() == maxLevels) {
                 break;
             }
-            summary.push_back(
+            levels.push_back(
                 {.price = price, .quantity = level.quantity, .orderCount = level.orderCount});
         }
     };
@@ -162,7 +168,6 @@ std::vector<LevelSummary> OrderBook::depth(Side side, std::size_t maxLevels) con
     } else {
         collect(asks_);
     }
-    return summary;
 }
 
 std::size_t OrderBook::orderCount() const noexcept { return orders_.size(); }

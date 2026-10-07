@@ -26,8 +26,16 @@ if(CROWDBOOK_BUILD_TESTS)
     add_test(NAME cli.prices
         COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/market_maker.toml"
             --duration 2s --prices "${CMAKE_CURRENT_BINARY_DIR}/prices.csv"
-            --price-interval 500ms)
+            --sample-interval 500ms)
     set_tests_properties(cli.prices PROPERTIES PASS_REGULAR_EXPRESSION "prices written to")
+    add_test(NAME cli.depth
+        COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/maker_taker.toml"
+            --duration 2s --depth "${CMAKE_CURRENT_BINARY_DIR}/depth.csv")
+    set_tests_properties(cli.depth PROPERTIES PASS_REGULAR_EXPRESSION "depth written to")
+    add_test(NAME cli.depth_without_feed
+        COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/market_maker.toml"
+            --duration 1s --depth "${CMAKE_CURRENT_BINARY_DIR}/unused_depth.csv")
+    set_tests_properties(cli.depth_without_feed PROPERTIES WILL_FAIL TRUE)
     add_test(NAME cli.fees
         COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/maker_taker.toml"
             --duration 2s)

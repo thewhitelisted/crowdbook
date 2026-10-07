@@ -241,6 +241,11 @@ TEST_F(OrderBookTest, DepthListsLevelsBestFirst) {
     EXPECT_EQ(book_.depth(Side::Sell),
               (std::vector<LevelSummary>{{.price = 101, .quantity = 4, .orderCount = 1},
                                          {.price = 103, .quantity = 1, .orderCount = 1}}));
+
+    // Into a reused buffer, replacing what it held.
+    std::vector<LevelSummary> buffer = book_.depth(Side::Buy);
+    book_.depth(Side::Sell, 1, buffer);
+    EXPECT_EQ(buffer, (std::vector<LevelSummary>{{.price = 101, .quantity = 4, .orderCount = 1}}));
 }
 
 TEST_F(OrderBookTest, BestLevelSummarizesTheTopOfEachSide) {

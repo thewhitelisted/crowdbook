@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <ostream>
 #include <set>
@@ -46,26 +47,59 @@ private:
     std::set<std::string, std::less<>> kinds_; // empty keeps every kind
 };
 
-// Writes the best bid, best ask and last trade price every `interval`, as CSV with the columns
-// time, bid, ask and last_trade: a compact price history for long runs, where a full event log
-// would be too large. Each row shows the market after everything up to and including its time.
-class PriceSampler final : public EventSink {
+// Writes one row every `interval` from time 0 to the end of the run, each showing the market
+// after everything up to and including its time: a compact history for long runs, where a full
+// event log would be too large. Subclasses keep the state they report and format the rows.
+class IntervalSampler : public EventSink {
+public:
+    void onRequest(Timestamp time, AgentId agent, const Request& request) final;
+    void onEvent(Timestamp time, const Event& event) final;
+    // Writes the rows still due up to and including `end`; call it when the run is over.
+    void finish(Timestamp end);
+
+protected:
+    // Throws std::invalid_argument unless the interval is positive.
+    explicit IntervalSampler(Duration interval);
+
+private:
+    virtual void update(const Event& event) = 0;
+    virtual void writeRow(Timestamp time) = 0;
+    void writeRowsBefore(Timestamp time);
+
+    Duration interval_;
+    Timestamp nextRow_ = 0;
+};
+
+// Writes the best bid, best ask and last trade price, as CSV with the columns time, bid, ask and
+// last_trade. A price is empty while there is none.
+class PriceSampler final : public IntervalSampler {
 public:
     // Throws std::invalid_argument unless the interval is positive.
     PriceSampler(std::ostream& out, Duration interval);
 
-    void onRequest(Timestamp time, AgentId agent, const Request& request) override;
-    void onEvent(Timestamp time, const Event& event) override;
-    // Writes the rows still due up to and including `end`; call it when the run is over.
-    void finish(Timestamp end);
-
 private:
-    void writeRowsBefore(Timestamp time);
+    void update(const Event& event) override;
+    void writeRow(Timestamp time) override;
 
     std::ostream& out_;
-    Duration interval_;
-    Timestamp nextRow_ = 0;
     MarketSnapshot market_;
+};
+
+// Writes the exchange's depth feed, as CSV with the columns time, then bid_price_1,
+// bid_quantity_1 up to level `levels`, then the same for asks. Levels the book does not have are
+// empty. The exchange must publish a depth feed at least `levels` deep.
+class DepthSampler final : public IntervalSampler {
+public:
+    // Throws std::invalid_argument unless the interval and the number of levels are positive.
+    DepthSampler(std::ostream& out, Duration interval, std::size_t levels);
+
+private:
+    void update(const Event& event) override;
+    void writeRow(Timestamp time) override;
+
+    std::ostream& out_;
+    std::size_t levels_;
+    BookDepth depth_;
 };
 
 // Passes every request and event on to several sinks, in the order they were added.

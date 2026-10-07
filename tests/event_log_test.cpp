@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstddef>
 #include <initializer_list>
 #include <sstream>
@@ -139,6 +140,32 @@ TEST(PriceSamplerTest, WritesTheMarketAsOfEachInterval) {
                          "300,99,101,101\n"
                          "400,99,101,101\n");
     EXPECT_THROW((PriceSampler{out, 0}), std::invalid_argument);
+}
+
+TEST(CsvEventLogTest, LeavesDepthUpdatesOut) {
+    std::ostringstream out;
+    CsvEventLog log{out};
+    log.onEvent(100, BookDepth{.bids = {{.price = 99, .quantity = 1, .orderCount = 1}}});
+    EXPECT_EQ(std::ranges::count(out.str(), '\n'), 1); // just the header
+}
+
+TEST(DepthSamplerTest, WritesTheDepthFeedAsOfEachInterval) {
+    std::ostringstream out;
+    DepthSampler sampler{out, 100, 2};
+    sampler.onEvent(50, BookDepth{.bids = {{.price = 99, .quantity = 4, .orderCount = 2}}});
+    sampler.onEvent(150, BookDepth{.bids = {{.price = 99, .quantity = 4, .orderCount = 2},
+                                            {.price = 98, .quantity = 1, .orderCount = 1}},
+                                   .asks = {{.price = 101, .quantity = 7, .orderCount = 3}}});
+    sampler.finish(200);
+
+    EXPECT_EQ(out.str(),
+              "time,bid_price_1,bid_quantity_1,bid_price_2,bid_quantity_2,ask_price_1,"
+              "ask_quantity_1,ask_price_2,ask_quantity_2\n"
+              "0,,,,,,,,\n"
+              "100,99,4,,,,,,\n"
+              "200,99,4,98,1,101,7,,\n");
+    EXPECT_THROW((DepthSampler{out, 100, 0}), std::invalid_argument);
+    EXPECT_THROW((DepthSampler{out, 0, 2}), std::invalid_argument);
 }
 
 TEST(BroadcastSinkTest, PassesEverythingToEachSink) {

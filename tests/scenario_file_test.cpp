@@ -33,6 +33,7 @@ volatility = 3.0
 step = "50ms"
 
 [exchange]
+depth_levels = 5
 maker_fee = -0.25
 taker_fee = 0.3
 
@@ -65,6 +66,7 @@ count = 30
     EXPECT_EQ(scenario.fundamental->meanReversion, 0.5);
     EXPECT_EQ(scenario.fundamental->volatility, 3.0);
     EXPECT_EQ(scenario.fundamental->step, 50 * kMillisecond);
+    EXPECT_EQ(scenario.exchange.depthLevels, 5U);
     EXPECT_EQ(scenario.exchange.makerFee, -250);
     EXPECT_EQ(scenario.exchange.takerFee, 300);
 
@@ -133,6 +135,7 @@ TEST(ScenarioFileTest, RejectsValuesOfTheWrongKindOrRange) {
         {"[exchange]\nmaker_fee = -0.5\ntaker_fee = 0.3\n" + agent,
          "maker_fee plus taker_fee must not be negative"},
         {"[exchange]\nfee = 1\n" + agent, "unknown key 'fee' in [exchange]"},
+        {"[exchange]\ndepth_levels = -1\n" + agent, "'depth_levels' must be between 0 and 1000"},
     };
     for (const auto& [text, expected] : cases) {
         EXPECT_NE(parseError(text).find(expected), std::string::npos)

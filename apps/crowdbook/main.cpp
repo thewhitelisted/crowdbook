@@ -27,7 +27,7 @@ namespace {
 constexpr std::string_view kUsage =
     "usage: crowdbook run <scenario.toml> [--seed N] [--duration D] [--log FILE]\n"
     "                     [--log-only KIND,KIND...] [--json FILE]\n"
-    "                     [--prices FILE] [--price-interval D]\n"
+    "                     [--prices FILE] [--depth FILE] [--sample-interval D]\n"
     "       crowdbook agents\n"
     "       crowdbook --version\n";
 
@@ -45,7 +45,8 @@ struct RunOptions {
     std::vector<std::string> logKinds{}; // empty logs every kind
     std::optional<std::string> jsonPath{};
     std::optional<std::string> pricesPath{};
-    Duration priceInterval = kSecond;
+    std::optional<std::string> depthPath{};
+    Duration sampleInterval = kSecond; // for --prices and --depth
 };
 
 std::vector<std::string> splitList(std::string_view text) {
@@ -87,8 +88,10 @@ RunOptions parseRunOptions(std::span<char*> args) {
             options.jsonPath = std::string{value()};
         } else if (arg == "--prices") {
             options.pricesPath = std::string{value()};
-        } else if (arg == "--price-interval") {
-            options.priceInterval = parseDuration(value());
+        } else if (arg == "--depth") {
+            options.depthPath = std::string{value()};
+        } else if (arg == "--sample-interval") {
+            options.sampleInterval = parseDuration(value());
         } else if (arg.starts_with("--")) {
             throw UsageError(std::format("unknown option {}", arg));
         } else if (options.scenarioPath.empty()) {
@@ -148,7 +151,18 @@ int run(std::span<char*> args) {
     std::optional<PriceSampler> prices;
     if (options.pricesPath) {
         pricesFile = openForWriting(*options.pricesPath);
-        sinks.add(prices.emplace(pricesFile, options.priceInterval));
+        sinks.add(prices.emplace(pricesFile, options.sampleInterval));
+    }
+    std::ofstream depthFile;
+    std::optional<DepthSampler> depth;
+    if (options.depthPath) {
+        if (scenario.exchange.depthLevels == 0) {
+            throw std::runtime_error("--depth needs a depth feed: add depth_levels to the "
+                                     "scenario's [exchange] section");
+        }
+        depthFile = openForWriting(*options.depthPath);
+        sinks.add(
+            depth.emplace(depthFile, options.sampleInterval, scenario.exchange.depthLevels));
     }
 
     const auto started = std::chrono::steady_clock::now();
@@ -156,6 +170,9 @@ int run(std::span<char*> args) {
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
     if (prices) {
         prices->finish(scenario.duration);
+    }
+    if (depth) {
+        depth->finish(scenario.duration);
     }
 
     std::cout << std::format("{} (seed {}): simulated {} in {:.2f}s\n", options.scenarioPath,
@@ -186,6 +203,9 @@ int run(std::span<char*> args) {
     }
     if (options.pricesPath) {
         std::cout << std::format("prices written to {}\n", *options.pricesPath);
+    }
+    if (options.depthPath) {
+        std::cout << std::format("depth written to {}\n", *options.depthPath);
     }
     if (options.jsonPath) {
         std::ofstream json = openForWriting(*options.jsonPath);

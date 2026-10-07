@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <optional>
 #include <stdexcept>
 #include <vector>
@@ -407,6 +408,60 @@ TEST(ExchangeFeeTest, RejectsRebatesLargerThanFeesAndOutlandishRates) {
     EXPECT_NO_THROW((Exchange{{.makerFee = -300, .takerFee = 300}}));
     EXPECT_THROW((Exchange{{.makerFee = -301, .takerFee = 300}}), std::invalid_argument);
     EXPECT_THROW((Exchange{{.takerFee = kMaxFeeRate + 1}}), std::invalid_argument);
+}
+
+class ExchangeDepthTest : public ::testing::Test {
+protected:
+    ExchangeDepthTest() {
+        exchange_.addAgent(kAlice);
+        exchange_.addAgent(kBob);
+    }
+
+    void TearDown() override { EXPECT_EQ(exchange_.audit(), std::nullopt); }
+
+    std::vector<Event> send(AgentId agent, const Request& request) {
+        std::vector<Event> events;
+        exchange_.handle(agent, request, events);
+        return events;
+    }
+
+    Exchange exchange_{{.depthLevels = 2}};
+};
+
+TEST_F(ExchangeDepthTest, PublishesTheBestLevelsWhenTheyChange) {
+    send(kAlice, limitOrder(1, Side::Buy, 99, 5));
+    EXPECT_EQ(send(kAlice, limitOrder(2, Side::Buy, 98, 3)).back(),
+              (Event{BookDepth{.bids = {{.price = 99, .quantity = 5, .orderCount = 1},
+                                        {.price = 98, .quantity = 3, .orderCount = 1}}}}));
+
+    // A third level is deeper than the feed goes, so nothing published changes.
+    EXPECT_EQ(send(kAlice, limitOrder(3, Side::Buy, 97, 1)).size(), 1U);
+
+    // The depth update comes last, after the top of book.
+    const std::vector<Event> events = send(kBob, limitOrder(1, Side::Sell, 101, 4));
+    ASSERT_EQ(events.size(), 3U);
+    EXPECT_TRUE(std::holds_alternative<TopOfBook>(events[1]));
+    const BookDepth expected{.bids = {{.price = 99, .quantity = 5, .orderCount = 1},
+                                      {.price = 98, .quantity = 3, .orderCount = 1}},
+                             .asks = {{.price = 101, .quantity = 4, .orderCount = 1}}};
+    EXPECT_EQ(events[2], Event{expected});
+
+    // Taking out the best bid brings the third level into view.
+    EXPECT_EQ(std::get<BookDepth>(send(kBob, marketOrder(2, Side::Sell, 5)).back()).bids,
+              (std::vector<LevelSummary>{{.price = 98, .quantity = 3, .orderCount = 1},
+                                         {.price = 97, .quantity = 1, .orderCount = 1}}));
+}
+
+TEST(ExchangeDepthSetupTest, PublishesNoDepthWithoutAFeedAndCapsItsDepth) {
+    Exchange exchange;
+    exchange.addAgent(kAlice);
+    std::vector<Event> events;
+    exchange.handle(kAlice, limitOrder(1, Side::Buy, 99, 5), events);
+    const auto isDepth = [](const Event& event) {
+        return std::holds_alternative<BookDepth>(event);
+    };
+    EXPECT_EQ(std::ranges::count_if(events, isDepth), 0);
+    EXPECT_THROW((Exchange{{.depthLevels = kMaxDepthLevels + 1}}), std::invalid_argument);
 }
 
 TEST(FeeTest, FormatsFeesExactlyInTickLots) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -11,8 +12,14 @@
 
 namespace crowdbook {
 
+// The deepest depth feed an exchange can publish, in price levels per side.
+inline constexpr std::size_t kMaxDepthLevels = 1'000;
+
 // Settings that apply to everyone trading on the exchange.
 struct ExchangeConfig {
+    // Price levels per side in the public depth feed; 0 publishes no depth, only the best bid
+    // and ask.
+    std::size_t depthLevels = 0;
     // Fees per lot, in fee units, charged on every fill: the owner of the resting order pays
     // makerFee and the owner of the incoming order takerFee. A negative fee is a rebate.
     Fee makerFee = 0;
@@ -49,8 +56,8 @@ struct Account {
 // everything that happened as events.
 class Exchange {
 public:
-    // Throws std::invalid_argument for a fee rate beyond kMaxFeeRate, or fees that would pay out
-    // more in rebates than they collect on a trade.
+    // Throws std::invalid_argument for a fee rate beyond kMaxFeeRate, fees that would pay out
+    // more in rebates than they collect on a trade, or a depth feed deeper than kMaxDepthLevels.
     explicit Exchange(const ExchangeConfig& config = {});
 
     // Opens an account. Throws std::invalid_argument if the agent already has one or a limit is out
@@ -60,7 +67,8 @@ public:
     // Processes one request and appends its events in this order: the requesting agent's
     // acceptance, modification, cancellation or rejection; then, for each execution, the maker's
     // fill, the taker's fill and the public trade; then the cancellation of any quantity that could
-    // not rest; and last a top-of-book update if the best bid or ask changed.
+    // not rest; then a top-of-book update if the best bid or ask changed; and last, with a depth
+    // feed, a depth update if any published level changed.
     void handle(AgentId agent, const Request& request, std::vector<Event>& events);
 
     // Throws std::out_of_range for an agent without an account.
@@ -115,6 +123,7 @@ private:
     void finish(const IncomingOrder& incoming, AgentState& state, const OrderResult& result,
                 std::vector<Event>& events);
     void publishTopOfBook(std::vector<Event>& events);
+    void publishDepth(std::vector<Event>& events);
     // Whether a limit order on `side` at `price` would trade against the book now.
     [[nodiscard]] bool wouldTrade(Side side, Price price) const noexcept;
 
@@ -124,6 +133,8 @@ private:
     std::unordered_map<OrderId, LiveOrder> liveOrders_;
     OrderId nextOrderId_ = 1;
     TopOfBook publishedTop_;
+    BookDepth publishedDepth_;
+    BookDepth currentDepth_; // reused for every request
     Fee feesCollected_ = 0;
     std::vector<Fill> fills_; // reused for every request
 };

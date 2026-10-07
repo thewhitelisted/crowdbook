@@ -146,8 +146,12 @@ Fee readFeeRate(const Reader& reader, const toml::node& node, std::string_view k
 }
 
 ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"maker_fee", "taker_fee"}, "in [exchange]");
+    reader.allowOnly(table, {"depth_levels", "maker_fee", "taker_fee"}, "in [exchange]");
     ExchangeConfig config;
+    if (const auto* node = table.get("depth_levels")) {
+        config.depthLevels = static_cast<std::size_t>(reader.integer(
+            *node, "depth_levels", 0, static_cast<std::int64_t>(kMaxDepthLevels)));
+    }
     if (const auto* node = table.get("maker_fee")) {
         config.makerFee = readFeeRate(reader, *node, "maker_fee");
     }

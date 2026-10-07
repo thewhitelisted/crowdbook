@@ -1,14 +1,16 @@
 # The market maker of market_maker.toml on an exchange with maker-taker pricing: it is paid a
 # rebate for every lot its resting quotes trade, and the noise traders, who take liquidity more
-# often than they provide it, pay a fee. The exchange keeps the difference.
+# often than they provide it, pay a fee. The exchange keeps the difference. It also publishes the
+# best ten price levels on each side, which --depth records.
 #
-#   crowdbook run examples/scenarios/maker_taker.toml
+#   crowdbook run examples/scenarios/maker_taker.toml --depth depth.csv
 
 seed = 7
 duration = "60s"
 reference_price = 10000
 
 [exchange]
+depth_levels = 10
 maker_fee = -0.2          # ticks per lot: a rebate for the resting order's owner
 taker_fee = 0.3           # ticks per lot, paid by the incoming order's owner
 

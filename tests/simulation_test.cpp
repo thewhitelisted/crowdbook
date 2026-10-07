@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -236,6 +237,7 @@ public:
     }
     void onTrade(AgentContext& /*context*/, const Trade& /*trade*/) override { ++streamed; }
     void onTopOfBook(AgentContext& /*context*/, const TopOfBook& /*top*/) override { ++streamed; }
+    void onDepth(AgentContext& /*context*/, const BookDepth& /*depth*/) override { ++streamed; }
 
     std::vector<std::pair<Timestamp, MarketSnapshot>> seen;
     int streamed = 0;
@@ -263,7 +265,7 @@ TEST(SimulationTest, SnapshotAgentsSeeTheMarketOneLatencyLate) {
 
 TEST(SimulationTest, SnapshotsAgreeWithTheStreamOverABusyRun) {
     constexpr Duration kDelay = 700;
-    Simulation simulation{4};
+    Simulation simulation{4, {.depthLevels = 3}};
     for (int i = 0; i < 2; ++i) {
         auto& trader = add<RecordingAgent>(simulation, {.latency = {.toExchange = 100 * (i + 1)}});
         trader.startHook = [](AgentContext& context) { context.wakeAfter(10); };
@@ -305,11 +307,19 @@ TEST(SimulationTest, SnapshotsAgreeWithTheStreamOverABusyRun) {
             } else if (const auto* top = std::get_if<TopOfBook>(&received.event)) {
                 expected.bid = top->bid;
                 expected.ask = top->ask;
+            } else if (const auto* depth = std::get_if<BookDepth>(&received.event)) {
+                expected.bids = depth->bids;
+                expected.asks = depth->asks;
             }
         }
         ASSERT_EQ(snapshot, expected) << "at " << time;
     }
     EXPECT_GT(stream.received.size(), 500U); // several updates per delay, so history is pruned
+    EXPECT_EQ(probe.streamed, 0);
+    // The book is several levels deep for most of the run, and the snapshots show it.
+    EXPECT_GT(std::ranges::count_if(probe.seen,
+                                    [](const auto& seen) { return seen.second.bids.size() == 3; }),
+              100);
 }
 
 // The first number each of two agents draws in a run with the given seed.

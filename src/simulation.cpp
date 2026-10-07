@@ -189,6 +189,9 @@ void Simulation::process(const Arrival& arrival) {
         } else if (const auto* top = std::get_if<TopOfBook>(&event)) {
             published_.bid = top->bid;
             published_.ask = top->ask;
+        } else if (const auto* depth = std::get_if<BookDepth>(&event)) {
+            published_.bids = depth->bids;
+            published_.asks = depth->asks;
         }
         marketChanged = true;
         for (const AgentId id : streamed_) {
@@ -237,6 +240,7 @@ void Simulation::process(const Delivery& delivery) {
             [&](const OrderCancelled& event) { agent.onCancelled(context, event); },
             [&](const Trade& trade) { agent.onTrade(context, trade); },
             [&](const TopOfBook& top) { agent.onTopOfBook(context, top); },
+            [&](const BookDepth& depth) { agent.onDepth(context, depth); },
         },
         delivery.event);
 }

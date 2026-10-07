@@ -71,6 +71,9 @@ public:
     void onTopOfBook(AgentContext& context, const TopOfBook& top) override {
         record(context, top);
     }
+    void onDepth(AgentContext& context, const BookDepth& depth) override {
+        record(context, depth);
+    }
 
 private:
     void record(const AgentContext& context, Event event) {

@@ -49,6 +49,10 @@ Exchange::Exchange(const ExchangeConfig& config) : config_(config) {
             "the maker fee plus the taker fee must not be negative, or the exchange would pay "
             "out more than it collects on every trade");
     }
+    if (config.depthLevels > kMaxDepthLevels) {
+        throw std::invalid_argument(
+            std::format("the depth feed can publish at most {} levels a side", kMaxDepthLevels));
+    }
 }
 
 void Exchange::addAgent(AgentId agent, const AccountConfig& config) {
@@ -89,6 +93,7 @@ void Exchange::handle(AgentId agent, const Request& request, std::vector<Event>&
         modify(agent, state, std::get<ModifyOrder>(request), events);
     }
     publishTopOfBook(events);
+    publishDepth(events);
 }
 
 const Account& Exchange::account(AgentId agent) const { return agents_.at(agent).account; }
@@ -391,6 +396,18 @@ void Exchange::finish(const IncomingOrder& incoming, AgentState& state, const Or
                                         .orderId = incoming.id,
                                         .quantity = incoming.quantity - result.filled,
                                         .reason = result.cancelReason});
+    }
+}
+
+void Exchange::publishDepth(std::vector<Event>& events) {
+    if (config_.depthLevels == 0) {
+        return;
+    }
+    book_.depth(Side::Buy, config_.depthLevels, currentDepth_.bids);
+    book_.depth(Side::Sell, config_.depthLevels, currentDepth_.asks);
+    if (currentDepth_ != publishedDepth_) {
+        publishedDepth_ = currentDepth_;
+        events.emplace_back(publishedDepth_);
     }
 }
 

@@ -50,6 +50,8 @@ public:
     // Price levels on one side, best price first.
     [[nodiscard]] std::vector<LevelSummary> depth(Side side,
                                                   std::size_t maxLevels = kAllLevels) const;
+    // The same, into `levels`, which is cleared first, so a caller can reuse one buffer.
+    void depth(Side side, std::size_t maxLevels, std::vector<LevelSummary>& levels) const;
     [[nodiscard]] std::size_t orderCount() const noexcept;
 
     // Checks the book's internal structure and describes the first problem found, or returns

@@ -7,6 +7,8 @@
 #include <optional>
 #include <stdexcept>
 #include <string_view>
+#include <vector>
+#include <string>
 
 #include "overloaded.hpp"
 
@@ -124,6 +126,9 @@ void CsvEventLog::onRequest(Timestamp time, AgentId agent, const Request& reques
 }
 
 void CsvEventLog::onEvent(Timestamp time, const Event& event) {
+    if (std::holds_alternative<BookDepth>(event)) {
+        return; // the orders in the log already determine the book; DepthSampler records it
+    }
     const Row row = std::visit(
         detail::Overloaded{
             [time](const OrderAccepted& accepted) {
@@ -195,6 +200,7 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
                 }
                 return result;
             },
+            [time](const BookDepth& /*depth*/) { return Row{.time = time}; }, // returned above
         },
         event);
     if (keeps(row.kind)) {
@@ -202,20 +208,43 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
     }
 }
 
-PriceSampler::PriceSampler(std::ostream& out, Duration interval)
-    : out_(out), interval_(interval) {
+IntervalSampler::IntervalSampler(Duration interval) : interval_(interval) {
     if (interval <= 0) {
-        throw std::invalid_argument("the price sampling interval must be positive");
+        throw std::invalid_argument("the sampling interval must be positive");
     }
+}
+
+void IntervalSampler::onRequest(Timestamp time, AgentId /*agent*/, const Request& /*request*/) {
+    writeRowsBefore(time);
+}
+
+void IntervalSampler::onEvent(Timestamp time, const Event& event) {
+    writeRowsBefore(time);
+    update(event);
+}
+
+void IntervalSampler::finish(Timestamp end) { writeRowsBefore(end + 1); }
+
+void IntervalSampler::writeRowsBefore(Timestamp time) {
+    for (; nextRow_ < time; nextRow_ += interval_) {
+        writeRow(nextRow_);
+    }
+}
+
+namespace {
+
+std::string priceField(const std::optional<Price>& price) {
+    return price ? std::to_string(*price) : std::string{};
+}
+
+} // namespace
+
+PriceSampler::PriceSampler(std::ostream& out, Duration interval)
+    : IntervalSampler(interval), out_(out) {
     out_ << "time,bid,ask,last_trade\n";
 }
 
-void PriceSampler::onRequest(Timestamp time, AgentId /*agent*/, const Request& /*request*/) {
-    writeRowsBefore(time);
-}
-
-void PriceSampler::onEvent(Timestamp time, const Event& event) {
-    writeRowsBefore(time);
+void PriceSampler::update(const Event& event) {
     if (const auto* trade = std::get_if<Trade>(&event)) {
         market_.lastTrade = trade->price;
     } else if (const auto* top = std::get_if<TopOfBook>(&event)) {
@@ -224,18 +253,46 @@ void PriceSampler::onEvent(Timestamp time, const Event& event) {
     }
 }
 
-void PriceSampler::finish(Timestamp end) { writeRowsBefore(end + 1); }
-
-void PriceSampler::writeRowsBefore(Timestamp time) {
-    const auto field = [](const std::optional<Price>& price) {
-        return price ? std::to_string(*price) : std::string{};
+void PriceSampler::writeRow(Timestamp time) {
+    const auto price = [](const std::optional<LevelSummary>& level) {
+        return priceField(level ? std::optional{level->price} : std::nullopt);
     };
-    for (; nextRow_ < time; nextRow_ += interval_) {
-        out_ << nextRow_ << ','
-             << field(market_.bid ? std::optional{market_.bid->price} : std::nullopt) << ','
-             << field(market_.ask ? std::optional{market_.ask->price} : std::nullopt) << ','
-             << field(market_.lastTrade) << '\n';
+    out_ << time << ',' << price(market_.bid) << ',' << price(market_.ask) << ','
+         << priceField(market_.lastTrade) << '\n';
+}
+
+DepthSampler::DepthSampler(std::ostream& out, Duration interval, std::size_t levels)
+    : IntervalSampler(interval), out_(out), levels_(levels) {
+    if (levels == 0) {
+        throw std::invalid_argument("the depth sampler needs at least one level");
     }
+    out_ << "time";
+    for (const std::string_view side : {"bid", "ask"}) {
+        for (std::size_t level = 1; level <= levels; ++level) {
+            out_ << std::format(",{0}_price_{1},{0}_quantity_{1}", side, level);
+        }
+    }
+    out_ << '\n';
+}
+
+void DepthSampler::update(const Event& event) {
+    if (const auto* depth = std::get_if<BookDepth>(&event)) {
+        depth_ = *depth;
+    }
+}
+
+void DepthSampler::writeRow(Timestamp time) {
+    out_ << time;
+    for (const std::vector<LevelSummary>* side : {&depth_.bids, &depth_.asks}) {
+        for (std::size_t level = 0; level < levels_; ++level) {
+            if (level < side->size()) {
+                out_ << ',' << (*side)[level].price << ',' << (*side)[level].quantity;
+            } else {
+                out_ << ",,";
+            }
+        }
+    }
+    out_ << '\n';
 }
 
 void BroadcastSink::onRequest(Timestamp time, AgentId agent, const Request& request) {

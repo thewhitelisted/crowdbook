@@ -126,7 +126,7 @@ TEST_P(ExchangeRandomTest, AccountsBooksAndEventsStayConsistent) {
         return low + static_cast<std::int64_t>(below(static_cast<std::uint64_t>(high - low + 1)));
     };
 
-    Exchange exchange{{.makerFee = -150, .takerFee = 400}};
+    Exchange exchange{{.depthLevels = 3, .makerFee = -150, .takerFee = 400}};
     std::map<AgentId, Ledger> ledgers;
     std::map<AgentId, ClientOrderId> nextClientOrderId;
     for (std::size_t i = 0; i < kConfigs.size(); ++i) {
@@ -135,7 +135,8 @@ TEST_P(ExchangeRandomTest, AccountsBooksAndEventsStayConsistent) {
         ledgers.emplace(agent, Ledger{kConfigs[i]});
         nextClientOrderId[agent] = 1;
     }
-    TopOfBook feed; // what a subscriber to the public market data believes
+    TopOfBook feed;   // what a subscriber to the public market data believes
+    BookDepth depth;  // and to the depth feed
     std::vector<Event> events;
 
     for (int step = 0; step < kStepsPerSeed; ++step) {
@@ -202,8 +203,10 @@ TEST_P(ExchangeRandomTest, AccountsBooksAndEventsStayConsistent) {
                 }
             } else if (const auto* trade = std::get_if<Trade>(&event)) {
                 traded += trade->quantity;
+            } else if (const auto* top = std::get_if<TopOfBook>(&event)) {
+                feed = *top;
             } else {
-                feed = std::get<TopOfBook>(event);
+                depth = std::get<BookDepth>(event);
             }
         }
 
@@ -215,6 +218,8 @@ TEST_P(ExchangeRandomTest, AccountsBooksAndEventsStayConsistent) {
             ASSERT_EQ(takerFilled, 0);
         }
         ASSERT_EQ(feed, exchange.topOfBook());
+        ASSERT_EQ(depth.bids, exchange.book().depth(Side::Buy, 3));
+        ASSERT_EQ(depth.asks, exchange.book().depth(Side::Sell, 3));
         ASSERT_EQ(exchange.audit(), std::nullopt);
         ASSERT_NO_FATAL_FAILURE(expectLedgersMatch(exchange, ledgers));
     }

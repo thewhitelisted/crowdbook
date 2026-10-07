@@ -95,6 +95,8 @@ public:
     virtual void onCancelled(AgentContext& /*context*/, const OrderCancelled& /*event*/) {}
     virtual void onTrade(AgentContext& /*context*/, const Trade& /*trade*/) {}
     virtual void onTopOfBook(AgentContext& /*context*/, const TopOfBook& /*top*/) {}
+    // Streamed only when the exchange publishes a depth feed.
+    virtual void onDepth(AgentContext& /*context*/, const BookDepth& /*depth*/) {}
 };
 
 } // namespace crowdbook

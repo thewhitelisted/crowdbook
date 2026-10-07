@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <ostream>
+#include <vector>
 
 #include "crowdbook/exchange.hpp"
 #include "crowdbook/messages.hpp"
@@ -58,6 +60,21 @@ inline void PrintTo(const TopOfBook& event, std::ostream* os) {
     *os << "}";
 }
 
+inline void PrintTo(const BookDepth& depth, std::ostream* os) {
+    const auto printSide = [os](const std::vector<LevelSummary>& levels) {
+        *os << "[";
+        for (std::size_t i = 0; i < levels.size(); ++i) {
+            *os << (i == 0 ? "" : " ") << levels[i].quantity << " @ " << levels[i].price;
+        }
+        *os << "]";
+    };
+    *os << "BookDepth{bids ";
+    printSide(depth.bids);
+    *os << ", asks ";
+    printSide(depth.asks);
+    *os << "}";
+}
+
 inline void PrintTo(const MarketSnapshot& market, std::ostream* os) {
     PrintTo(TopOfBook{.bid = market.bid, .ask = market.ask}, os);
     *os << " last trade ";
@@ -65,6 +82,10 @@ inline void PrintTo(const MarketSnapshot& market, std::ostream* os) {
         *os << *market.lastTrade;
     } else {
         *os << "none";
+    }
+    if (!market.bids.empty() || !market.asks.empty()) {
+        *os << " ";
+        PrintTo(BookDepth{.bids = market.bids, .asks = market.asks}, os);
     }
 }
 
