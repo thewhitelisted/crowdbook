@@ -21,6 +21,14 @@ using AgentId = std::uint32_t;
 inline constexpr Price kMaxPrice = 1'000'000'000;
 inline constexpr Quantity kMaxQuantity = 1'000'000'000;
 
+// Simulation time, in nanoseconds since the start of the run.
+using Timestamp = std::int64_t;
+using Duration = std::int64_t;
+
+inline constexpr Duration kMicrosecond = 1'000;
+inline constexpr Duration kMillisecond = 1'000'000;
+inline constexpr Duration kSecond = 1'000'000'000;
+
 enum class Side : std::uint8_t { Buy, Sell };
 
 [[nodiscard]] constexpr Side opposite(Side side) noexcept {

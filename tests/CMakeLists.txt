@@ -12,6 +12,7 @@ add_executable(crowdbook_tests
     exchange_test.cpp
     order_book_differential_test.cpp
     order_book_test.cpp
+    random_test.cpp
     version_test.cpp)
 target_link_libraries(crowdbook_tests PRIVATE crowdbook::crowdbook GTest::gtest_main)
 crowdbook_set_warnings(crowdbook_tests)
