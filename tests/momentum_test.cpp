@@ -1,4 +1,6 @@
 #include <cmath>
+#include <memory>
+#include <set>
 #include <stdexcept>
 #include <variant>
 #include <vector>
@@ -73,6 +75,17 @@ TEST(MomentumTest, StaysOutOfAFlatMarket) {
     }
     EXPECT_TRUE(context.takeSent().empty());
     EXPECT_EQ(context.wakeups.size(), 100U); // it keeps checking
+}
+
+TEST(MomentumTest, FirstChecksAtARandomPointInItsFirstInterval) {
+    const std::vector<Timestamp> first = test::firstWakeups(
+        [] { return std::make_unique<MomentumTrader>(kConfig, kReference); }, 20);
+    for (const Timestamp time : first) {
+        EXPECT_GT(time, 0);
+        EXPECT_LE(time, kConfig.interval);
+    }
+    // Traders started together spread out instead of checking in lockstep.
+    EXPECT_GT(std::set<Timestamp>(first.begin(), first.end()).size(), 15U);
 }
 
 TEST(MomentumTest, RejectsInvalidConfigs) {

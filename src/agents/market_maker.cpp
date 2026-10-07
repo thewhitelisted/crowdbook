@@ -47,7 +47,7 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice)
 
 void MarketMaker::onStart(AgentContext& context) {
     requote(context);
-    context.wakeAfter(config_.requoteInterval);
+    context.wakeWithin(config_.requoteInterval);
 }
 
 void MarketMaker::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {

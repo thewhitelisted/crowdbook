@@ -22,7 +22,7 @@ InformedTrader::InformedTrader(const InformedConfig& config,
     }
 }
 
-void InformedTrader::onStart(AgentContext& context) { context.wakeAfter(config_.interval); }
+void InformedTrader::onStart(AgentContext& context) { context.wakeWithin(config_.interval); }
 
 void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     market_.update(context.market());

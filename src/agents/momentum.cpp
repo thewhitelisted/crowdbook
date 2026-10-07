@@ -31,7 +31,7 @@ MomentumTrader::MomentumTrader(const MomentumConfig& config, Price referencePric
     slowWeight_ = weightFor(config.interval, config.slowHalfLife);
 }
 
-void MomentumTrader::onStart(AgentContext& context) { context.wakeAfter(config_.interval); }
+void MomentumTrader::onStart(AgentContext& context) { context.wakeWithin(config_.interval); }
 
 void MomentumTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     market_.update(context.market());

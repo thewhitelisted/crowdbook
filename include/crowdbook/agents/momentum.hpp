@@ -18,7 +18,8 @@ struct MomentumConfig {
     Quantity maxPosition = 50;
 };
 
-// A trend follower. Every interval it updates a fast and a slow exponential moving average of the
+// A trend follower. Every interval, starting at a random point in the first one so that a group of
+// them does not act in lockstep, it updates a fast and a slow exponential moving average of the
 // fair price it sees (the mid, else the last trade). When the fast average is more than
 // `threshold` ticks above the slow one it buys at the market, and when it is that far below it
 // sells, keeping its position within ±maxPosition even if every order in flight fills.

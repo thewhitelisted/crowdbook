@@ -18,7 +18,8 @@ struct InformedConfig {
     Quantity maxPosition = 50;
 };
 
-// A trader with private information about the asset's value. Every interval it observes the
+// A trader with private information about the asset's value. Every interval, starting at a random
+// point in the first one so that a group of them does not act in lockstep, it observes the
 // fundamental value with its own noise. When the best ask it knows of is at least `threshold`
 // below its estimate it buys with an immediate-or-cancel limit order priced `threshold` below the
 // estimate, so it never gives its edge away by sweeping the book; symmetrically, it sells to bids

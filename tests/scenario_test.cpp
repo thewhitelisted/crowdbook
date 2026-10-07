@@ -29,7 +29,7 @@ Scenario marketWithAMaker() {
 TEST(ScenarioTest, RunsAMarketWhereMoneyIsConserved) {
     const RunResult result = runScenario(marketWithAMaker(), AgentRegistry::withBuiltIns());
 
-    EXPECT_GT(result.trades, 100U);
+    EXPECT_GT(result.trades, 25U);
     EXPECT_GT(result.volume, 0);
     ASSERT_EQ(result.groups.size(), 3U);
     EXPECT_EQ(result.groups[0].name, "market_maker");

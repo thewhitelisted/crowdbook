@@ -99,4 +99,18 @@ private:
     ClientOrderId nextClientOrderId_ = 1;
 };
 
+// Starts a fresh agent from `make` under each seed from 1 to `seeds` and returns the time each
+// first asked to wake up.
+template <typename MakeAgent>
+std::vector<Timestamp> firstWakeups(const MakeAgent& make, std::uint64_t seeds) {
+    std::vector<Timestamp> times;
+    for (std::uint64_t seed = 1; seed <= seeds; ++seed) {
+        const auto agent = make();
+        FakeContext context{seed};
+        agent->onStart(context);
+        times.push_back(context.wakeups.at(0).first);
+    }
+    return times;
+}
+
 } // namespace crowdbook::test

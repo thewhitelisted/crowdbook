@@ -51,7 +51,8 @@ TEST(MarketMakerTest, QuotesBothSidesOnStartAndRequotesOnATimer) {
     EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(1, Side::Buy, 99, 5),
                                                         limitOrder(2, Side::Sell, 101, 5)}));
     ASSERT_EQ(context.wakeups.size(), 1U);
-    EXPECT_EQ(context.wakeups[0].first, 100 * kMillisecond);
+    EXPECT_GT(context.wakeups[0].first, 0);
+    EXPECT_LE(context.wakeups[0].first, 100 * kMillisecond);
 
     // Nothing changed, so the timer sends nothing.
     context.setNow(100 * kMillisecond);

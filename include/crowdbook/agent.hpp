@@ -59,6 +59,13 @@ public:
     }
 
     void wakeAfter(Duration delay, std::uint64_t tag = 0) { wakeAt(now() + delay, tag); }
+
+    // Asks for onWakeup at a uniformly random time in (now, now + interval], drawn from the
+    // agent's own stream. Agents that act on a fixed timer start it this way, so that the agents
+    // of a group, all started at the same moment, do not act in lockstep.
+    void wakeWithin(Duration interval, std::uint64_t tag = 0) {
+        wakeAfter(random().uniformInt(1, interval), tag);
+    }
 };
 
 // Base class for trading agents: override the callbacks you need. By the time a callback for one

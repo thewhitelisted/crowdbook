@@ -42,8 +42,9 @@ struct Quotes {
 // reservation price that leans against its inventory: when long it lowers both quotes, so it sells
 // more and buys less, and when short it raises them. The fair price is a running average of trade
 // prices (the mid before the first trade), not the mid itself, because the mid is often the market
-// maker's own quotes. It requotes on a timer and straight after each of its own fills, moving a
-// live quote with modify.
+// maker's own quotes. It quotes on start, then requotes on a timer (whose first tick falls at a
+// random point in the first interval) and straight after each of its own fills, moving a live
+// quote with modify.
 class MarketMaker final : public Agent {
 public:
     // Throws std::invalid_argument for a config the formulas cannot use.

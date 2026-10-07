@@ -1,4 +1,5 @@
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -67,6 +68,17 @@ TEST(InformedTest, StopsAtItsPositionLimit) {
         orders += lookOnce(trader, context).size();
     }
     EXPECT_EQ(orders, 2U); // two orders of 5 in flight reach the limit of 10
+}
+
+TEST(InformedTest, FirstLooksAtARandomPointInItsFirstInterval) {
+    const std::vector<Timestamp> first = test::firstWakeups(
+        [] { return std::make_unique<InformedTrader>(kExact, fixedValue(100.0)); }, 20);
+    for (const Timestamp time : first) {
+        EXPECT_GT(time, 0);
+        EXPECT_LE(time, kExact.interval);
+    }
+    // Traders started together spread out instead of looking in lockstep.
+    EXPECT_GT(std::set<Timestamp>(first.begin(), first.end()).size(), 15U);
 }
 
 TEST(InformedTest, RequiresAFundamentalAndAValidConfig) {
