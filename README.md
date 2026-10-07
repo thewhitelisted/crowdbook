@@ -97,10 +97,24 @@ and the tests use GoogleTest; CMake fetches both at pinned versions.
 
 ## Performance
 
-The matching engine handles about 15 million operations per second (roughly 65 ns each) on a
-mixed stream of passive orders, cancels, crossing orders and market orders, measured on an Apple
-M5 with a Release build. A full scenario of 21 agents and 60 simulated seconds runs in under a
-tenth of a second. To reproduce the benchmark:
+Measured on an Apple M5 with a Release build:
+
+- The matching engine handles about 15 million operations per second (roughly 65 ns each) on a
+  mixed stream of passive orders, cancels, crossing orders and market orders.
+- Whole markets of zero-intelligence traders, each acting about four times a second, simulate
+  this many seconds per second of wall-clock time:
+
+  | Traders | Every update pushed to every trader | Traders read the market on demand |
+  |---:|---:|---:|
+  | 100 | 1,295 | 9,815 |
+  | 1,000 | 8.5 | 734 |
+  | 10,000 | — | 52 |
+
+  Pushing every trade and quote change to every trader costs N² as the crowd grows, so agents
+  that only look at the market when they act read it on demand instead. Market makers, which
+  react to every trade, still get the full stream.
+
+To reproduce:
 
 ```bash
 cmake --workflow --preset release

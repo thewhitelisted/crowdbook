@@ -53,6 +53,10 @@ within it. Cash has no limit. Every other key in the table is a parameter of the
 
 ## Built-in agents
 
+The market maker receives every trade and quote change as it happens. The other three read the
+market on demand when they act, which keeps crowds of thousands fast; either way, each sees the
+market only after its own `from_exchange` latency.
+
 ### `zero_intelligence`
 
 Random limit orders, market orders and cancellations at Poisson times, after Farmer, Patelli and
@@ -118,7 +122,9 @@ immediate-or-cancel orders priced to keep its edge. Needs a `[fundamental]` sect
 Subclass `crowdbook::Agent`, register a factory for it under a name, and use that name as the
 `type` of an `[[agents]]` table. [examples/custom_agent.cpp](../examples/custom_agent.cpp) does this
 in about 40 lines; the factory reads its parameters from `crowdbook::Parameters`, and anything it
-does not read is reported as an unknown parameter.
+does not read is reported as an unknown parameter. An agent that only needs the market when it
+acts should override `marketData()` to return `MarketDataMode::Snapshot` and call
+`context.market()`, instead of receiving every update.
 
 ## The event log
 

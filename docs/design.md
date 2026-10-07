@@ -32,9 +32,9 @@ exchanges, real-time execution, and a GUI.
   timer wakeups) and act through a context that can submit, cancel and modify orders, schedule
   wakeups, read the clock and draw random numbers. Agents never touch the book directly and never
   see other agents' identities.
-- **Market data** — anonymous trade prints and top-of-book updates, delivered with each agent's
-  own latency, so every agent acts on a slightly stale view, as in real markets. Depth snapshots
-  are planned.
+- **Market data** — anonymous trade prints and top-of-book updates, either streamed to an agent
+  or read on demand, always with the agent's own latency, so every agent acts on a slightly stale
+  view, as in real markets. Depth snapshots are planned.
 - **Scenarios** — a TOML file choosing the agent population and parameters, so experiments run
   without recompiling. Agents register under a name, so user-defined agents work in scenarios too.
   See [Agents and scenarios](#agents-and-scenarios) and [scenarios.md](scenarios.md).
@@ -136,6 +136,15 @@ time order. Items due at the same nanosecond run in the order they were schedule
   network jitter from stream 2*n* + 1, so turning on jitter or adding another agent does not change
   any agent's own draws. Integer draws are identical on every platform; floating-point draws use
   the same algorithms everywhere but the platform's `log` and `sqrt`.
+- **Market data:** an agent chooses how it gets public data by overriding `marketData()`.
+  Streaming agents receive every trade and top-of-book change through `onTrade` and
+  `onTopOfBook`. Snapshot agents receive nothing and call `context.market()` when they act, which
+  returns what the exchange had published one `fromExchange` latency earlier: never anything they
+  could not have seen yet. Streaming every update to every agent costs N² as the crowd grows, so
+  the built-in traders that only look at the market when they act use snapshots; the market
+  maker, which reacts to every trade, streams. The kernel keeps a short history of public states
+  for snapshot reads and drops each state once no agent's latency can reach back to it, so memory
+  does not grow with the length of a run.
 - **Event log:** `CsvEventLog` writes every request the exchange receives and every event it
   produces, one row each, in processing order. Two runs with the same seed produce byte-identical
   logs.
@@ -218,6 +227,11 @@ one of the first experiments.
 - **Scenario tests** run small markets and check that the groups' cash, positions and PnL sum to
   zero and that the same scenario gives the same result. Scenario file tests check that every
   setting is read and that syntax errors, unknown keys and bad values are reported with their line.
+- **Snapshot tests** check that an on-demand read sees an order exactly one latency after the
+  exchange published it, not a nanosecond sooner, and that over a busy run every snapshot equals
+  what a streaming agent with the same delay had received by then. Planted bugs in the history
+  (dropping a state that was still needed, an off-by-one in visibility, streaming to snapshot
+  agents) were each caught.
 - **Example tests:** CTest runs every scenario in `examples/scenarios` and the custom agent
   example, so none of them can quietly break.
 - **Mutation check:** before each randomized suite was committed, deliberately planted bugs were
@@ -253,6 +267,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | Self-trade prevention | Cancel the incoming order's remaining size | An agent never trades with itself and the book never ends up crossed |
 | Market orders | Fill against the book, cancel any remainder | Market orders never rest |
 | Links | First in, first out per agent and direction, even with jitter | Like a TCP connection: a cancel can never overtake the order it cancels |
+| Market data delivery | Streamed or read on demand, chosen by each agent | Streaming to everyone costs N²; most agents only need the market at the moment they act |
 | Randomness | xoshiro256** streams from the run's seed: 2*n* for agent *n*'s draws, 2*n* + 1 for its jitter | Same seed → same run; adding an agent or turning on jitter does not change any agent's draws |
 | Distributions | Implemented in crowdbook, not `std::*_distribution` | Standard distribution output is implementation-defined, so libc++ and libstdc++ disagree for the same seed |
 | Agent state | A ledger built from the agent's own requests and events, not a view of the exchange | Agents act on what they could know, including orders in flight and cancels that race fills |
@@ -271,7 +286,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M2 | Exchange: validation, order ids, ownership, accounting, risk limits | Conservation of cash and shares; agents' event ledgers match the exchange | Done |
 | M3 | Kernel, latency, random streams, agent API, ledger, CSV event log | Same seed gives a byte-identical event log; ledgers match the exchange | Done |
 | M4 | Built-in agents (zero-intelligence, Avellaneda–Stoikov market maker, momentum, informed), fundamental value, TOML scenarios, `crowdbook` CLI | Agent tests against a fake context; every example runs in CI | Done |
-| M5 | Stylized facts and first experiments: market-maker self-impact and PnL against informed flow and latency | Plots in the README | Next |
+| M5a | On-demand market data, so crowds of thousands of agents run faster than real time | Scaling benchmark: 10,000 traders at 52× real time | Done |
+| M5b | Stylized facts and first experiments: market-maker self-impact and PnL against informed flow and latency | Plots in the README | Next |
 | Later | Rule-based agents, post-only orders, depth snapshots, fees, multiple instruments, live viewer | | |
 
 ## Code conventions
