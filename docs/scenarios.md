@@ -358,3 +358,30 @@ their actions; they still replay, with the one seat `you`.
 
 A replay checks that each new order gets the client order id the session recorded, and stops with
 an error if it does not, which would mean the market had come out differently.
+
+## Serving and connecting
+
+```bash
+./build/release/apps/crowdbook serve examples/scenarios/playable.toml --seat alice --seat bob \
+    --record session.toml
+./build/release/apps/crowdbook connect 127.0.0.1:7878 --seat alice
+```
+
+`serve` runs the scenario in real time for clients that connect over TCP and speak the protocol in
+[protocol.md](protocol.md). Each seat is a participant with the scenario's `[participant]` account
+and latency, reported as a group named after the seat. The clock starts once every seat is
+claimed, and the session ends at the scenario's duration or on ctrl-c. It takes `--seed`,
+`--duration`, `--speed`, `--record`, `--log`, `--log-only` and `--json` like `play` and `run`, and:
+
+| Option | Meaning |
+|---|---|
+| `--seat NAME` | A seat, named by 1 to 32 letters, digits, `-` or `_`; repeat for more. One seat, `you`, if none is named |
+| `--listen HOST:PORT` | Where to listen; `127.0.0.1:7878` unless given. `:7878` listens on every address, and port 0 picks a free one |
+| `--tokens FILE` | Seats' tokens, one `seat token` pair per line; a client must give its seat's token. Every seat needs one |
+| `--rate-limit N` | Messages each connection may send per second; 500 unless given |
+
+A recorded session replays with `replay` like one from `play`, every seat's orders included.
+
+`connect` is the trading screen of `play` for one seat of a served market, with the same keys
+except that speed and pause belong to the server. It takes `--seat`, `you` unless given, and
+`--token`.

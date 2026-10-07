@@ -66,6 +66,9 @@ the roadmap marks them.
   See [Agents and scenarios](#agents-and-scenarios) and [scenarios.md](scenarios.md).
 - **Live sessions** — a person trades in a running market from a terminal screen, and the session
   replays exactly. See [Live sessions](#live-sessions).
+- **Gateway** — people and programs trade in one market over the network, each from a seat of
+  its own, with a protocol any language can speak, and the session still replays exactly. See
+  [Gateway](#gateway) and [protocol.md](protocol.md).
 - **Event log** — every request the exchange receives and every event it produces, written as CSV
   and analysed in Python (`analysis/`). Long runs can keep only chosen kinds of rows or sample
   prices at fixed times instead, and each run's results can be written as JSON. See
@@ -433,7 +436,8 @@ uv run --project analysis crowdbook-large-orders
   every message has landed, each agent's ledger must match the exchange exactly.
 - **Golden test:** a market with every agent type and every source of randomness runs for four
   simulated minutes, and the hashes of its event log, price and depth samples and results, and of
-  the replayed demo session's log, must equal committed values. CI runs it on macOS arm64 and on
+  the replayed logs of the demo session and of a session served to two clients, must equal
+  committed values. CI runs it on macOS arm64 and on
   Linux x86-64, so the two platforms have to agree byte for byte. `crowdbook::math` is checked
   against the standard library over its whole range, and a test fails if the compiler fuses a
   multiply and an add.
@@ -464,13 +468,37 @@ uv run --project analysis crowdbook-large-orders
   orders, six in fees, seven in the depth feed, three in the market maker's post-only quoting and
   eight in live sessions (the participant's settings ignored, actions replayed early, a replay
   stopping at its last action, unescaped session text, out-of-order actions accepted, recorded
-  ids unchecked, a pacer that ignores pause), five in the adaptive trader and three in the
-  noise traders' responses were each caught.
+  ids unchecked, a pacer that ignores pause), five in the adaptive trader, three in the noise
+  traders' responses and sixteen in the gateway (seats not recorded, the cancels of a
+  disconnect not recorded or not sent, wire ids never freed or freed before late answers,
+  events with the market's ids, a rate limit that never spends, a hello timeout a nanosecond
+  late, no limit on waiting output, a clock that starts with the first seat, long lines not
+  skipped, live ids reused, a taken seat claimed twice, tokens unchecked, no clock messages, an
+  end past the duration) were each caught. The gateway's test for answers that arrive after an
+  order is done first ran in a market without latency, where the gateway itself answered, and
+  missed its bug; with latency it catches it.
 - **Session tests** play a scripted session the way a live one runs, in uneven steps with requests
   at chosen nanoseconds, then write it, read it back and replay it: the event log must come out
   byte for byte the same. The real `play` command was also driven through a pseudo-terminal with
   scripted key presses, and its live log and the replay of its recording matched byte for byte.
   The ladder's drawing is tested on fixed screens, with and without colors.
+- **Protocol tests** round-trip every message, check that malformed ones are rejected (unknown,
+  repeated or mistyped fields, numbers outside int64 or with fractions, text outside ASCII,
+  nesting too deep), and mangle valid lines 40,000 times at random: each must decode or be
+  rejected, never crash, and whatever decodes must encode to a line that decodes the same.
+- **Gateway tests** drive the gateway with byte strings and a fake wall clock, no sockets: the
+  clock starting with the last seat, the client's ids on every event, a cancel before the
+  acknowledgement, an answer that arrives after its order is done, the gateway's own rejections,
+  the rate limit, the limit on waiting output, long and split lines, hello timeouts, tokens, a
+  seat claimed again, clock messages and the end. A session with two seats, a disconnect and a
+  seat claimed again replays to the same event log byte for byte.
+- **Client model tests** feed a client only the protocol messages for its seat while it trades,
+  modifies and cancels for 200 steps: its ledger and its view of the market must equal the
+  server's exactly, before and after the seat is claimed again.
+- **Server tests** run the server on a real socket on 127.0.0.1 with clients in another thread:
+  trading, a hang-up that cancels orders, and two clients whose session replays byte for byte.
+  The real `connect` command was also driven through a pseudo-terminal against `serve`, and the
+  served session's log and its replay matched byte for byte.
 - **Analysis tests** check each statistic in `analysis/` on inputs with known answers: a random
   walk's flat volatility signature, a normal sample's zero excess kurtosis, hand-computed spreads
   and price moves.
@@ -548,8 +576,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M7 | Playable slice: real time at adjustable speed, an outside participant, a terminal price ladder, sessions recorded for replay | A recorded session, scripted and played through the real screen, replays to a byte-identical log | Done |
 | M8 | Memory in the crowd: news jumps in the true value, noise traders whose pace follows activity and whose limit orders stand back when prices jump, traders who switch between value and trend strategies by their track records | Volatility clustering at one minute that lasts hours, fat one-minute tails, and ablations naming the cause, in [results.md](results.md) | Done |
 | M9 | Large orders worked over time: execution agents slicing parent orders (TWAP and percentage of volume), parent ids in the log | Long memory in the signs of market orders; how the impact of parent orders grows with their size, in [results.md](results.md) | Done |
-| M10 | Gateway: a network protocol for orders and market data, its messages kept apart from their encoding (JSON lines first); `crowdbook serve`, a market with seats for several people and bots at once; every arrival recorded, so a session with many participants still replays exactly; input treated as untrusted, with size and rate limits; the terminal screen as a client over the network | A bot and the terminal screen trade in one served market, and its recording replays byte for byte; the parser survives randomized malformed input; planted bugs caught | Next |
-| M11 | Python client and example bots: a package installable with pip, using only the standard library; a market maker and a momentum bot as examples | A Python bot trades under the same limits, latency and fees as built-in agents, in CI | Planned |
+| M10 | Gateway: a network protocol for orders and market data, its messages kept apart from their encoding (JSON lines first); `crowdbook serve`, a market with seats for several people and bots at once; every arrival recorded, so a session with many participants still replays exactly; input treated as untrusted, with size and rate limits; the terminal screen as a client over the network | A bot and the terminal screen trade in one served market, and its recording replays byte for byte; the parser survives randomized malformed input; planted bugs caught | Done |
+| M11 | Python client and example bots: a package installable with pip, using only the standard library; a market maker and a momentum bot as examples | A Python bot trades under the same limits, latency and fees as built-in agents, in CI | Next |
 | M12 | Scoring and challenges: a scoring section in scenarios (PnL, risk-adjusted PnL, slippage against a benchmark, inventory and loss limits), computed by the engine; challenges with briefings (make markets within a risk limit, work a large order, trade the news, find the informed flow) | A score recomputed from the session's replay equals the live one; the example bots play every challenge in CI | Planned |
 | M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Planned |
 | M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Planned |

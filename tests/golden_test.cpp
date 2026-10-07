@@ -123,6 +123,7 @@ constexpr std::uint64_t kMarketPrices = 0xb5dc7ff55dfed436;
 constexpr std::uint64_t kMarketDepth = 0x3f64617a1293ca45;
 constexpr std::uint64_t kMarketResult = 0xebf5b0556bf4bf09;
 constexpr std::uint64_t kDemoReplayLog = 0xaad3c9d2f37beeed;
+constexpr std::uint64_t kServedReplayLog = 0xa2936e8ff2d3b17b;
 
 TEST(GoldenTest, AMarketsOutputsAreTheSameOnEveryPlatform) {
     const Scenario scenario = parseScenario(kMarket, "golden");
@@ -159,6 +160,17 @@ TEST(GoldenTest, TheDemoSessionReplaysTheSameOnEveryPlatform) {
     CsvEventLog sink{log};
     static_cast<void>(replaySession(session, AgentRegistry::withBuiltIns(), &sink));
     EXPECT_EQ(hex(hashOf(log.str())), hex(kDemoReplayLog));
+}
+
+// A session served to two clients over the network, in the file format with seats.
+TEST(GoldenTest, TheServedSessionReplaysTheSameOnEveryPlatform) {
+    const Session session =
+        loadSession(std::string{CROWDBOOK_SOURCE_DIR} + "/examples/sessions/served_demo.toml");
+    ASSERT_EQ(session.seats.size(), 2U);
+    std::ostringstream log;
+    CsvEventLog sink{log};
+    static_cast<void>(replaySession(session, AgentRegistry::withBuiltIns(), &sink));
+    EXPECT_EQ(hex(hashOf(log.str())), hex(kServedReplayLog));
 }
 
 } // namespace

@@ -7,17 +7,18 @@ you traded with and what they knew.
 crowdbook models a market as a crowd of individual traders — market makers, informed traders,
 trend followers, noise traders — each sending orders to a simulated exchange over its own network
 link. Spreads, depth, price impact and volatility are not assumed; they emerge from how the agents
-interact. Writing your own agent means writing one C++ class and naming it in a scenario file.
+interact. Writing your own agent means writing one C++ class and naming it in a scenario file,
+or writing a program in any language that trades over the network.
 
 > **Status:** the order book, the exchange, the simulation kernel, six built-in agents, scenario
 > files, the `crowdbook` command and the Python analysis package are done, and
 > [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself,
-> in real time, and replay the session exactly afterwards. A market with memory shows volatility
-> clustering for about an hour, and brokers working large orders give order flow long memory and
-> price impact whose shape depends on how long the book remembers. Next: a network gateway, so
-people and bots from outside can trade in the same market. See
-> [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
-> roadmap.
+> in real time, and replay the session exactly afterwards, and a server lets several people and
+> bots trade in one market over the network. A market with memory shows volatility clustering
+> for about an hour, and brokers working large orders give order flow long memory and price
+> impact whose shape depends on how long the book remembers. Next: a Python client and example
+> bots. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach
+> and the roadmap.
 
 ## Quick start
 
@@ -126,6 +127,45 @@ byte for byte, so a played session becomes data to analyse:
 ./build/release/apps/crowdbook replay session.toml --log session.csv
 ```
 
+## Serve it to people and bots
+
+`crowdbook serve` runs a market in real time for several traders at once, over TCP. Each seat is
+one participant, with the scenario's account and latency, and anything that speaks the
+[protocol](docs/protocol.md), JSON with one message per line, can claim it:
+
+```bash
+./build/release/apps/crowdbook serve examples/scenarios/playable.toml --seat alice --seat bob \
+    --record session.toml
+```
+
+The clock starts once every seat is claimed. A person can trade from the terminal screen:
+
+```bash
+./build/release/apps/crowdbook connect 127.0.0.1:7878 --seat alice
+```
+
+and a program needs only a socket. In Python:
+
+```python
+import json, socket
+
+conn = socket.create_connection(("127.0.0.1", 7878)).makefile("rw")
+def send(message):
+    conn.write(json.dumps(message) + "\n")
+    conn.flush()
+
+send({"type": "hello", "protocol": 1, "seat": "bob"})
+send({"type": "new", "id": 1, "side": "buy", "order_type": "market", "quantity": 2})
+for line in conn:
+    print(json.loads(line))  # welcome, start, the order's events, trades, quotes...
+```
+
+Clients name orders with their own ids and can cancel an order before it is acknowledged. A
+dropped connection cancels its seat's orders. The server checks every message and limits how fast
+each connection may send, and it listens only on 127.0.0.1 unless `--listen` says otherwise. The
+recording replays the whole session, every seat's orders included, to the same event log byte for
+byte.
+
 ## Writing an agent
 
 An agent reacts to callbacks and acts through its context, which only lets it send requests to the
@@ -179,7 +219,8 @@ Each workflow preset configures, builds and runs the test suite, with output in 
 | `release` | Release, including the benchmarks                          |
 | `asan`    | Debug with AddressSanitizer and UndefinedBehaviorSanitizer |
 
-The core library has no dependencies. Scenario files use
+The core library has no dependencies. `serve` and `connect` use POSIX sockets, so they need
+macOS, Linux or another POSIX system. Scenario files use
 [toml++](https://github.com/marzer/tomlplusplus) and the tests use GoogleTest; CMake fetches both
 at pinned versions, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has toml++'s license,
 since it is compiled into the `crowdbook` command. The analysis in `analysis/` is a

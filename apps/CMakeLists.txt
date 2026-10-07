@@ -61,6 +61,10 @@ if(CROWDBOOK_BUILD_TESTS)
             --log "${CMAKE_CURRENT_BINARY_DIR}/replay.csv")
     set_tests_properties(cli.replay PROPERTIES
         PASS_REGULAR_EXPRESSION "replayed [0-9.]+s with 7 actions")
+    add_test(NAME cli.replay_served
+        COMMAND crowdbook_cli replay "${PROJECT_SOURCE_DIR}/examples/sessions/served_demo.toml")
+    set_tests_properties(cli.replay_served PROPERTIES
+        PASS_REGULAR_EXPRESSION "replayed 30s with 46 actions")
     add_test(NAME cli.replay_takes_no_seed
         COMMAND crowdbook_cli replay "${PROJECT_SOURCE_DIR}/examples/sessions/playable_demo.toml"
             --seed 3)
