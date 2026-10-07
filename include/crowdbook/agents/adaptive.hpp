@@ -31,9 +31,11 @@ struct AdaptiveConfig {
 // when it trails by as much. Each strategy keeps a track record: the price change after each of
 // its calls, in the call's direction, summed with exponential decay. The trader follows the trend
 // strategy with probability 1 / (1 + exp(-choiceIntensity * (trend record - value record))), and
-// otherwise the value strategy, buying or selling orderSize at the market as the chosen strategy
-// calls, within ±maxPosition counting orders in flight. Traders like this one herd: they all see
-// the same price, so their records agree and they tend to switch together.
+// otherwise the value strategy. Its position follows the chosen strategy's call: long
+// maxPosition on a buy, short maxPosition on a sell and flat without a call, which it trades
+// toward at the market, at most orderSize at a time, counting orders in flight. Traders like this
+// one herd: they all see the same price, so their records agree and they tend to switch together,
+// and when they switch they all trade the same way at once.
 class AdaptiveTrader final : public Agent {
 public:
     // Throws std::invalid_argument without a fundamental, for a non-positive interval or memory,

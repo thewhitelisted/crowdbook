@@ -1,5 +1,6 @@
 #include "crowdbook/agents/adaptive.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <utility>
@@ -76,15 +77,15 @@ void AdaptiveTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     followingTrend_ = draw < 1.0 / (1.0 + std::exp(-odds));
     const int direction = followingTrend_ ? trendCall : valueCall;
 
+    // Trade toward the position the chosen strategy wants, counting orders in flight as filled.
     const Ledger& ledger = context.ledger();
-    const Quantity size = config_.orderSize;
-    if (direction > 0 &&
-        ledger.position() + ledger.openQuantity(Side::Buy) + size <= config_.maxPosition) {
-        context.submitMarket(Side::Buy, size);
-    } else if (direction < 0 &&
-               ledger.position() - ledger.openQuantity(Side::Sell) - size >=
-                   -config_.maxPosition) {
-        context.submitMarket(Side::Sell, size);
+    const Quantity exposure =
+        ledger.position() + ledger.openQuantity(Side::Buy) - ledger.openQuantity(Side::Sell);
+    const Quantity target = direction * config_.maxPosition;
+    if (target > exposure) {
+        context.submitMarket(Side::Buy, std::min(config_.orderSize, target - exposure));
+    } else if (target < exposure) {
+        context.submitMarket(Side::Sell, std::min(config_.orderSize, exposure - target));
     }
 
     lastPrice_ = price;

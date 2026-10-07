@@ -93,20 +93,43 @@ TEST(AdaptiveTest, TrackRecordsFadeWithTheirHalfLife) {
     EXPECT_NEAR(trader.trendRecord(), record / 2.0, record * 0.01);
 }
 
-TEST(AdaptiveTest, ChoosesAtRandomWhenRecordsAreLevelAndKeepsItsLimit) {
+TEST(AdaptiveTest, ChoosesAtRandomWhenRecordsAreLevelAndTradesTowardItsTarget) {
     AdaptiveConfig config = kSure;
     config.choiceIntensity = 0.0; // a coin toss every time
     config.maxPosition = 4;
     AdaptiveTrader trader{config, fixedValue(120.0), kReference};
     FakeContext context;
     std::set<bool> choices;
-    std::size_t orders = 0;
     for (int i = 0; i < 40; ++i) {
-        orders += look(trader, context, (i + 1) * kSecond, 100).size();
+        static_cast<void>(look(trader, context, (i + 1) * kSecond, 100));
         choices.insert(trader.followingTrend());
+        // Nothing fills here, so its orders in flight are its exposure: never past the limit.
+        const Ledger& ledger = context.ledger();
+        const Quantity exposure = ledger.openQuantity(Side::Buy) - ledger.openQuantity(Side::Sell);
+        EXPECT_GE(exposure, 0); // the value strategy wants +4, the flat trend strategy 0
+        EXPECT_LE(exposure, 4);
     }
     EXPECT_EQ(choices.size(), 2U);
-    EXPECT_EQ(orders, 2U); // the value strategy buys, two orders of 2 reach the limit of 4
+}
+
+TEST(AdaptiveTest, BuildsItsPositionInStepsOfOrderSize) {
+    AdaptiveConfig config = kSure;
+    config.choiceIntensity = 0.0;
+    config.orderSize = 3;
+    config.maxPosition = 7;
+    // The value is far above and the price flat, so the value strategy wants to be long 7 and
+    // the trend strategy flat; with records level it alternates at random.
+    AdaptiveTrader trader{config, fixedValue(150.0), kReference};
+    FakeContext context;
+    Quantity bought = 0;
+    for (int i = 0; i < 6; ++i) {
+        for (const Request& request : look(trader, context, (i + 1) * kSecond, 100)) {
+            const auto& order = std::get<NewOrder>(request);
+            EXPECT_LE(order.quantity, 3);
+            bought += order.side == Side::Buy ? order.quantity : -order.quantity;
+        }
+    }
+    EXPECT_LE(bought, 7);
 }
 
 TEST(AdaptiveTest, FirstLooksAtARandomPointInItsFirstInterval) {
