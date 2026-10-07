@@ -30,6 +30,10 @@ add_executable(crowdbook_tests
     version_test.cpp
     zero_intelligence_test.cpp)
 target_link_libraries(crowdbook_tests PRIVATE crowdbook::scenario GTest::gtest_main)
+if(TARGET crowdbook_ladder)
+    target_sources(crowdbook_tests PRIVATE ladder_test.cpp)
+    target_link_libraries(crowdbook_tests PRIVATE crowdbook_ladder)
+endif()
 crowdbook_set_warnings(crowdbook_tests)
 
 include(GoogleTest)

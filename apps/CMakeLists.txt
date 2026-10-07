@@ -1,7 +1,17 @@
+# The trading screen's drawing involves no terminal, so the tests link it too.
+add_library(crowdbook_ladder
+    crowdbook/ladder.cpp)
+target_include_directories(crowdbook_ladder PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/crowdbook")
+target_link_libraries(crowdbook_ladder PUBLIC crowdbook::crowdbook)
+crowdbook_set_warnings(crowdbook_ladder)
+
 add_executable(crowdbook_cli
-    crowdbook/main.cpp)
+    crowdbook/main.cpp
+    crowdbook/output.cpp
+    crowdbook/play.cpp
+    crowdbook/terminal.cpp)
 set_target_properties(crowdbook_cli PROPERTIES OUTPUT_NAME crowdbook)
-target_link_libraries(crowdbook_cli PRIVATE crowdbook::scenario)
+target_link_libraries(crowdbook_cli PRIVATE crowdbook::scenario crowdbook_ladder)
 crowdbook_set_warnings(crowdbook_cli)
 
 if(CROWDBOOK_BUILD_TESTS)
@@ -40,6 +50,20 @@ if(CROWDBOOK_BUILD_TESTS)
         COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/maker_taker.toml"
             --duration 2s)
     set_tests_properties(cli.fees PROPERTIES PASS_REGULAR_EXPRESSION "fees +net pnl")
+
+    add_test(NAME cli.replay
+        COMMAND crowdbook_cli replay "${PROJECT_SOURCE_DIR}/examples/sessions/playable_demo.toml"
+            --log "${CMAKE_CURRENT_BINARY_DIR}/replay.csv")
+    set_tests_properties(cli.replay PROPERTIES
+        PASS_REGULAR_EXPRESSION "replayed [0-9.]+s with 7 actions")
+    add_test(NAME cli.replay_takes_no_seed
+        COMMAND crowdbook_cli replay "${PROJECT_SOURCE_DIR}/examples/sessions/playable_demo.toml"
+            --seed 3)
+    # Tests run without a terminal, which play needs.
+    add_test(NAME cli.play_needs_a_terminal
+        COMMAND crowdbook_cli play "${PROJECT_SOURCE_DIR}/examples/scenarios/playable.toml")
+    set_tests_properties(cli.replay_takes_no_seed cli.play_needs_a_terminal
+        PROPERTIES WILL_FAIL TRUE)
 
     # Every example scenario has to keep working: run each one briefly, with an event log.
     file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")

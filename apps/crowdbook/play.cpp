@@ -1,0 +1,291 @@
+#include "play.hpp"
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <format>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "crowdbook/agent_registry.hpp"
+#include "crowdbook/scenario_file.hpp"
+#include "crowdbook/session.hpp"
+#include "ladder.hpp"
+#include "terminal.hpp"
+
+namespace crowdbook {
+
+namespace {
+
+constexpr std::array kSpeeds{0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0};
+constexpr auto kFrame = std::chrono::milliseconds{33};
+
+std::int64_t wallNow() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+std::string readFile(const std::string& path) {
+    std::ifstream file{path};
+    if (!file) {
+        throw std::runtime_error(std::format("cannot read '{}'", path));
+    }
+    std::ostringstream text;
+    text << file.rdbuf();
+    return text.str();
+}
+
+double nextSpeed(double speed, bool faster) {
+    if (faster) {
+        const auto* next = std::ranges::find_if(kSpeeds, [speed](double s) { return s > speed; });
+        return next == kSpeeds.end() ? speed : *next;
+    }
+    double slower = speed;
+    for (const double candidate : kSpeeds) {
+        if (candidate < speed) {
+            slower = candidate;
+        }
+    }
+    return slower;
+}
+
+std::string describe(const OrderRejected& rejection) {
+    return std::format("{} of order {} rejected: {}", toString(rejection.request),
+                       rejection.clientOrderId, toString(rejection.reason));
+}
+
+// The live session: the market, what the participant has done, and what the screen shows.
+class LiveSession {
+public:
+    LiveSession(const Scenario& scenario, SessionMarket& market, Session& record)
+        : scenario_(scenario), market_(market), record_(record),
+          cursor_(scenario.referencePrice),
+          size_(std::min<Quantity>(5, scenario.participant.account.maxOrderQuantity)) {
+        if (scenario.exchange.depthLevels == 0) {
+            message_ = "no depth feed in this scenario: the ladder shows only the best prices";
+        }
+    }
+
+    // Runs until the person quits.
+    void run(RawTerminal& terminal, double speed) {
+        Simulation& simulation = market_.run.simulation();
+        Pacer pacer{wallNow(), simulation.now(), speed};
+        while (true) {
+            const Timestamp target = std::min(pacer.simulatedAt(wallNow()), scenario_.duration);
+            if (target > simulation.now()) {
+                market_.run.runUntil(target);
+            }
+            noteRejection();
+            terminal.draw(ladder::render(screen(terminal, pacer)));
+            const std::optional<Key> key = terminal.readKey(kFrame);
+            if (key && !handle(*key, pacer)) {
+                return;
+            }
+        }
+    }
+
+private:
+    ladder::Screen screen(const RawTerminal& terminal, const Pacer& pacer) const {
+        const Simulation& simulation = market_.run.simulation();
+        const auto [rows, columns] = terminal.size();
+        const auto& tape = market_.agent->tape();
+        return {.now = simulation.now(),
+                .end = scenario_.duration,
+                .speed = pacer.speed(),
+                .paused = pacer.paused(),
+                .market = simulation.marketSeenBy(market_.participant),
+                .ledger = &simulation.ledger(market_.participant),
+                .tape = std::vector<TapeEntry>(tape.begin(), tape.end()),
+                .referencePrice = scenario_.referencePrice,
+                .initialCash = scenario_.participant.account.initialCash,
+                .initialPosition = scenario_.participant.account.initialPosition,
+                .cursor = cursor_,
+                .size = size_,
+                .message = over() ? "the session is over: press q to see the results" : message_,
+                .rows = rows,
+                .columns = columns};
+    }
+
+    [[nodiscard]] bool over() const {
+        return market_.run.simulation().now() >= scenario_.duration;
+    }
+
+    void noteRejection() {
+        const std::optional<OrderRejected>& rejection = market_.agent->lastRejection();
+        if (rejection && rejection != shownRejection_) {
+            shownRejection_ = rejection;
+            message_ = describe(*rejection);
+        }
+    }
+
+    // Sends a request now and records it. Trading stops when the session is over.
+    void act(Request request) {
+        if (over()) {
+            return;
+        }
+        Simulation& simulation = market_.run.simulation();
+        SessionAction action{.time = simulation.now(), .request = std::move(request)};
+        const ClientOrderId id = perform(simulation, market_.participant, action);
+        if (auto* order = std::get_if<NewOrder>(&action.request)) {
+            order->clientOrderId = id;
+        }
+        record_.actions.push_back(std::move(action));
+    }
+
+    void order(Side side, OrderType type) {
+        act(NewOrder{.side = side, .type = type, .price = cursor_, .quantity = size_});
+        message_ = type == OrderType::Market
+                       ? std::format("{} {} at the market", side == Side::Buy ? "buy" : "sell",
+                                     size_)
+                       : std::format("{} {} at {}", side == Side::Buy ? "bid" : "offer", size_,
+                                     cursor_);
+    }
+
+    void cancel(bool everywhere) {
+        std::vector<ClientOrderId> ids;
+        for (const auto& [id, own] :
+             market_.run.simulation().ledger(market_.participant).orders()) {
+            if (!own.cancelRequested && (everywhere || own.price == cursor_)) {
+                ids.push_back(id);
+            }
+        }
+        for (const ClientOrderId id : ids) {
+            act(CancelOrder{.clientOrderId = id});
+        }
+        message_ = std::format("cancelling {} order{}", ids.size(), ids.size() == 1 ? "" : "s");
+    }
+
+    void centerCursor() {
+        const MarketSnapshot market = market_.run.simulation().marketSeenBy(market_.participant);
+        if (market.bid && market.ask) {
+            cursor_ = (market.bid->price + market.ask->price) / 2;
+        } else if (market.lastTrade) {
+            cursor_ = *market.lastTrade;
+        }
+    }
+
+    // Returns false when the person quits.
+    bool handle(const Key& key, Pacer& pacer) {
+        switch (key.kind) {
+        case Key::Kind::Up:
+            ++cursor_;
+            return true;
+        case Key::Kind::Down:
+            cursor_ = std::max<Price>(1, cursor_ - 1);
+            return true;
+        case Key::Kind::PageUp:
+            cursor_ += 10;
+            return true;
+        case Key::Kind::PageDown:
+            cursor_ = std::max<Price>(1, cursor_ - 10);
+            return true;
+        case Key::Kind::Character:
+            break;
+        }
+        const Quantity largest = scenario_.participant.account.maxOrderQuantity;
+        switch (key.character) {
+        case 'q':
+            return false;
+        case 'b':
+            order(Side::Buy, OrderType::Limit);
+            break;
+        case 's':
+            order(Side::Sell, OrderType::Limit);
+            break;
+        case 'B':
+            order(Side::Buy, OrderType::Market);
+            break;
+        case 'S':
+            order(Side::Sell, OrderType::Market);
+            break;
+        case 'c':
+            cancel(false);
+            break;
+        case 'C':
+            cancel(true);
+            break;
+        case 'm':
+            centerCursor();
+            break;
+        case '+':
+        case '=':
+            size_ = std::min(size_ + 1, largest);
+            break;
+        case '-':
+        case '_':
+            size_ = std::max<Quantity>(size_ - 1, 1);
+            break;
+        case ' ':
+            pacer.setPaused(!pacer.paused(), wallNow());
+            break;
+        case ']':
+            pacer.setSpeed(nextSpeed(pacer.speed(), true), wallNow());
+            break;
+        case '[':
+            pacer.setSpeed(nextSpeed(pacer.speed(), false), wallNow());
+            break;
+        default:
+            break;
+        }
+        return true;
+    }
+
+    const Scenario& scenario_;
+    SessionMarket& market_;
+    Session& record_;
+    Price cursor_;
+    Quantity size_;
+    std::string message_;
+    std::optional<OrderRejected> shownRejection_;
+};
+
+} // namespace
+
+int play(const PlayOptions& options) {
+    const std::string text = readFile(options.scenarioPath);
+    Scenario scenario = parseScenario(text, options.scenarioPath);
+    if (options.seed) {
+        scenario.seed = *options.seed;
+    }
+    if (options.duration) {
+        scenario.duration = *options.duration;
+    }
+
+    const OutputOptions logOnly{.logPath = options.outputs.logPath,
+                                .logKinds = options.outputs.logKinds};
+    Outputs outputs{logOnly, scenario};
+    SessionMarket market = openSession(scenario, AgentRegistry::withBuiltIns(), outputs.sink());
+    Session record{.scenario = text, .seed = scenario.seed};
+    {
+        RawTerminal terminal;
+        LiveSession session{scenario, market, record};
+        session.run(terminal, options.speed);
+    }
+    record.end = market.run.simulation().now();
+
+    std::cout << std::format("{} (seed {}): played {} of {} with {} actions\n",
+                             options.scenarioPath, scenario.seed, formatDuration(record.end),
+                             formatDuration(scenario.duration), record.actions.size());
+    scenario.duration = record.end;
+    printResults(std::cout, scenario, market.run.result());
+    outputs.report(std::cout, scenario, market.run.result());
+    if (options.recordPath) {
+        std::ofstream file{*options.recordPath};
+        if (!file) {
+            throw std::runtime_error(std::format("cannot write '{}'", *options.recordPath));
+        }
+        writeSession(file, record);
+        std::cout << std::format("session written to {}; crowdbook replay plays it back\n",
+                                 *options.recordPath);
+    }
+    return 0;
+}
+
+} // namespace crowdbook

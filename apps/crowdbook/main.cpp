@@ -1,10 +1,11 @@
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <format>
-#include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <optional>
 #include <ranges>
@@ -15,11 +16,13 @@
 #include <vector>
 
 #include "crowdbook/agent_registry.hpp"
-#include "crowdbook/event_log.hpp"
 #include "crowdbook/parameters.hpp"
 #include "crowdbook/scenario.hpp"
 #include "crowdbook/scenario_file.hpp"
+#include "crowdbook/session.hpp"
 #include "crowdbook/version.hpp"
+#include "output.hpp"
+#include "play.hpp"
 
 namespace crowdbook {
 namespace {
@@ -28,25 +31,21 @@ constexpr std::string_view kUsage =
     "usage: crowdbook run <scenario.toml> [--seed N] [--duration D] [--log FILE]\n"
     "                     [--log-only KIND,KIND...] [--json FILE]\n"
     "                     [--prices FILE] [--depth FILE] [--sample-interval D]\n"
+    "       crowdbook play <scenario.toml> [--seed N] [--duration D] [--speed X]\n"
+    "                      [--record FILE] [--log FILE] [--log-only KIND,KIND...]\n"
+    "       crowdbook replay <session.toml> [--log FILE] [--log-only KIND,KIND...]\n"
+    "                        [--json FILE] [--prices FILE] [--depth FILE]\n"
+    "                        [--sample-interval D]\n"
     "       crowdbook agents\n"
     "       crowdbook --version\n";
 
-// A mistake in the command line; main prints the message followed by the usage.
-class UsageError : public std::runtime_error {
-public:
-    using std::runtime_error::runtime_error;
-};
-
-struct RunOptions {
-    std::string scenarioPath{};
+struct CommandLine {
+    std::string path{}; // the scenario, or for replay the session
     std::optional<std::uint64_t> seed{};
     std::optional<Duration> duration{};
-    std::optional<std::string> logPath{};
-    std::vector<std::string> logKinds{}; // empty logs every kind
-    std::optional<std::string> jsonPath{};
-    std::optional<std::string> pricesPath{};
-    std::optional<std::string> depthPath{};
-    Duration sampleInterval = kSecond; // for --prices and --depth
+    std::optional<double> speed{};
+    std::optional<std::string> recordPath{};
+    OutputOptions outputs{};
 };
 
 std::vector<std::string> splitList(std::string_view text) {
@@ -66,10 +65,24 @@ std::uint64_t parseSeed(std::string_view text) {
     return seed;
 }
 
-RunOptions parseRunOptions(std::span<char*> args) {
-    RunOptions options;
+double parseSpeed(std::string_view text) {
+    double speed = 0.0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), speed);
+    if (error != std::errc{} || end != text.data() + text.size() || !(speed > 0.0)) {
+        throw UsageError(std::format("--speed needs a positive number, not '{}'", text));
+    }
+    return speed;
+}
+
+// Reads one command's arguments. `allowed` lists the options it takes.
+CommandLine parseCommandLine(std::span<char*> args, std::string_view command,
+                             std::initializer_list<std::string_view> allowed) {
+    CommandLine line;
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string_view arg = args[i];
+        if (arg.starts_with("--") && std::ranges::find(allowed, arg) == allowed.end()) {
+            throw UsageError(std::format("{} does not take {}", command, arg));
+        }
         const auto value = [&]() -> std::string_view {
             if (i + 1 >= args.size()) {
                 throw UsageError(std::format("{} needs a value", arg));
@@ -77,142 +90,95 @@ RunOptions parseRunOptions(std::span<char*> args) {
             return args[++i];
         };
         if (arg == "--seed") {
-            options.seed = parseSeed(value());
+            line.seed = parseSeed(value());
         } else if (arg == "--duration") {
-            options.duration = parseDuration(value());
+            line.duration = parseDuration(value());
+        } else if (arg == "--speed") {
+            line.speed = parseSpeed(value());
+        } else if (arg == "--record") {
+            line.recordPath = std::string{value()};
         } else if (arg == "--log") {
-            options.logPath = std::string{value()};
+            line.outputs.logPath = std::string{value()};
         } else if (arg == "--log-only") {
-            options.logKinds = splitList(value());
+            line.outputs.logKinds = splitList(value());
         } else if (arg == "--json") {
-            options.jsonPath = std::string{value()};
+            line.outputs.jsonPath = std::string{value()};
         } else if (arg == "--prices") {
-            options.pricesPath = std::string{value()};
+            line.outputs.pricesPath = std::string{value()};
         } else if (arg == "--depth") {
-            options.depthPath = std::string{value()};
+            line.outputs.depthPath = std::string{value()};
         } else if (arg == "--sample-interval") {
-            options.sampleInterval = parseDuration(value());
-        } else if (arg.starts_with("--")) {
-            throw UsageError(std::format("unknown option {}", arg));
-        } else if (options.scenarioPath.empty()) {
-            options.scenarioPath = arg;
+            line.outputs.sampleInterval = parseDuration(value());
+        } else if (line.path.empty()) {
+            line.path = arg;
         } else {
             throw UsageError(std::format("unexpected argument '{}'", arg));
         }
     }
-    if (options.scenarioPath.empty()) {
-        throw UsageError("run needs a scenario file");
+    if (line.path.empty()) {
+        throw UsageError(std::format("{} needs a file", command));
     }
-    if (!options.logKinds.empty() && !options.logPath) {
+    if (!line.outputs.logKinds.empty() && !line.outputs.logPath) {
         throw UsageError("--log-only needs --log");
     }
-    return options;
-}
-
-std::ofstream openForWriting(const std::string& path) {
-    std::ofstream file{path};
-    if (!file) {
-        throw std::runtime_error(std::format("cannot write '{}'", path));
-    }
-    return file;
-}
-
-std::string formatDuration(Duration duration) {
-    if (duration % kSecond == 0) {
-        return std::format("{}s", duration / kSecond);
-    }
-    if (duration % kMillisecond == 0) {
-        return std::format("{}ms", duration / kMillisecond);
-    }
-    if (duration % kMicrosecond == 0) {
-        return std::format("{}us", duration / kMicrosecond);
-    }
-    return std::format("{}ns", duration);
+    return line;
 }
 
 int run(std::span<char*> args) {
-    const RunOptions options = parseRunOptions(args);
-    Scenario scenario = loadScenario(options.scenarioPath);
-    if (options.seed) {
-        scenario.seed = *options.seed;
+    const CommandLine line =
+        parseCommandLine(args, "run",
+                         {"--seed", "--duration", "--log", "--log-only", "--json", "--prices",
+                          "--depth", "--sample-interval"});
+    Scenario scenario = loadScenario(line.path);
+    if (line.seed) {
+        scenario.seed = *line.seed;
     }
-    if (options.duration) {
-        scenario.duration = *options.duration;
-    }
-
-    BroadcastSink sinks;
-    std::ofstream logFile;
-    std::optional<CsvEventLog> log;
-    if (options.logPath) {
-        logFile = openForWriting(*options.logPath);
-        sinks.add(log.emplace(logFile, options.logKinds));
-    }
-    std::ofstream pricesFile;
-    std::optional<PriceSampler> prices;
-    if (options.pricesPath) {
-        pricesFile = openForWriting(*options.pricesPath);
-        sinks.add(prices.emplace(pricesFile, options.sampleInterval));
-    }
-    std::ofstream depthFile;
-    std::optional<DepthSampler> depth;
-    if (options.depthPath) {
-        if (scenario.exchange.depthLevels == 0) {
-            throw std::runtime_error("--depth needs a depth feed: add depth_levels to the "
-                                     "scenario's [exchange] section");
-        }
-        depthFile = openForWriting(*options.depthPath);
-        sinks.add(
-            depth.emplace(depthFile, options.sampleInterval, scenario.exchange.depthLevels));
+    if (line.duration) {
+        scenario.duration = *line.duration;
     }
 
+    Outputs outputs{line.outputs, scenario};
     const auto started = std::chrono::steady_clock::now();
-    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), &sinks);
+    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), outputs.sink());
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
-    if (prices) {
-        prices->finish(scenario.duration);
-    }
-    if (depth) {
-        depth->finish(scenario.duration);
-    }
+    outputs.finish(scenario.duration);
 
-    std::cout << std::format("{} (seed {}): simulated {} in {:.2f}s\n", options.scenarioPath,
-                             scenario.seed, formatDuration(scenario.duration), elapsed.count());
-    std::cout << std::format("{} trades, {} lots traded, last price {}", result.trades,
-                             result.volume, result.lastPrice);
-    if (result.finalValue) {
-        std::cout << std::format(", true value {:.1f}", *result.finalValue);
-    }
-    std::cout << "\n\n";
-    // Fee columns appear only when the exchange charges fees.
-    const bool fees = scenario.exchange.makerFee != 0 || scenario.exchange.takerFee != 0;
-    const auto signedFee = [](Fee fee) { return (fee > 0 ? "+" : "") + formatFee(fee); };
-    std::cout << std::format("{:<20} {:>7} {:>10} {:>14} {:>12}", "group", "agents", "position",
-                             "cash", "pnl");
-    std::cout << (fees ? std::format(" {:>12} {:>12}\n", "fees", "net pnl") : "\n");
-    for (const GroupResult& group : result.groups) {
-        std::cout << std::format("{:<20} {:>7} {:>10} {:>14} {:>+12}", group.name,
-                                 group.agents.size(), group.position, group.cash, group.pnl);
-        std::cout << (fees ? std::format(" {:>12} {:>12}\n", formatFee(group.fees),
-                                         signedFee(group.pnl * kFeeUnitsPerTickLot - group.fees))
-                           : "\n");
-    }
-    std::cout << "\ncash and pnl are in tick-lots; pnl values positions at the last price"
-              << (fees ? ", and net pnl is pnl minus fees\n" : "\n");
-    if (options.logPath) {
-        std::cout << std::format("event log written to {}\n", *options.logPath);
-    }
-    if (options.pricesPath) {
-        std::cout << std::format("prices written to {}\n", *options.pricesPath);
-    }
-    if (options.depthPath) {
-        std::cout << std::format("depth written to {}\n", *options.depthPath);
-    }
-    if (options.jsonPath) {
-        std::ofstream json = openForWriting(*options.jsonPath);
-        writeResultJson(json, scenario, result);
-        std::cout << std::format("results written to {}\n", *options.jsonPath);
-    }
+    std::cout << std::format("{} (seed {}): simulated {} in {:.2f}s\n", line.path, scenario.seed,
+                             formatDuration(scenario.duration), elapsed.count());
+    printResults(std::cout, scenario, result);
+    outputs.report(std::cout, scenario, result);
     return 0;
+}
+
+int replay(std::span<char*> args) {
+    const CommandLine line = parseCommandLine(
+        args, "replay",
+        {"--log", "--log-only", "--json", "--prices", "--depth", "--sample-interval"});
+    const Session session = loadSession(line.path);
+    Scenario scenario = parseScenario(session.scenario, line.path);
+    scenario.seed = session.seed;
+    scenario.duration = session.end;
+
+    Outputs outputs{line.outputs, scenario};
+    const RunResult result = replaySession(session, AgentRegistry::withBuiltIns(), outputs.sink());
+    outputs.finish(session.end);
+
+    std::cout << std::format("{} (seed {}): replayed {} with {} actions\n", line.path,
+                             session.seed, formatDuration(session.end), session.actions.size());
+    printResults(std::cout, scenario, result);
+    outputs.report(std::cout, scenario, result);
+    return 0;
+}
+
+int playCommand(std::span<char*> args) {
+    const CommandLine line = parseCommandLine(
+        args, "play", {"--seed", "--duration", "--speed", "--record", "--log", "--log-only"});
+    return play({.scenarioPath = line.path,
+                 .seed = line.seed,
+                 .duration = line.duration,
+                 .speed = line.speed.value_or(1.0),
+                 .recordPath = line.recordPath,
+                 .outputs = line.outputs});
 }
 
 int runCommand(std::span<char*> args) {
@@ -222,6 +188,12 @@ int runCommand(std::span<char*> args) {
     const std::string_view command = args[0];
     if (command == "run") {
         return run(args.subspan(1));
+    }
+    if (command == "replay") {
+        return replay(args.subspan(1));
+    }
+    if (command == "play") {
+        return playCommand(args.subspan(1));
     }
     if (command == "agents") {
         std::cout << "agent types:\n";
