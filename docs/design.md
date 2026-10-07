@@ -236,6 +236,56 @@ account and latency, and their orders take the same path as every other agent's.
 end in one call, and now builds a `ScenarioRun`, which can also run in steps and take agents of
 the caller's own.
 
+## Gateway
+
+`crowdbook serve` runs a scenario in real time and lets people and programs trade in it over the
+network, several at once. It is a live session with more than one participant, reached through a
+socket instead of a keyboard, so everything in [Live sessions](#live-sessions) still holds: one
+thread, the market run up to the paced time and acted on in between, and a recording that replays
+byte for byte. [protocol.md](protocol.md) specifies the messages.
+
+- **Seats:** the server is started with the names of its seats. Each seat is a `Participant`
+  added after the scenario's agents, in the order named, and every seat gets the scenario's
+  `[participant]` account and latency, so nobody starts ahead. A client claims a seat by name in
+  its first message; with a token file, it must also give the seat's token. The clock starts once
+  every seat is claimed.
+- **Messages and their encoding are separate.** The protocol is a set of message types, and the
+  encoding turns them into bytes. The first encoding is JSON, one message per line: any language
+  can speak it, and a person can read it. A binary encoding and FIX come later (M18) as other
+  encodings of the same messages. Every number on the wire is an integer, as in the engine.
+- **Order ids:** a client names its orders with its own ids, as with FIX's ClOrdID, so it can
+  cancel an order it has only just sent. The gateway gives each new order a fresh client order id
+  inside the market and translates every event back. A wire id is free again once the order is
+  done: filled, cancelled or rejected. A new order reusing a live wire id, or a cancel or modify
+  naming an unknown one, is rejected by the gateway without reaching the market, as a real
+  exchange's gateway rejects malformed orders before its matching engine sees them.
+- **When a message counts:** each message is stamped with the paced simulated time at which the
+  server reads it, and sent from the seat's agent at that time, on the seat's simulated latency.
+  The recording keeps that time and the seat, so a replay sends it at the same moment from the
+  same agent. Real network delay therefore adds to the simulated one, scaled by the speed: at 50
+  times real time, a millisecond on the wire is 50 simulated milliseconds. That is inherent to
+  trading in real time; the learning environment (M19) will step the market in lockstep instead.
+- **Untrusted input:** a line longer than 4 KiB, a malformed message, an unknown field or a value
+  out of range gets an error message and is dropped. Each connection may send a limited number of
+  messages per second of wall-clock time; messages over the limit get an error and are dropped
+  before they reach the market, so the limit never affects a replay. A client that does not read
+  its messages fast enough is disconnected once 8 MiB are waiting for it, and a connection that
+  does not claim a seat within five seconds is closed.
+- **Disconnecting** cancels every open order of the seat, as cancel-on-disconnect does on real
+  exchanges; the cancels are recorded like any other request. The seat can be claimed again, and
+  the welcome message then carries its cash, position, fees and open orders.
+- **Sockets:** POSIX sockets, non-blocking, with `poll`, on the market's thread. The server
+  listens on 127.0.0.1 unless told otherwise, so a market is not reachable from other machines by
+  accident.
+- **Layers:** the gateway itself only turns bytes from connections into requests and events into
+  bytes, and never touches a socket, so tests drive it with byte strings and no network. The
+  server around it moves bytes between sockets and the gateway, and the clock between the wall
+  and the market.
+
+`crowdbook connect` is the terminal trading screen as a client of a served market. It keeps the
+seat's ledger from its own requests and events, and the market from the public messages, and draws
+the same ladder as `crowdbook play`.
+
 ## Agents and scenarios
 
 Five agent types are built in. Each is a plain class configured by a struct, so it can be used
@@ -461,6 +511,12 @@ Choices for later milestones may change once they are implemented; changes are r
 | Market maker's fair price | A running average of trade prices | The mid is often its own quotes; skewing around them made prices run away |
 | Direction | One engine for research and play: the same agents and rules in a batch experiment and in a live session | Experiments then describe the market people trade in, and every played session is reproducible data |
 | Realism | Defined by a scorecard measured the same way on simulated and real data | Without a target, tuning never ends |
+| Gateway encoding | Messages defined apart from their encoding; JSON lines first, binary and FIX later | Any language can speak JSON lines and people can read them; industry encodings are then additions, not rewrites |
+| Wire order ids | Chosen by the client and translated by the gateway | A client can cancel an order before its acknowledgement, as agents inside the market can |
+| Seats | Named when the server starts, recorded in the session; every seat has the scenario's participant account and latency | Fair by construction, and a replay builds the same agents in the same order |
+| Arrival time | The paced simulated time when the server reads a message | The only time the server can know; recording it is what makes a session with many participants replay exactly |
+| Disconnects | Cancel the seat's open orders | Protects a participant whose connection drops, as exchanges' cancel-on-disconnect does |
+| Server | POSIX sockets and `poll` on the market's thread, listening on 127.0.0.1 by default | No locks and no dependency; nothing is exposed to other machines unless asked |
 | Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |

@@ -24,6 +24,8 @@ struct Latency {
     Duration toExchange = 0;   // for the agent's requests
     Duration fromExchange = 0; // for every event sent to the agent, private or public
     Duration jitter = 0;       // extra delay per message, uniform in [0, jitter]
+
+    friend bool operator==(const Latency&, const Latency&) = default;
 };
 
 struct AgentOptions {

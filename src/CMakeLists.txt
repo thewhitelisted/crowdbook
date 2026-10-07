@@ -30,6 +30,15 @@ target_compile_features(crowdbook PUBLIC cxx_std_23)
 target_compile_definitions(crowdbook PRIVATE CROWDBOOK_VERSION="${PROJECT_VERSION}")
 crowdbook_set_warnings(crowdbook)
 
+# The protocol for clients of a served market: its messages and their encoding. It needs nothing
+# but the core library, so clients can link it without the scenario files' dependency.
+add_library(crowdbook_protocol
+    json.cpp
+    protocol.cpp)
+add_library(crowdbook::protocol ALIAS crowdbook_protocol)
+target_link_libraries(crowdbook_protocol PUBLIC crowdbook::crowdbook)
+crowdbook_set_warnings(crowdbook_protocol)
+
 # Scenario files are the only part that needs a third-party library, so they get their own target
 # and the core library stays dependency-free.
 if(CROWDBOOK_BUILD_SCENARIOS)
@@ -46,6 +55,6 @@ if(CROWDBOOK_BUILD_SCENARIOS)
     add_library(crowdbook::scenario ALIAS crowdbook_scenario)
     target_link_libraries(crowdbook_scenario
         PUBLIC crowdbook::crowdbook
-        PRIVATE tomlplusplus::tomlplusplus)
+        PRIVATE crowdbook::protocol tomlplusplus::tomlplusplus)
     crowdbook_set_warnings(crowdbook_scenario)
 endif()
