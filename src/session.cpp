@@ -59,7 +59,11 @@ std::string actionLine(const SessionAction& action) {
             line += std::format(", time_in_force = \"{}\", price = {}",
                                 toString(order->timeInForce), order->price);
         }
-        line += std::format(", quantity = {} }},", order->quantity);
+        line += std::format(", quantity = {}", order->quantity);
+        if (order->parent != 0) {
+            line += std::format(", parent = {}", order->parent);
+        }
+        line += " },";
     } else if (const auto* cancel = std::get_if<CancelOrder>(&action.request)) {
         line += std::format("request = \"cancel\", client_order_id = {} }},",
                             cancel->clientOrderId);
@@ -154,6 +158,10 @@ SessionAction readAction(const Reader& reader, const toml::table& table) {
                               TimeInForce::ImmediateOrCancel},
                     std::pair{std::string_view{"post-only"}, TimeInForce::PostOnly}});
             order.price = reader.integer(reader.required(table, "price"), "price", 1, kMaxPrice);
+        }
+        if (const toml::node* parent = table.get("parent")) {
+            order.parent =
+                static_cast<std::uint64_t>(reader.integer(*parent, "parent", 0, kMaxInt));
         }
         action.request = order;
     } else if (kind == "cancel") {

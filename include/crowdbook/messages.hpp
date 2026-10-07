@@ -21,6 +21,9 @@ struct NewOrder {
     TimeInForce timeInForce = TimeInForce::GoodTillCancel; // ignored for market orders
     Price price = 0;                                       // ignored for market orders
     Quantity quantity = 0;
+    // The sender's own id for a larger order that this one is part of, or 0. The exchange ignores
+    // it; the event log keeps it, so that an analysis can put a large order's pieces together.
+    std::uint64_t parent = 0;
 
     friend bool operator==(const NewOrder&, const NewOrder&) = default;
 };

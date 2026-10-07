@@ -65,7 +65,9 @@ std::pair<Session, std::string> playScripted() {
     market.run.runUntil(300 * kMillisecond);
     market.run.runUntil(700 * kMillisecond);
     act(kSecond, limitOrder(0, Side::Buy, 999, 5));
-    act(kSecond, marketOrder(0, Side::Sell, 3));
+    NewOrder part = marketOrder(0, Side::Sell, 3);
+    part.parent = 4; // part of a larger order, which the file has to keep
+    act(kSecond, part);
     act(2 * kSecond + 17, ModifyOrder{.clientOrderId = 1, .price = 1'000, .quantity = 4});
     act(3 * kSecond, limitOrder(0, Side::Sell, 1'003, 2, TimeInForce::PostOnly));
     act(4 * kSecond, CancelOrder{.clientOrderId = 1});

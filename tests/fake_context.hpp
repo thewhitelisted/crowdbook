@@ -73,6 +73,30 @@ public:
                                   .leavesQuantity = order.leaves - quantity});
     }
 
+    // Plays the exchange: cancels what is left of an order, as it does with the part of a market
+    // order the book cannot fill. Returns the event, for the test to hand to the agent.
+    OrderCancelled cancelRest(ClientOrderId clientOrderId) {
+        const OwnOrder& order = *ledger_.find(clientOrderId);
+        const OrderCancelled event{.agent = id_,
+                                   .clientOrderId = clientOrderId,
+                                   .orderId = order.orderId,
+                                   .quantity = order.leaves,
+                                   .reason = CancelReason::ImmediateOrCancel};
+        ledger_.apply(event);
+        return event;
+    }
+
+    // Plays the exchange: rejects a new order. Returns the event, for the test to hand to the
+    // agent.
+    OrderRejected reject(ClientOrderId clientOrderId, RejectReason reason) {
+        const OrderRejected event{.agent = id_,
+                                  .clientOrderId = clientOrderId,
+                                  .request = RequestKind::New,
+                                  .reason = reason};
+        ledger_.apply(event);
+        return event;
+    }
+
     // Plays the exchange: confirms a modify.
     void confirmModify(ClientOrderId clientOrderId, Price price, Quantity quantity) {
         ledger_.apply(OrderModified{.agent = id_,

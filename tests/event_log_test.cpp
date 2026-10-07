@@ -13,7 +13,7 @@
 namespace crowdbook {
 namespace {
 
-constexpr std::size_t kColumns = 19;
+constexpr std::size_t kColumns = 20;
 
 // Joins fields into one CSV line, padding with empty trailing columns.
 std::string row(std::initializer_list<std::string_view> fields) {
@@ -45,7 +45,8 @@ TEST(CsvEventLogTest, WritesAHeaderAndOneRowPerRequestOrEvent) {
                   NewOrder{.clientOrderId = 1,
                            .side = Side::Sell,
                            .type = OrderType::Market,
-                           .quantity = 2});
+                           .quantity = 2,
+                           .parent = 12});
     log.onEvent(150, OrderFilled{.agent = 1,
                                  .clientOrderId = 7,
                                  .orderId = 3,
@@ -81,10 +82,11 @@ TEST(CsvEventLogTest, WritesAHeaderAndOneRowPerRequestOrEvent) {
     const std::string expected =
         row({"time", "kind", "agent", "client_order_id", "order_id", "side", "type",
              "time_in_force", "price", "quantity", "leaves", "liquidity", "fee", "request",
-             "reason", "bid_price", "bid_quantity", "ask_price", "ask_quantity"}) +
+             "reason", "bid_price", "bid_quantity", "ask_price", "ask_quantity", "parent"}) +
         row({"100", "new", "1", "7", "", "buy", "limit", "good-till-cancel", "99", "5"}) +
         row({"100", "accepted", "1", "7", "3", "buy", "limit", "good-till-cancel", "99", "5"}) +
-        row({"150", "new", "2", "1", "", "sell", "market", "", "", "2"}) +
+        row({"150", "new", "2", "1", "", "sell", "market", "", "", "2", "", "", "", "", "", "",
+             "", "", "", "12"}) +
         row({"150", "filled", "1", "7", "3", "buy", "", "", "99", "2", "3", "maker", "-0.25"}) +
         row({"150", "filled", "2", "1", "4", "sell", "", "", "99", "2", "0", "taker", "1.5"}) +
         row({"150", "trade", "", "", "", "sell", "", "", "99", "2"}) +

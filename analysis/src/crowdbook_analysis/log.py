@@ -29,6 +29,7 @@ SCHEMA = {
     "bid_quantity": _NUMBER,
     "ask_price": _NUMBER,
     "ask_quantity": _NUMBER,
+    "parent": _NUMBER,  # on new orders that are part of a larger one
 }
 
 
@@ -83,6 +84,33 @@ def executions(log: pl.DataFrame) -> pl.DataFrame:
         (pl.col("row") - 1).alias("row"), pl.col("agent").alias("taker")
     )
     return makers.join(takers, on="row").sort("row").drop("row")
+
+
+def parent_orders(log: pl.DataFrame) -> pl.DataFrame:
+    """One row per parent order, put together from its children: the agent, the agent's id for
+    the parent, its side, when its first child reached the exchange, when its last child traded,
+    the lots traded and the children sent. Needs the log's `new` rows, which carry the parent, and
+    its `filled` rows. A parent with nothing traded has no end."""
+    children = log.filter((pl.col("kind") == "new") & pl.col("parent").is_not_null()).select(
+        "agent", "client_order_id", "parent", "side", "time"
+    )
+    fills = (
+        log.filter(pl.col("kind") == "filled")
+        .group_by("agent", "client_order_id")
+        .agg(pl.col("time").max().alias("filled_at"), pl.col("quantity").sum().alias("lots"))
+    )
+    return (
+        children.join(fills, on=["agent", "client_order_id"], how="left")
+        .group_by("agent", "parent")
+        .agg(
+            pl.col("side").first(),
+            pl.col("time").min().alias("start"),
+            pl.col("filled_at").max().alias("end"),
+            pl.col("lots").sum(),
+            pl.len().alias("children"),
+        )
+        .sort("start", "agent")
+    )
 
 
 def read_prices(path: Path) -> pl.DataFrame:

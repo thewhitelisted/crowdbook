@@ -98,8 +98,9 @@ within it. Cash has no limit. Every other key in the table is a parameter of the
 The market maker receives every trade and quote change as it happens. The others read the market
 on demand when they act, which keeps crowds of thousands fast; either way, each sees the market
 only after its own `from_exchange` latency. Agents that act on a timer (the market maker and the
-momentum, informed and adaptive traders) start it at a random point within the first interval, so
-a group of them does not act in lockstep.
+momentum, informed and adaptive traders) start it at a random point within the first interval, and
+execution agents wait a random pause before their first parent, so a group of them does not act in
+lockstep.
 
 ### `zero_intelligence`
 
@@ -201,6 +202,32 @@ that holds for a simulated day.
 | `order_size` | `5` | Lots per order |
 | `max_position` | `50` | Largest position it builds, counting orders in flight |
 
+### `execution`
+
+A broker's algorithm working large orders, one at a time. After a pause, exponential with mean
+`pause`, it takes a parent order of a random side and a size from a Pareto tail,
+P(size > q) = (`min_parent` / q)^`parent_tail`, capped at `max_parent`, and trades it with child
+market orders: `child_size` lots every `interval` for `twap`; for `pov`, every `interval`, enough to
+keep its own trading at `participation` of all the volume traded since the parent started, up to
+`child_size` at a time. Lots a child leaves unfilled are sent again; if the exchange rejects a
+child, as at the account's position limit, it gives up on the rest of the parent. Every child
+carries the parent's id, 1, 2, 3, ... for each agent, in the `parent` column of the event log.
+
+Positions follow the random sides of the parents, so give execution agents a large `max_position`
+in their account. [large_orders.toml](../examples/scenarios/large_orders.toml) has a hundred of
+them.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `style` | `"twap"` | `"twap"` for an even pace in time, `"pov"` for a share of the volume |
+| `min_parent` | `20` | Lots; the smallest parent |
+| `parent_tail` | `1.5` | Exponent of the Pareto tail of parent sizes |
+| `max_parent` | `5000` | Lots; parent sizes are capped here |
+| `pause` | `"300s"` | Mean wait before each parent |
+| `interval` | `"1s"` | Between child orders |
+| `child_size` | `5` | Lots per child; for `pov`, the most per child |
+| `participation` | `0.1` | For `pov`: its share of all the volume while it works a parent |
+
 ## Your own agents
 
 Subclass `crowdbook::Agent`, register a factory for it under a name, and use that name as the
@@ -226,6 +253,7 @@ Columns that do not apply to a row are empty.
 | `liquidity`, `fee` | For fills: `maker` or `taker`, and the fill's fee in tick-lots (negative for a rebate) |
 | `request`, `reason` | For rejections, the request kind and why; for cancellations, why |
 | `bid_price`, `bid_quantity`, `ask_price`, `ask_quantity` | For `top_of_book` |
+| `parent` | For `new`: the sender's id for the larger order this one is part of, if it gave one |
 
 Updates of the depth feed are not logged: the log's orders already determine the whole book, and
 `--depth` records the levels at regular times.

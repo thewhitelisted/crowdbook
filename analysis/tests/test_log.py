@@ -5,6 +5,7 @@ from pathlib import Path
 from crowdbook_analysis.log import (
     aggressive_orders,
     executions,
+    parent_orders,
     quotes,
     read_log,
     read_prices,
@@ -12,23 +13,23 @@ from crowdbook_analysis.log import (
 )
 
 HEADER = """time,kind,agent,client_order_id,order_id,side,type,time_in_force,price,quantity,leaves,\
-liquidity,fee,request,reason,bid_price,bid_quantity,ask_price,ask_quantity
+liquidity,fee,request,reason,bid_price,bid_quantity,ask_price,ask_quantity,parent
 """
-LOG = HEADER + """100,new,1,7,,buy,limit,good-till-cancel,99,5,,,,,,,,,
-100,top_of_book,,,,,,,,,,,,,,99,5,,
-150,trade,,,,sell,,,99,2,,,,,,,,,
-150,top_of_book,,,,,,,,,,,,,,99,3,101,4
+LOG = HEADER + """100,new,1,7,,buy,limit,good-till-cancel,99,5,,,,,,,,,,
+100,top_of_book,,,,,,,,,,,,,,99,5,,,
+150,trade,,,,sell,,,99,2,,,,,,,,,,
+150,top_of_book,,,,,,,,,,,,,,99,3,101,4,
 """
 
 
 # Agent 3's buy sweeps two of agent 4's and 5's sell orders; then agent 4 sells one lot to agent 3.
 # Each execution logs the maker's fill, then the taker's.
-FILLS = HEADER + """200,filled,4,9,8,sell,,,101,2,0,maker,-0.2,,,,,,
-200,filled,3,1,10,buy,,,101,2,3,taker,0.3,,,,,,
-200,filled,5,2,7,sell,,,102,3,0,maker,-0.2,,,,,,
-200,filled,3,1,10,buy,,,102,3,0,taker,0.3,,,,,,
-300,filled,3,3,12,buy,,,100,1,0,maker,-0.2,,,,,,
-300,filled,4,10,11,sell,,,100,1,0,taker,0.3,,,,,,
+FILLS = HEADER + """200,filled,4,9,8,sell,,,101,2,0,maker,-0.2,,,,,,,
+200,filled,3,1,10,buy,,,101,2,3,taker,0.3,,,,,,,
+200,filled,5,2,7,sell,,,102,3,0,maker,-0.2,,,,,,,
+200,filled,3,1,10,buy,,,102,3,0,taker,0.3,,,,,,,
+300,filled,3,3,12,buy,,,100,1,0,maker,-0.2,,,,,,,
+300,filled,4,10,11,sell,,,100,1,0,taker,0.3,,,,,,,
 """
 
 
@@ -75,6 +76,30 @@ class FillsTest(unittest.TestCase):
         self.assertEqual(
             executions(self.log).rows(),
             [(200, 101, 2, 4, "sell", 3), (200, 102, 3, 5, "sell", 3), (300, 100, 1, 3, "buy", 4)],
+        )
+
+
+# Agent 6 works parent 1 with two children, the second filled in two parts, and parent 2 with one
+# child that has not traded yet; agent 3's order belongs to no parent.
+PARENTS = HEADER + """100,new,6,1,,buy,market,,,3,,,,,,,,,,1
+100,new,3,1,,sell,limit,good-till-cancel,99,5,,,,,,,,,,
+110,filled,6,1,20,buy,,,100,3,0,taker,0.3,,,,,,,
+300,new,6,2,,buy,market,,,3,,,,,,,,,,1
+310,filled,6,2,21,buy,,,101,1,2,taker,0.1,,,,,,,
+320,filled,6,2,21,buy,,,102,2,0,taker,0.2,,,,,,,
+400,new,6,3,,sell,market,,,3,,,,,,,,,,2
+"""
+
+
+class ParentOrdersTest(unittest.TestCase):
+    def test_puts_each_parent_together_from_its_children(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "log.csv"
+            path.write_text(PARENTS)
+            parents = parent_orders(read_log(path))
+        self.assertEqual(
+            parents.select("agent", "parent", "side", "start", "end", "lots", "children").rows(),
+            [(6, 1, "buy", 100, 320, 6, 2), (6, 2, "sell", 400, None, 0, 1)],
         )
 
 

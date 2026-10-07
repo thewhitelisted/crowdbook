@@ -2,9 +2,11 @@
 
 #include <format>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "crowdbook/agents/adaptive.hpp"
+#include "crowdbook/agents/execution.hpp"
 #include "crowdbook/agents/informed.hpp"
 #include "crowdbook/agents/market_maker.hpp"
 #include "crowdbook/agents/momentum.hpp"
@@ -79,6 +81,26 @@ std::unique_ptr<Agent> makeAdaptive(const Parameters& parameters,
         environment.fundamental, environment.referencePrice);
 }
 
+std::unique_ptr<Agent> makeExecution(const Parameters& parameters,
+                                     const Environment& /*environment*/) {
+    const ExecutionConfig defaults;
+    const std::string style = parameters.text("style", "twap");
+    if (style != "twap" && style != "pov") {
+        throw std::invalid_argument(
+            std::format("execution style must be \"twap\" or \"pov\", not \"{}\"", style));
+    }
+    return std::make_unique<ExecutionTrader>(ExecutionConfig{
+        .style = style == "twap" ? ExecutionStyle::Twap : ExecutionStyle::Pov,
+        .minParent = parameters.integer("min_parent", defaults.minParent),
+        .parentTail = parameters.number("parent_tail", defaults.parentTail),
+        .maxParent = parameters.integer("max_parent", defaults.maxParent),
+        .pause = parameters.duration("pause", defaults.pause),
+        .interval = parameters.duration("interval", defaults.interval),
+        .childSize = parameters.integer("child_size", defaults.childSize),
+        .participation = parameters.number("participation", defaults.participation),
+    });
+}
+
 std::unique_ptr<Agent> makeMomentum(const Parameters& parameters,
                                     const Environment& environment) {
     const MomentumConfig defaults;
@@ -114,6 +136,7 @@ AgentRegistry AgentRegistry::withBuiltIns() {
     AgentRegistry registry;
     registry.add("zero_intelligence", makeZeroIntelligence);
     registry.add("adaptive", makeAdaptive);
+    registry.add("execution", makeExecution);
     registry.add("market_maker", makeMarketMaker);
     registry.add("momentum", makeMomentum);
     registry.add("informed", makeInformed);

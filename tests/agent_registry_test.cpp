@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include "crowdbook/agent_registry.hpp"
+#include "crowdbook/agents/execution.hpp"
 #include "crowdbook/agents/zero_intelligence.hpp"
 
 namespace crowdbook {
@@ -26,8 +27,8 @@ class Idle final : public Agent {};
 
 TEST(AgentRegistryTest, KnowsTheBuiltInTypes) {
     EXPECT_EQ(AgentRegistry::withBuiltIns().types(),
-              (std::vector<std::string>{"adaptive", "informed", "market_maker", "momentum",
-                                        "zero_intelligence"}));
+              (std::vector<std::string>{"adaptive", "execution", "informed", "market_maker",
+                                        "momentum", "zero_intelligence"}));
 }
 
 TEST(AgentRegistryTest, CreatesBuiltInAgentsFromParameters) {
@@ -38,7 +39,13 @@ TEST(AgentRegistryTest, CreatesBuiltInAgentsFromParameters) {
     const std::unique_ptr<Agent> agent = registry.create("zero_intelligence", parameters, {});
     EXPECT_NE(dynamic_cast<ZeroIntelligenceTrader*>(agent.get()), nullptr);
 
-    for (const char* type : {"market_maker", "momentum"}) {
+    Parameters pov;
+    pov.set("style", std::string{"pov"});
+    pov.set("participation", 0.2);
+    const std::unique_ptr<Agent> execution = registry.create("execution", pov, {});
+    EXPECT_NE(dynamic_cast<ExecutionTrader*>(execution.get()), nullptr);
+
+    for (const char* type : {"market_maker", "momentum", "execution"}) {
         EXPECT_NE(registry.create(type, Parameters{}, {}), nullptr) << type;
     }
     Environment withValue;
@@ -73,6 +80,11 @@ TEST(AgentRegistryTest, RejectsInvalidValues) {
     Parameters wrongType;
     wrongType.set("limit_rate", std::string{"fast"});
     EXPECT_NE(creationError(registry, "zero_intelligence", wrongType), "");
+
+    Parameters badStyle;
+    badStyle.set("style", std::string{"vwap"});
+    EXPECT_NE(creationError(registry, "execution", badStyle).find("\"twap\" or \"pov\""),
+              std::string::npos);
 
     // Informed traders need the scenario to model a fundamental value.
     EXPECT_NE(creationError(registry, "informed", Parameters{}), "");

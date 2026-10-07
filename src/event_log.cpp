@@ -37,6 +37,7 @@ struct Row {
     std::optional<Quantity> bidQuantity{};
     std::optional<Price> askPrice{};
     std::optional<Quantity> askQuantity{};
+    std::optional<std::uint64_t> parent{};
 };
 
 template <typename T>
@@ -71,6 +72,7 @@ void write(std::ostream& out, const Row& row) {
     writeField(out, row.bidQuantity);
     writeField(out, row.askPrice);
     writeField(out, row.askQuantity);
+    writeField(out, row.parent);
     out << '\n';
 }
 
@@ -99,7 +101,8 @@ CsvEventLog::CsvEventLog(std::ostream& out, const std::vector<std::string>& kind
         kinds_.insert(kind);
     }
     out_ << "time,kind,agent,client_order_id,order_id,side,type,time_in_force,price,quantity,"
-            "leaves,liquidity,fee,request,reason,bid_price,bid_quantity,ask_price,ask_quantity\n";
+            "leaves,liquidity,fee,request,reason,bid_price,bid_quantity,ask_price,ask_quantity,"
+            "parent\n";
 }
 
 bool CsvEventLog::keeps(std::string_view kind) const {
@@ -113,6 +116,9 @@ void CsvEventLog::onRequest(Timestamp time, AgentId agent, const Request& reques
         row.side = toString(order->side);
         describeOrder(row, order->type, order->timeInForce, order->price);
         row.quantity = order->quantity;
+        if (order->parent != 0) {
+            row.parent = order->parent;
+        }
     } else if (const auto* modify = std::get_if<ModifyOrder>(&request)) {
         row.kind = "modify";
         row.price = modify->price;
