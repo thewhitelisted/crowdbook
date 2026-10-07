@@ -9,11 +9,14 @@
 
 namespace crowdbook {
 
+// The defaults suit prices of a few thousand ticks that move a few ticks a second. Keep
+// gamma * sigma^2 * tau, the quote skew per lot of inventory, small: when other traders anchor on
+// the market maker's quotes, a large skew drags the whole market against its own inventory.
 struct MarketMakerConfig {
-    double riskAversion = 0.1; // gamma: how hard inventory pushes the quotes, per tick
-    double volatility = 2.0;   // sigma: ticks per square root of a second
-    double intensity = 1.5;    // k: how fast fills dry up away from the fair price, per tick
-    Duration horizon = kSecond; // tau: the holding period inventory risk is priced over
+    double riskAversion = 0.005; // gamma: how hard inventory pushes the quotes, per tick
+    double volatility = 3.0;     // sigma: ticks per square root of a second
+    double intensity = 0.3;      // k: how fast fills dry up away from the fair price, per tick
+    Duration horizon = kSecond;  // tau: the holding period inventory risk is priced over
     Quantity quoteSize = 5;
     Quantity maxInventory = 50; // never quote a side that could take |position| past this
     Duration requoteInterval = 100 * kMillisecond;
