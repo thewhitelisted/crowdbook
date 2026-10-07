@@ -1,4 +1,5 @@
 add_library(crowdbook
+    agent_registry.cpp
     agents/informed.cpp
     agents/market_maker.cpp
     agents/market_view.cpp

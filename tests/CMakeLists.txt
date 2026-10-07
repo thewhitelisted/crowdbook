@@ -8,6 +8,7 @@ set(INSTALL_GTEST OFF)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(crowdbook_tests
+    agent_registry_test.cpp
     event_log_test.cpp
     exchange_random_test.cpp
     exchange_test.cpp
