@@ -26,7 +26,7 @@ struct OwnOrder {
 // flight until acknowledged, and a cancel can cross a fill on the way.
 class Ledger {
 public:
-    explicit Ledger(Cash cash = 0, Quantity position = 0) noexcept;
+    explicit Ledger(Cash cash = 0, Quantity position = 0, Fee fees = 0) noexcept;
 
     // Records a request the agent has just sent. Throws std::logic_error if a new order reuses
     // the client order id of an order that is still open or in flight.

@@ -1,13 +1,15 @@
-# The trading screen's drawing and the codes it exchanges with a terminal need no terminal, so
-# the tests link them too.
+# The trading screen's drawing, the codes it exchanges with a terminal and its model of a served
+# market need no terminal and no network, so the tests link them too.
 add_library(crowdbook_ladder
     crowdbook/ladder.cpp
+    crowdbook/remote.cpp
     crowdbook/terminal_codes.cpp)
 target_include_directories(crowdbook_ladder PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/crowdbook")
-target_link_libraries(crowdbook_ladder PUBLIC crowdbook::crowdbook)
+target_link_libraries(crowdbook_ladder PUBLIC crowdbook::crowdbook crowdbook::protocol)
 crowdbook_set_warnings(crowdbook_ladder)
 
 add_executable(crowdbook_cli
+    crowdbook/connect.cpp
     crowdbook/main.cpp
     crowdbook/output.cpp
     crowdbook/play.cpp

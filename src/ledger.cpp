@@ -5,7 +5,8 @@
 
 namespace crowdbook {
 
-Ledger::Ledger(Cash cash, Quantity position) noexcept : cash_(cash), position_(position) {}
+Ledger::Ledger(Cash cash, Quantity position, Fee fees) noexcept
+    : cash_(cash), position_(position), fees_(fees) {}
 
 void Ledger::recordRequest(const Request& request) {
     if (const auto* newOrder = std::get_if<NewOrder>(&request)) {

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <future>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -161,6 +162,54 @@ TEST(ServerTest, AClientThatHangsUpHasItsOrdersCancelled) {
     server.join();
     ASSERT_EQ(gateway.session().actions.size(), 2U);
     EXPECT_TRUE(std::holds_alternative<CancelOrder>(gateway.session().actions[1].request));
+}
+
+// Two clients trade over real sockets, one leaving early; the recording replays the session's
+// event log byte for byte, whatever the timing of the network was.
+TEST(ServerTest, ASessionOverSocketsReplaysByteForByte) {
+    const Scenario scenario = parseScenario(kScenario);
+    std::ostringstream live;
+    CsvEventLog sink{live};
+    GatewayOptions options;
+    options.seats = {"alice", "bob"};
+    Gateway gateway{scenario, std::string{kScenario}, AgentRegistry::withBuiltIns(), options,
+                    &sink};
+    std::atomic<bool> stop{false};
+    std::promise<std::uint16_t> listening;
+    std::thread server{[&] {
+        serve(gateway, {.host = "127.0.0.1", .port = 0}, stop,
+              [&](std::uint16_t port) { listening.set_value(port); });
+    }};
+    const std::uint16_t port = listening.get_future().get();
+    {
+        LineClient alice{port};
+        LineClient bob{port};
+        alice.send(protocol::Hello{.seat = "alice"});
+        bob.send(protocol::Hello{.seat = "bob"});
+        ASSERT_TRUE(alice.readUntil<protocol::Start>());
+        ASSERT_TRUE(bob.readUntil<protocol::Start>());
+        for (ClientOrderId id = 1; id <= 5; ++id) {
+            alice.send(NewOrder{.clientOrderId = id,
+                                .side = Side::Buy,
+                                .type = OrderType::Limit,
+                                .price = 1'000 - static_cast<Price>(id),
+                                .quantity = 1});
+            bob.send(NewOrder{.clientOrderId = id,
+                              .side = Side::Sell,
+                              .type = OrderType::Market,
+                              .quantity = 1});
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        }
+    } // both hang up, and their open orders are cancelled
+    std::this_thread::sleep_for(std::chrono::milliseconds{200});
+    stop = true;
+    server.join();
+    EXPECT_GE(gateway.session().actions.size(), 10U);
+
+    std::ostringstream replayed;
+    CsvEventLog replaySink{replayed};
+    static_cast<void>(replaySession(gateway.session(), AgentRegistry::withBuiltIns(), &replaySink));
+    EXPECT_EQ(replayed.str(), live.str());
 }
 
 TEST(ServerTest, ListeningOnABadAddressFails) {

@@ -109,10 +109,16 @@ std::vector<std::string> render(const Screen& screen) {
     std::vector<std::string> lines;
     const std::size_t width = screen.columns;
 
-    lines.push_back(fit(std::format("crowdbook  {} of {}  speed {}x  {}", clock(screen.now),
-                                    clock(screen.end), screen.speed,
-                                    screen.paused ? "PAUSED" : "running"),
-                        width));
+    if (screen.seat.empty()) {
+        lines.push_back(fit(std::format("crowdbook  {} of {}  speed {}x  {}", clock(screen.now),
+                                        clock(screen.end), screen.speed,
+                                        screen.paused ? "PAUSED" : "running"),
+                            width));
+    } else {
+        lines.push_back(fit(std::format("crowdbook  {} of {}  seat {}", clock(screen.now),
+                                        clock(screen.end), screen.seat),
+                            width));
+    }
     if (screen.ledger != nullptr) {
         const Ledger& ledger = *screen.ledger;
         const double mark = markPrice(screen);
@@ -175,8 +181,10 @@ std::vector<std::string> render(const Screen& screen) {
                                     "size {} (+/-)",
                                     screen.size),
                         width));
-    lines.push_back(
-        fit("c cancel here  C cancel all  [ ] speed  space pause  q quit", width));
+    lines.push_back(fit(screen.seat.empty()
+                            ? "c cancel here  C cancel all  [ ] speed  space pause  q quit"
+                            : "c cancel here  C cancel all  q quit",
+                        width));
     lines.push_back(fit(screen.message, width));
     if (lines.size() > screen.rows) {
         lines.resize(screen.rows);

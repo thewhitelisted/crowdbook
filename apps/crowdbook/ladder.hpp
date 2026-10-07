@@ -26,6 +26,8 @@ struct Screen {
     Price cursor = 0;                  // the price the keys buy and sell at
     Quantity size = 1;                 // lots per order
     std::string message{};             // the latest thing worth saying, such as a rejection
+    // The seat, for a screen connected to a served market, which has no speed or pause to show.
+    std::string seat{};
     std::size_t rows = 24;             // the terminal's size
     std::size_t columns = 80;
     bool color = true;                 // ANSI colors; off for tests and plain terminals

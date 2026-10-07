@@ -127,6 +127,14 @@ TEST(LadderTest, DrawsTheBookTheParticipantsOrdersAndTheAccount) {
     EXPECT_EQ(lines.back(), "hello");
 }
 
+TEST(LadderTest, AScreenConnectedToAServedMarketShowsItsSeat) {
+    Fixture fixture;
+    fixture.screen.seat = "alice";
+    const std::vector<std::string> lines = ladder::render(fixture.screen);
+    EXPECT_EQ(lines[0], "crowdbook  01:05.3 of 10:00.0  seat alice");
+    EXPECT_EQ(lines[lines.size() - 2], "c cancel here  C cancel all  q quit");
+}
+
 TEST(LadderTest, ShowsTheBestPricesWithoutADepthFeed) {
     Fixture fixture;
     fixture.screen.market.bids.clear();

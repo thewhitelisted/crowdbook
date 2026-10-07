@@ -25,6 +25,7 @@
 #include "crowdbook/session.hpp"
 #include "crowdbook/version.hpp"
 #include "output.hpp"
+#include "connect.hpp"
 #include "play.hpp"
 #include "serve.hpp"
 
@@ -41,6 +42,7 @@ constexpr std::string_view kUsage =
     "                       [--tokens FILE] [--rate-limit N] [--seed N] [--duration D]\n"
     "                       [--speed X] [--record FILE] [--log FILE]\n"
     "                       [--log-only KIND,KIND...] [--json FILE]\n"
+    "       crowdbook connect <host:port> [--seat NAME] [--token TOKEN]\n"
     "       crowdbook replay <session.toml> [--log FILE] [--log-only KIND,KIND...]\n"
     "                        [--json FILE] [--prices FILE] [--depth FILE]\n"
     "                        [--sample-interval D]\n"
@@ -57,6 +59,7 @@ struct CommandLine {
     std::optional<std::string> listen{};
     std::optional<std::string> tokensPath{};
     std::optional<std::int64_t> rateLimit{};
+    std::optional<std::string> token{};
     OutputOptions outputs{};
 };
 
@@ -130,6 +133,8 @@ CommandLine parseCommandLine(std::span<char*> args, std::string_view command,
             line.seats.emplace_back(value());
         } else if (arg == "--listen") {
             line.listen = std::string{value()};
+        } else if (arg == "--token") {
+            line.token = std::string{value()};
         } else if (arg == "--tokens") {
             line.tokensPath = std::string{value()};
         } else if (arg == "--rate-limit") {
@@ -153,7 +158,8 @@ CommandLine parseCommandLine(std::span<char*> args, std::string_view command,
         }
     }
     if (line.path.empty()) {
-        throw UsageError(std::format("{} needs a file", command));
+        throw UsageError(
+            std::format("{} needs {}", command, command == "connect" ? "host:port" : "a file"));
     }
     if (!line.outputs.logKinds.empty() && !line.outputs.logPath) {
         throw UsageError("--log-only needs --log");
@@ -238,6 +244,20 @@ int serveCommand(std::span<char*> args) {
     return serve(options);
 }
 
+int connectCommand(std::span<char*> args) {
+    const CommandLine line = parseCommandLine(args, "connect", {"--seat", "--token"});
+    if (line.seats.size() > 1) {
+        throw UsageError("connect takes one --seat");
+    }
+    ConnectOptions options;
+    parseListen(line.path, options.host, options.port);
+    if (!line.seats.empty()) {
+        options.seat = line.seats.front();
+    }
+    options.token = line.token.value_or("");
+    return connect(options);
+}
+
 int runCommand(std::span<char*> args) {
     if (args.empty()) {
         throw UsageError("no command given");
@@ -254,6 +274,9 @@ int runCommand(std::span<char*> args) {
     }
     if (command == "serve") {
         return serveCommand(args.subspan(1));
+    }
+    if (command == "connect") {
+        return connectCommand(args.subspan(1));
     }
     if (command == "agents") {
         std::cout << "agent types:\n";
