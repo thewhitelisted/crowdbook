@@ -7,6 +7,7 @@ project(crowdbook
 
 option(CROWDBOOK_BUILD_TESTS "Build the crowdbook test suite" ${PROJECT_IS_TOP_LEVEL})
 option(CROWDBOOK_BUILD_APPS "Build the crowdbook command-line tool" ${PROJECT_IS_TOP_LEVEL})
+option(CROWDBOOK_BUILD_BENCHMARKS "Build the crowdbook benchmarks" OFF)
 option(CROWDBOOK_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(CROWDBOOK_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
@@ -30,4 +31,8 @@ endif()
 
 if(CROWDBOOK_BUILD_TESTS)
     add_subdirectory(tests)
+endif()
+
+if(CROWDBOOK_BUILD_BENCHMARKS)
+    add_subdirectory(bench)
 endif()

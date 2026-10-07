@@ -26,10 +26,11 @@
     },
     {
       "name": "release",
-      "displayName": "Release",
+      "displayName": "Release with benchmarks",
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "CROWDBOOK_BUILD_BENCHMARKS": "ON"
       }
     },
     {
