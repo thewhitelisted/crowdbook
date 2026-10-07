@@ -21,6 +21,7 @@ add_executable(crowdbook_tests
     order_book_test.cpp
     parameters_test.cpp
     random_test.cpp
+    scenario_test.cpp
     simulation_determinism_test.cpp
     simulation_test.cpp
     version_test.cpp

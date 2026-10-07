@@ -13,6 +13,7 @@ add_library(crowdbook
     order_book.cpp
     parameters.cpp
     random.cpp
+    scenario.cpp
     simulation.cpp
     types.cpp
     version.cpp)
