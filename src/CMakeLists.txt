@@ -4,6 +4,7 @@ add_library(crowdbook
     ledger.cpp
     messages.cpp
     order_book.cpp
+    parameters.cpp
     random.cpp
     simulation.cpp
     types.cpp

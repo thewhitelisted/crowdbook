@@ -14,6 +14,7 @@ add_executable(crowdbook_tests
     ledger_test.cpp
     order_book_differential_test.cpp
     order_book_test.cpp
+    parameters_test.cpp
     random_test.cpp
     simulation_determinism_test.cpp
     simulation_test.cpp
