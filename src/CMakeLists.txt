@@ -5,6 +5,7 @@ add_library(crowdbook
     messages.cpp
     order_book.cpp
     random.cpp
+    simulation.cpp
     types.cpp
     version.cpp)
 add_library(crowdbook::crowdbook ALIAS crowdbook)
