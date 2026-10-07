@@ -92,9 +92,25 @@ void validate(const Scenario& scenario) {
 
 } // namespace
 
-RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
-                      EventSink* sink) {
+struct ScenarioRun::State {
+    State(const Scenario& scenario, EventSink* sink)
+        : referencePrice(scenario.referencePrice), counter(sink),
+          simulation(scenario.seed, scenario.exchange) {
+        simulation.setEventSink(&counter);
+    }
+
+    Price referencePrice;
+    std::shared_ptr<Fundamental> fundamental;
+    TradeCounter counter;
+    Simulation simulation;
+    std::vector<GroupResult> groups;
+    std::vector<AccountConfig> startingAccounts; // by group
+};
+
+ScenarioRun::ScenarioRun(const Scenario& scenario, const AgentRegistry& registry,
+                         EventSink* sink) {
     validate(scenario);
+    state_ = std::make_unique<State>(scenario, sink);
     Environment environment{.referencePrice = scenario.referencePrice};
     if (scenario.fundamental) {
         try {
@@ -105,23 +121,20 @@ RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
             throw ScenarioError(std::format("fundamental: {}", error.what()));
         }
     }
+    state_->fundamental = environment.fundamental;
 
-    Simulation simulation{scenario.seed, scenario.exchange};
-    TradeCounter counter{sink};
-    simulation.setEventSink(&counter);
-
-    RunResult result;
-    result.groups.reserve(scenario.groups.size());
+    state_->groups.reserve(scenario.groups.size());
     for (std::size_t index = 0; index < scenario.groups.size(); ++index) {
         const AgentGroup& group = scenario.groups[index];
-        GroupResult& summary = result.groups.emplace_back(GroupResult{
+        GroupResult& summary = state_->groups.emplace_back(GroupResult{
             .name = group.name.empty() ? group.type : group.name, .type = group.type});
+        state_->startingAccounts.push_back(group.options.account);
         try {
             if (group.count < 1) {
                 throw std::invalid_argument("count must be at least 1");
             }
             for (std::int64_t i = 0; i < group.count; ++i) {
-                summary.agents.push_back(simulation.addAgent(
+                summary.agents.push_back(state_->simulation.addAgent(
                     registry.create(group.type, group.parameters, environment), group.options));
             }
         } catch (const std::invalid_argument& error) {
@@ -129,20 +142,44 @@ RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
                 std::format("agent group {} ({}): {}", index + 1, summary.name, error.what()));
         }
     }
+}
 
-    simulation.runUntil(scenario.duration);
+ScenarioRun::ScenarioRun(ScenarioRun&&) noexcept = default;
+ScenarioRun& ScenarioRun::operator=(ScenarioRun&&) noexcept = default;
+ScenarioRun::~ScenarioRun() = default;
 
-    result.trades = counter.trades();
-    result.volume = counter.volume();
-    result.lastPrice = counter.lastPrice().value_or(scenario.referencePrice);
-    if (environment.fundamental) {
-        result.finalValue = environment.fundamental->valueAt(scenario.duration);
+AgentId ScenarioRun::addAgent(std::string name, std::string type, std::unique_ptr<Agent> agent,
+                              const AgentOptions& options) {
+    const AgentId id = state_->simulation.addAgent(std::move(agent), options);
+    state_->groups.push_back(
+        GroupResult{.name = std::move(name), .type = std::move(type), .agents = {id}});
+    state_->startingAccounts.push_back(options.account);
+    return id;
+}
+
+void ScenarioRun::runUntil(Timestamp time) { state_->simulation.runUntil(time); }
+
+Simulation& ScenarioRun::simulation() noexcept { return state_->simulation; }
+
+const Simulation& ScenarioRun::simulation() const noexcept { return state_->simulation; }
+
+RunResult ScenarioRun::result() {
+    const TradeCounter& counter = state_->counter;
+    RunResult result{.trades = counter.trades(),
+                     .volume = counter.volume(),
+                     .lastPrice = counter.lastPrice().value_or(state_->referencePrice)};
+    if (state_->fundamental) {
+        result.finalValue = state_->fundamental->valueAt(state_->simulation.now());
     }
-    for (std::size_t index = 0; index < scenario.groups.size(); ++index) {
-        const AccountConfig& start = scenario.groups[index].options.account;
-        GroupResult& summary = result.groups[index];
+    result.groups.reserve(state_->groups.size());
+    for (std::size_t index = 0; index < state_->groups.size(); ++index) {
+        const AccountConfig& start = state_->startingAccounts[index];
+        GroupResult& summary = result.groups.emplace_back(GroupResult{
+            .name = state_->groups[index].name,
+            .type = state_->groups[index].type,
+            .agents = state_->groups[index].agents});
         for (const AgentId id : summary.agents) {
-            const Account& account = simulation.exchange().account(id);
+            const Account& account = state_->simulation.exchange().account(id);
             summary.traded += counter.traded(id);
             summary.cash += account.cash;
             summary.position += account.position;
@@ -155,6 +192,13 @@ RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
                       (summary.position - summary.initialPosition) * result.lastPrice;
     }
     return result;
+}
+
+RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
+                      EventSink* sink) {
+    ScenarioRun run{scenario, registry, sink};
+    run.runUntil(scenario.duration);
+    return run.result();
 }
 
 void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResult& result) {

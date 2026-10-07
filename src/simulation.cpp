@@ -115,7 +115,20 @@ void Simulation::runUntil(Timestamp endTime) {
     now_ = std::max(now_, endTime);
 }
 
+void Simulation::act(AgentId id, const std::function<void(AgentContext&)>& action) {
+    static_cast<void>(slot(id));
+    Context context{*this, id};
+    action(context);
+}
+
 Agent& Simulation::agent(AgentId id) { return *slot(id).agent; }
+
+MarketSnapshot Simulation::marketSeenBy(AgentId id) const {
+    if (id == 0 || id > slots_.size()) {
+        throw std::out_of_range(std::format("no agent with id {}", id));
+    }
+    return visibleMarket(id);
+}
 
 const Ledger& Simulation::ledger(AgentId id) const {
     if (id == 0 || id > slots_.size()) {

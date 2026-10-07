@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -53,13 +54,22 @@ public:
     // Processes everything scheduled up to and including `endTime`, then moves the clock there.
     void runUntil(Timestamp endTime);
 
+    // Runs `action` with the agent's context at the current time, as if one of its callbacks
+    // were running: whatever it sends leaves now. This is how an agent driven from outside the
+    // simulation, such as a person trading live, acts between calls to runUntil. Throws
+    // std::out_of_range for an unknown id.
+    void act(AgentId id, const std::function<void(AgentContext&)>& action);
+
     [[nodiscard]] Timestamp now() const noexcept { return now_; }
     // Messages and wakeups scheduled but not yet processed.
     [[nodiscard]] std::size_t pendingCount() const noexcept { return queue_.size(); }
     [[nodiscard]] const Exchange& exchange() const noexcept { return exchange_; }
-    // Both throw std::out_of_range for an unknown id.
+    // These throw std::out_of_range for an unknown id.
     [[nodiscard]] Agent& agent(AgentId id);
     [[nodiscard]] const Ledger& ledger(AgentId id) const;
+    // The public market as the agent can see it now, one fromExchange latency late, exactly as
+    // its context's market() would show it.
+    [[nodiscard]] MarketSnapshot marketSeenBy(AgentId id) const;
 
 private:
     class Context;

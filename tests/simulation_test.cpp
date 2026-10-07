@@ -322,6 +322,35 @@ TEST(SimulationTest, SnapshotsAgreeWithTheStreamOverABusyRun) {
               100);
 }
 
+TEST(SimulationTest, ActLetsAnOutsideCallerTradeAsAnAgentBetweenRuns) {
+    Simulation simulation{1};
+    auto& person = add<RecordingAgent>(simulation, {.latency = {.toExchange = 30,
+                                                                .fromExchange = 20}});
+    auto& other = add<RecordingAgent>(simulation, {});
+    other.startHook = [](AgentContext& context) { context.submitLimit(Side::Sell, 101, 2); };
+
+    simulation.runUntil(500);
+    ClientOrderId sent = 0;
+    simulation.act(1, [&sent](AgentContext& context) {
+        EXPECT_EQ(context.now(), 500);
+        EXPECT_EQ(context.market().ask->price, 101); // seen 20 ns late, long since published
+        sent = context.submitLimit(Side::Buy, 101, 2);
+    });
+    simulation.runUntil(1'000);
+
+    // The order left at 500 and arrived 30 ns later; the fill came back 20 ns after that.
+    EXPECT_EQ(sent, 1U);
+    const auto fill = std::ranges::find_if(person.received, [](const Received& received) {
+        return std::holds_alternative<OrderFilled>(received.event);
+    });
+    ASSERT_NE(fill, person.received.end());
+    EXPECT_EQ(fill->time, 550);
+    EXPECT_EQ(simulation.ledger(1).position(), 2);
+    EXPECT_EQ(simulation.marketSeenBy(1).lastTrade, 101);
+    EXPECT_THROW(simulation.act(9, [](AgentContext&) {}), std::out_of_range);
+    EXPECT_THROW(static_cast<void>(simulation.marketSeenBy(9)), std::out_of_range);
+}
+
 // The first number each of two agents draws in a run with the given seed.
 std::vector<std::uint64_t> firstDraws(std::uint64_t seed) {
     Simulation simulation{seed};

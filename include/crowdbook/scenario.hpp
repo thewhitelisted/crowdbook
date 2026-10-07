@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <stdexcept>
@@ -39,6 +40,8 @@ struct Scenario {
     std::optional<FundamentalConfig> fundamental{};
     ExchangeConfig exchange{};
     std::vector<AgentGroup> groups{};
+    // The account and latency of a person trading in the market live; unused by runScenario.
+    AgentOptions participant{};
 };
 
 // Totals over the agents of one group.
@@ -63,6 +66,37 @@ struct RunResult {
     // The fundamental value at the end, if the scenario has one, to compare with lastPrice.
     std::optional<double> finalValue{};
     std::vector<GroupResult> groups{};
+};
+
+// A scenario's market, built and ready to run in steps. runScenario builds one and runs it to the
+// end; a live session runs it a little at a time and acts in between.
+class ScenarioRun {
+public:
+    // Builds the market. Every request and event also goes to `sink`, if there is one. Throws
+    // ScenarioError for settings no market can be built from, naming the agent group at fault.
+    ScenarioRun(const Scenario& scenario, const AgentRegistry& registry, EventSink* sink = nullptr);
+    ScenarioRun(ScenarioRun&&) noexcept;
+    ScenarioRun& operator=(ScenarioRun&&) noexcept;
+    ScenarioRun(const ScenarioRun&) = delete;
+    ScenarioRun& operator=(const ScenarioRun&) = delete;
+    ~ScenarioRun();
+
+    // Adds an agent that is not one of the scenario's groups, such as a person trading live,
+    // reported in the results as a group of its own. Throws std::invalid_argument as
+    // Simulation::addAgent does.
+    AgentId addAgent(std::string name, std::string type, std::unique_ptr<Agent> agent,
+                     const AgentOptions& options = {});
+
+    void runUntil(Timestamp time);
+    [[nodiscard]] Simulation& simulation() noexcept;
+    [[nodiscard]] const Simulation& simulation() const noexcept;
+    // The results so far, with positions valued at the last trade price and the fundamental
+    // value as of now.
+    [[nodiscard]] RunResult result();
+
+private:
+    struct State;
+    std::unique_ptr<State> state_;
 };
 
 // Builds the scenario's market and runs it for its duration. Every request and event also goes

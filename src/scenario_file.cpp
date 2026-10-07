@@ -202,6 +202,18 @@ AccountConfig readAccount(const Reader& reader, const toml::table& table) {
     return account;
 }
 
+AgentOptions readParticipant(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table, {"latency", "account"}, "in [participant]");
+    AgentOptions options;
+    if (const auto* node = table.get("latency")) {
+        options.latency = readLatency(reader, reader.table(*node, "latency"));
+    }
+    if (const auto* node = table.get("account")) {
+        options.account = readAccount(reader, reader.table(*node, "account"));
+    }
+    return options;
+}
+
 AgentGroup readGroup(const Reader& reader, const toml::table& table) {
     AgentGroup group;
     for (auto&& [key, node] : table) {
@@ -242,7 +254,8 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
 
     const Reader reader{source};
     reader.allowOnly(root,
-                     {"seed", "duration", "reference_price", "fundamental", "exchange", "agents"},
+                     {"seed", "duration", "reference_price", "fundamental", "exchange", "agents",
+                      "participant"},
                      "at the top level");
 
     Scenario scenario;
@@ -262,6 +275,9 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     }
     if (const auto* node = root.get("exchange")) {
         scenario.exchange = readExchange(reader, reader.table(*node, "exchange"));
+    }
+    if (const auto* node = root.get("participant")) {
+        scenario.participant = readParticipant(reader, reader.table(*node, "participant"));
     }
     if (const auto* node = root.get("agents")) {
         const auto* list = node->as_array();

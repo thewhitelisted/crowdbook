@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -85,6 +86,28 @@ TEST(ScenarioTest, ChargesEveryLotTradedTheMakerAndTakerFees) {
     scenario.exchange = {.makerFee = -400, .takerFee = 300};
     EXPECT_THROW(static_cast<void>(runScenario(scenario, AgentRegistry::withBuiltIns())),
                  ScenarioError);
+}
+
+TEST(ScenarioTest, RunsInStepsWithAnAgentOfTheCallersOwn) {
+    ScenarioRun stepped{marketWithAMaker(), AgentRegistry::withBuiltIns()};
+    const AgentId id = stepped.addAgent("you", "participant", std::make_unique<Agent>(),
+                                        {.account = {.initialCash = 500}});
+    stepped.runUntil(2 * kSecond);
+    stepped.runUntil(5 * kSecond);
+    const RunResult result = stepped.result();
+
+    // Running in steps changes nothing, and an idle agent of one's own changes nothing either.
+    const RunResult whole = runScenario(marketWithAMaker(), AgentRegistry::withBuiltIns());
+    EXPECT_EQ(result.trades, whole.trades);
+    EXPECT_EQ(result.lastPrice, whole.lastPrice);
+    ASSERT_EQ(result.groups.size(), whole.groups.size() + 1);
+    for (std::size_t i = 0; i < whole.groups.size(); ++i) {
+        EXPECT_EQ(result.groups[i].pnl, whole.groups[i].pnl);
+    }
+    EXPECT_EQ(result.groups.back().name, "you");
+    EXPECT_EQ(result.groups.back().agents, std::vector<AgentId>{id});
+    EXPECT_EQ(result.groups.back().initialCash, 500);
+    EXPECT_EQ(result.groups.back().pnl, 0);
 }
 
 TEST(ScenarioTest, WritesResultsAsJson) {

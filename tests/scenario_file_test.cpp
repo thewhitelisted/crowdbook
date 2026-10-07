@@ -37,6 +37,10 @@ depth_levels = 5
 maker_fee = -0.25
 taker_fee = 0.3
 
+[participant]
+latency = { to_exchange = "1ms", from_exchange = "2ms" }
+account = { max_position = 100, max_order_quantity = 20 }
+
 [[agents]]
 type = "market_maker"
 name = "maker"
@@ -69,6 +73,10 @@ count = 30
     EXPECT_EQ(scenario.exchange.depthLevels, 5U);
     EXPECT_EQ(scenario.exchange.makerFee, -250);
     EXPECT_EQ(scenario.exchange.takerFee, 300);
+    EXPECT_EQ(scenario.participant.latency.toExchange, kMillisecond);
+    EXPECT_EQ(scenario.participant.latency.fromExchange, 2 * kMillisecond);
+    EXPECT_EQ(scenario.participant.account.maxPosition, 100);
+    EXPECT_EQ(scenario.participant.account.maxOrderQuantity, 20);
 
     ASSERT_EQ(scenario.groups.size(), 2U);
     const AgentGroup& maker = scenario.groups[0];
@@ -112,7 +120,7 @@ TEST(ScenarioFileTest, ReportsSyntaxErrorsWithTheirLine) {
 TEST(ScenarioFileTest, RejectsUnknownKeysWithTheirLine) {
     EXPECT_EQ(parseError("seed = 1\nduraton = \"5s\"\n[[agents]]\ntype = \"momentum\"\n"),
               "test.toml:2: unknown key 'duraton' at the top level; expected one of: seed, "
-              "duration, reference_price, fundamental, exchange, agents");
+              "duration, reference_price, fundamental, exchange, agents, participant");
     EXPECT_EQ(parseError("[[agents]]\ntype = \"momentum\"\n"
                          "latency = { to_exchange = \"1us\", jiter = \"1us\" }\n"),
               "test.toml:3: unknown key 'jiter' in latency; expected one of: to_exchange, "
