@@ -1,0 +1,95 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "crowdbook/agent_registry.hpp"
+#include "crowdbook/event_log.hpp"
+#include "crowdbook/scenario.hpp"
+#include "crowdbook/session.hpp"
+
+namespace crowdbook {
+
+struct GatewayOptions {
+    // The seats clients can claim, in the order their participants join the market.
+    std::vector<std::string> seats{std::string{kParticipantGroup}};
+    // Each seat's token, which a client claiming it must give; no tokens if empty. Otherwise
+    // every seat needs one.
+    std::map<std::string, std::string> tokens{};
+    double speed = 1.0; // simulated seconds per second of wall-clock time
+    // Messages each connection may send per second of wall-clock time, with bursts of as many.
+    std::int64_t maxMessagesPerSecond = 500;
+    // A connection with more than this many bytes waiting to be sent to it is closed.
+    std::size_t maxPendingOutput = std::size_t{8} << 20;
+    // How long, in wall-clock nanoseconds, a connection has to claim a seat.
+    std::int64_t helloTimeout = 5 * kSecond;
+    // How often, in wall-clock nanoseconds, a quiet connection is sent the market's time.
+    std::int64_t clockInterval = 100 * kMillisecond;
+};
+
+using ConnectionId = std::uint64_t;
+
+// Runs a scenario's market for clients that trade in it through the protocol in
+// docs/protocol.md. It works on bytes and never touches a socket: whoever owns the connections
+// passes in what arrives, the wall-clock time, and takes out what to send. Everything happens on
+// the caller's thread.
+//
+// Wall-clock times are nanoseconds from any fixed origin and must never go backwards.
+class Gateway {
+public:
+    // Builds the market with one participant per seat. `scenarioText` is kept in the recording.
+    // Throws ScenarioError as openSession does, and std::invalid_argument for options that make no
+    // sense: a speed that is not positive and finite, tokens for some seats but not others, or
+    // limits that are not positive.
+    Gateway(const Scenario& scenario, std::string scenarioText, const AgentRegistry& registry,
+            GatewayOptions options, EventSink* sink = nullptr);
+    Gateway(const Gateway&) = delete;
+    Gateway& operator=(const Gateway&) = delete;
+    Gateway(Gateway&&) = delete;
+    Gateway& operator=(Gateway&&) = delete;
+    ~Gateway();
+
+    // A new connection, which has helloTimeout to claim a seat.
+    ConnectionId connect(std::int64_t wallNow);
+    // Bytes that arrived on a connection. Each complete line is one message, acted on at the
+    // market's time for `wallNow`. Bytes for a connection that is closing are ignored.
+    void receive(ConnectionId connection, std::string_view bytes, std::int64_t wallNow);
+    // The connection is gone. Its seat's open orders are cancelled and the seat can be claimed
+    // again. Unknown connections are ignored.
+    void disconnect(ConnectionId connection, std::int64_t wallNow);
+
+    // Runs the market up to the time for `wallNow`, sends what it produced, closes connections
+    // that never claimed a seat, and finishes the session when its time is up. Before every seat
+    // is claimed the market stands still at 0.
+    void advance(std::int64_t wallNow);
+    // Ends the session now, as if its time were up.
+    void stop(std::int64_t wallNow);
+
+    // What is waiting to be sent on a connection, and how much of it was sent.
+    [[nodiscard]] std::string_view pendingOutput(ConnectionId connection) const;
+    void consumeOutput(ConnectionId connection, std::size_t bytes);
+    // True once the connection should be closed: after a fatal error or the end of the session,
+    // and once everything waiting has been sent, or at once for a connection that fell too far
+    // behind. Its caller should then close it and call disconnect.
+    [[nodiscard]] bool shouldClose(ConnectionId connection) const;
+
+    [[nodiscard]] bool started() const noexcept;
+    [[nodiscard]] bool finished() const noexcept;
+    // The market's time now.
+    [[nodiscard]] Timestamp now() const;
+    // The session as recorded so far: the scenario, the seed, the seats and every request.
+    [[nodiscard]] const Session& session() const noexcept;
+    [[nodiscard]] RunResult result();
+    [[nodiscard]] const SessionMarket& market() const noexcept;
+
+private:
+    struct State;
+    std::unique_ptr<State> state_;
+};
+
+} // namespace crowdbook

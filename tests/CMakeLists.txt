@@ -15,6 +15,7 @@ add_executable(crowdbook_tests
     exchange_random_test.cpp
     exchange_test.cpp
     fundamental_test.cpp
+    gateway_test.cpp
     golden_test.cpp
     informed_test.cpp
     json_test.cpp
@@ -35,8 +36,8 @@ add_executable(crowdbook_tests
     simulation_test.cpp
     version_test.cpp
     zero_intelligence_test.cpp)
-target_link_libraries(crowdbook_tests PRIVATE crowdbook::scenario crowdbook::protocol
-    GTest::gtest_main)
+target_link_libraries(crowdbook_tests PRIVATE
+    crowdbook::gateway crowdbook::scenario crowdbook::protocol GTest::gtest_main)
 # The JSON reader is internal to the protocol library; its tests reach it directly.
 target_include_directories(crowdbook_tests PRIVATE "${PROJECT_SOURCE_DIR}/src")
 # The golden test replays a session from examples/.
