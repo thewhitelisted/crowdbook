@@ -47,8 +47,9 @@ name = "maker"
 @contextlib.contextmanager
 def served(directory, scenario, *arguments):
     """Runs `crowdbook serve` on a free port, recording to session.toml in `directory`, and
-    yields the port. On the way out it waits for the server to finish."""
-    if not pathlib.Path(scenario).exists():
+    yields the port. `scenario` is a path, or the text of a scenario. On the way out it waits for
+    the server to finish."""
+    if isinstance(scenario, str):
         (directory / "scenario.toml").write_text(scenario)
         scenario = directory / "scenario.toml"
     server = subprocess.Popen(
