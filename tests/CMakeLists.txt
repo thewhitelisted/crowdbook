@@ -10,6 +10,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(crowdbook_tests
     exchange_random_test.cpp
     exchange_test.cpp
+    ledger_test.cpp
     order_book_differential_test.cpp
     order_book_test.cpp
     random_test.cpp
