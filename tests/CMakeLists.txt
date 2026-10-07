@@ -13,6 +13,7 @@ add_executable(crowdbook_tests
     exchange_test.cpp
     fundamental_test.cpp
     ledger_test.cpp
+    market_maker_test.cpp
     order_book_differential_test.cpp
     order_book_test.cpp
     parameters_test.cpp

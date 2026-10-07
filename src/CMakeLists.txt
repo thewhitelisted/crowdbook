@@ -1,4 +1,5 @@
 add_library(crowdbook
+    agents/market_maker.cpp
     agents/market_view.cpp
     agents/zero_intelligence.cpp
     event_log.cpp
