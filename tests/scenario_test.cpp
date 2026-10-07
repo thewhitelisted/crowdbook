@@ -94,8 +94,9 @@ TEST(ScenarioTest, WritesResultsAsJson) {
                          "  \"final_value\": 499.5,\n"
                          "  \"groups\": [\n"
                          "    {\"name\": \"a \\\"quoted\\\" name\", \"type\": \"market_maker\", "
-                         "\"agents\": 2, \"traded\": 9, \"initial_cash\": 10, "
-                         "\"initial_position\": -1, \"cash\": 20, \"position\": 3, \"pnl\": 2014}\n"
+                         "\"agents\": 2, \"agent_ids\": [1, 2], \"traded\": 9, "
+                         "\"initial_cash\": 10, \"initial_position\": -1, \"cash\": 20, "
+                         "\"position\": 3, \"pnl\": 2014}\n"
                          "  ]\n"
                          "}\n");
 }

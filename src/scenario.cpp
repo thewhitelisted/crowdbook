@@ -161,13 +161,17 @@ void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResul
     out << "  \"groups\": [";
     for (std::size_t index = 0; index < result.groups.size(); ++index) {
         const GroupResult& group = result.groups[index];
+        std::string ids;
+        for (const AgentId id : group.agents) {
+            ids += std::format("{}{}", ids.empty() ? "" : ", ", id);
+        }
         out << (index == 0 ? "\n" : ",\n");
-        out << std::format("    {{\"name\": {}, \"type\": {}, \"agents\": {}, \"traded\": {}, "
-                           "\"initial_cash\": {}, \"initial_position\": {}, \"cash\": {}, "
-                           "\"position\": {}, \"pnl\": {}}}",
+        out << std::format("    {{\"name\": {}, \"type\": {}, \"agents\": {}, \"agent_ids\": [{}], "
+                           "\"traded\": {}, \"initial_cash\": {}, \"initial_position\": {}, "
+                           "\"cash\": {}, \"position\": {}, \"pnl\": {}}}",
                            jsonString(group.name), jsonString(group.type), group.agents.size(),
-                           group.traded, group.initialCash, group.initialPosition, group.cash,
-                           group.position, group.pnl);
+                           ids, group.traded, group.initialCash, group.initialPosition,
+                           group.cash, group.position, group.pnl);
     }
     out << "\n  ]\n}\n";
 }

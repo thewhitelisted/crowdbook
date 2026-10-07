@@ -69,7 +69,8 @@ struct RunResult {
 [[nodiscard]] RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
                                     EventSink* sink = nullptr);
 
-// Writes a run's settings and results as one JSON object, for analysis scripts.
+// Writes a run's settings and results as one JSON object, for analysis scripts. Each group lists
+// its agents' ids, which the event log's `agent` column refers to.
 void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResult& result);
 
 } // namespace crowdbook
