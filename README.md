@@ -14,11 +14,12 @@ or writing a program in any language that trades over the network.
 > files, the `crowdbook` command and the Python analysis package are done, and
 > [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself, in
 > real time, and replay the session exactly afterwards, and a server lets several people and bots
-> trade in one market over the network, with a Python client for writing bots. A market with memory
-> shows volatility clustering for about an hour, and brokers working large orders give order flow
-> long memory and price impact whose shape depends on how long the book remembers. Next: scoring and
-> challenges. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
-> approach and the roadmap.
+> trade in one market over the network, with a Python client for writing bots, in challenges that
+> score them. A market with memory shows volatility clustering for about an hour, and brokers
+> working large orders give order flow long memory and price impact whose shape depends on how long
+> the book remembers. Next: session reports, and what the market would have done without you. See
+> [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
+> roadmap.
 
 ## Quick start
 
@@ -180,6 +181,25 @@ dropped connection cancels its seat's orders. The server checks every message an
 each connection may send, and it listens only on 127.0.0.1 unless `--listen` says otherwise. The
 recording replays the whole session, every seat's orders included, to the same event log byte for
 byte.
+
+## Challenges
+
+A scenario can score whoever trades in it and brief them first. Four challenges come with the
+project, each a market with a task:
+
+| Challenge | Task | Scored on |
+|---|---|---|
+| [market_making.toml](examples/challenges/market_making.toml) | Be the only market maker among noise and a few informed traders | PnL at the true value, less a charge for inventory held; a loss of 2,000 stops you |
+| [large_order.toml](examples/challenges/large_order.toml) | Buy 300 lots in ten minutes | Against the market's VWAP; unfinished lots cost 10 each |
+| [news.toml](examples/challenges/news.toml) | Trade jumps in the true value you cannot see | PnL at the true value |
+| [informed_flow.toml](examples/challenges/informed_flow.toml) | Make markets where a third of the flow is informed | PnL at the true value, less a charge for inventory held |
+
+```bash
+./build/release/apps/crowdbook play examples/challenges/large_order.toml
+```
+
+The engine computes the score from the exchange's events, so replaying a session's recording
+gives the same score, which anyone can check. The example bots play every challenge in CI.
 
 ## Writing an agent
 

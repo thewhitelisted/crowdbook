@@ -1,0 +1,75 @@
+# Challenge: find the informed flow. Make markets where a third of the orders come from traders
+# who know the true value. Quote against all of them alike and they will pick you off.
+#
+#   crowdbook play examples/challenges/informed_flow.toml --record session.toml
+#   crowdbook serve examples/challenges/informed_flow.toml --seat maker
+
+seed = 24
+duration = "600s"
+reference_price = 10000
+
+[challenge]
+name = "Find the informed flow"
+briefing = """
+You make markets beside one other market maker. Most of the orders you trade with are noise, but
+ten informed traders see the true value, which wanders twice as fast as in a quiet market, and
+take any quote that is more than a tick and a half wrong. Losing to them is the cost of quoting;
+how much you lose depends on how quickly you notice which way they are leaning.
+
+Watch the trades: informed orders come in runs on one side. Positions are valued at the true value
+at the end. Holding inventory costs 0.02 a lot every second, each lot held at the end costs 1, and
+a loss of 2,500 stops you. You may hold 50 lots either way and send 10 at a time. Fees: a rebate of
+0.1 a lot for resting orders that trade, 0.2 a lot for taking."""
+
+[scoring]
+mark = "value"
+inventory_penalty = 0.02
+close_penalty = 1.0
+max_loss = 2500
+
+[fundamental]
+volatility = 1.0
+step = "250ms"
+
+[exchange]
+depth_levels = 10
+maker_fee = -0.1
+taker_fee = 0.2
+
+[participant]
+latency = { to_exchange = "1ms", from_exchange = "1ms" }
+account = { max_position = 50, max_order_quantity = 10 }
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 60
+limit_rate = 0.5
+market_rate = 0.08
+cancel_rate = 0.1
+max_offset = 8
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 200, max_order_quantity = 10 }
+
+[[agents]]
+type = "market_maker"
+name = "maker"
+intensity = 1.0
+quote_size = 5
+max_inventory = 100
+requote_interval = "250ms"
+post_only = true
+latency = { to_exchange = "20us", from_exchange = "20us" }
+account = { max_position = 110, max_order_quantity = 10 }
+
+[[agents]]
+type = "informed"
+name = "informed"
+count = 10
+interval = "1s"
+noise = 0.5
+threshold = 1.5
+order_size = 3
+max_position = 300
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 303, max_order_quantity = 3 }

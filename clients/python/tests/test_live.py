@@ -3,6 +3,7 @@ them; CTest does."""
 
 import contextlib
 import importlib.util
+import json
 import os
 import pathlib
 import re
@@ -17,6 +18,7 @@ import crowdbook
 CROWDBOOK = os.environ.get("CROWDBOOK")
 EXAMPLES = pathlib.Path(__file__).resolve().parent.parent / "examples"
 SCENARIOS = pathlib.Path(__file__).resolve().parents[3] / "examples" / "scenarios"
+CHALLENGES = pathlib.Path(__file__).resolve().parents[3] / "examples" / "challenges"
 MILLISECOND = 1_000_000
 
 LIMITS = """
@@ -103,6 +105,14 @@ class Tester(crowdbook.Bot):
     on_accepted = on_rejected = on_filled = on_cancelled = on_modified = record
 
 
+def example(name):
+    """One of the example bots' modules."""
+    spec = importlib.util.spec_from_file_location(name, EXAMPLES / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 @unittest.skipUnless(CROWDBOOK, "set CROWDBOOK to the crowdbook command to run against a server")
 class LiveTest(unittest.TestCase):
     def setUp(self):
@@ -149,12 +159,8 @@ class LiveTest(unittest.TestCase):
         self.assertEqual(replay.returncode, 0, replay.stderr)
 
     def test_the_example_bots_trade_side_by_side(self):
-        bots = {}
-        for name, seat in (("market_maker", "maker2"), ("momentum", "trend2")):
-            spec = importlib.util.spec_from_file_location(name, EXAMPLES / f"{name}.py")
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            bots[seat] = module.MarketMaker() if name == "market_maker" else module.Momentum()
+        bots = {"maker2": example("market_maker").MarketMaker(),
+                "trend2": example("momentum").Momentum()}
         ends = {}
         with served(self.directory, SCENARIOS / "playable.toml", "--seat", "maker2", "--seat",
                     "trend2", "--duration", "30s", "--speed", "15") as port:
@@ -172,6 +178,38 @@ class LiveTest(unittest.TestCase):
             self.assertEqual((bot.ledger.position, bot.ledger.cash),
                              (ends[seat].position, ends[seat].cash), seat)
         self.assertGreater(bots["maker2"].book.trades, 0)
+
+    def test_the_example_bots_play_every_challenge(self):
+        players = {"market_making": lambda: example("market_maker").MarketMaker(),
+                   "large_order": lambda: example("twap").Twap(),
+                   "news": lambda: example("momentum").Momentum(max_position=30),
+                   "informed_flow": lambda: example("market_maker").MarketMaker()}
+        self.assertEqual(sorted(players), sorted(path.stem for path in CHALLENGES.glob("*.toml")))
+        for name, player in players.items():
+            with self.subTest(challenge=name):
+                directory = self.directory / name
+                directory.mkdir()
+                bot = player()
+                with served(directory, CHALLENGES / f"{name}.toml", "--duration", "60s",
+                            "--speed", "30") as port:
+                    end = crowdbook.run(bot, port=port)
+                self.assertTrue(bot.settings.challenge.name)
+                self.assertIsNotNone(end.score)
+
+                # The replay scores the session again, and comes to the same score.
+                replay = subprocess.run(
+                    [CROWDBOOK, "replay", str(directory / "session.toml"), "--json",
+                     str(directory / "replay.json")], capture_output=True, text=True)
+                self.assertEqual(replay.returncode, 0, replay.stderr)
+                (again,) = json.loads((directory / "replay.json").read_text())["scores"]
+                self.assertEqual(again["seat"], "you")
+                self.assertEqual(
+                    (again["total"], again["pnl"], again["inventory"], again["close"],
+                     again["paper"], again["unfinished"], again["unfinished_lots"],
+                     again["stopped_at_ns"]),
+                    (end.score.total, end.score.pnl, end.score.inventory, end.score.close,
+                     end.score.paper, end.score.unfinished, end.score.unfinished_lots,
+                     end.score.stopped_at))
 
 
 if __name__ == "__main__":

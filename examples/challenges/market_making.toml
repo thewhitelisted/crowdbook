@@ -1,0 +1,63 @@
+# Challenge: make markets within a risk limit. There is no market maker but you: noise traders
+# come and go on both sides, and a few traders who know the true value lean on stale quotes.
+#
+#   crowdbook play examples/challenges/market_making.toml --record session.toml
+#   crowdbook serve examples/challenges/market_making.toml --seat maker
+
+seed = 21
+duration = "600s"
+reference_price = 10000
+
+[challenge]
+name = "Make markets within a risk limit"
+briefing = """
+You are the only market maker. Sixty noise traders send limit and market orders on both sides at
+random; three informed traders know the true value and trade when your quotes are wrong by more
+than two ticks. Earn the spread without being run over.
+
+You may hold at most 50 lots either way and send at most 10 at a time. Fees: a rebate of 0.1 a lot
+for resting orders that trade, 0.2 a lot for taking. Positions are valued at the true value at the
+end. Holding inventory costs 0.02 a lot every second, each lot still held at the end costs 1, and
+a loss of 2,000 stops you."""
+
+[scoring]
+mark = "value"
+inventory_penalty = 0.02
+close_penalty = 1.0
+max_loss = 2000
+
+[fundamental]
+volatility = 0.5          # ticks per square root of a second
+step = "250ms"
+
+[exchange]
+depth_levels = 10
+maker_fee = -0.1
+taker_fee = 0.2
+
+[participant]
+latency = { to_exchange = "1ms", from_exchange = "1ms" }
+account = { max_position = 50, max_order_quantity = 10 }
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 60
+limit_rate = 0.5
+market_rate = 0.08
+cancel_rate = 0.1
+max_offset = 8
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 200, max_order_quantity = 10 }
+
+[[agents]]
+type = "informed"
+name = "informed"
+count = 3
+interval = "2s"
+noise = 1.0
+threshold = 2.0
+order_size = 3
+max_position = 300
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 303, max_order_quantity = 3 }

@@ -76,6 +76,44 @@ ignore it.
 | `latency` | table | no delay | `to_exchange`, `from_exchange` and `jitter`, all durations |
 | `account` | table | no limits | `initial_cash`, `initial_position`, `max_position`, `max_order_quantity` |
 
+## `[scoring]` (optional)
+
+How each seat of a played or served session is scored; [design.md](design.md#scoring-and-challenges)
+explains the score. Agents' runs ignore it. Amounts are in ticks, with at most three decimals;
+scores are reported in tick-lots.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `mark` | text | `"last"` | What positions are valued at: `"last"`, the last trade price, or `"value"`, the true value at the end, which needs a `[fundamental]` section |
+| `inventory_penalty` | number | 0 | Charged per lot held per second |
+| `close_penalty` | number | 0 | Charged per lot still held at the end |
+| `max_loss` | whole number | 0 | A loss this large, in tick-lots, valued at the latest trade, stops the seat: its orders are cancelled and it can send no more. 0 for no limit |
+
+### `[scoring.target]` (optional)
+
+A large order to work. The score is measured against a paper portfolio that traded the whole
+target at the benchmark price.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `side` | text | required | `"buy"` or `"sell"` |
+| `quantity` | whole number | required | Lots |
+| `benchmark` | text | `"vwap"` | `"vwap"`, the session's volume-weighted average price, or `"reference"`, the reference price |
+| `unfinished_penalty` | number | 0 | Charged per lot of the target not done |
+
+## `[challenge]` (optional)
+
+Makes the scenario a challenge: `play`, `connect` and every client of `serve` are shown its name
+and briefing before the clock starts.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `name` | text | The challenge's name |
+| `briefing` | text | What the participant is asked to do, and how it is scored |
+
+[examples/challenges](../examples/challenges) has four: making markets within a risk limit,
+working a large order, trading the news, and making markets against informed traders.
+
 ## `[[agents]]`
 
 Each `[[agents]]` table is a group of agents of one type that share their settings. Every agent
@@ -302,6 +340,11 @@ have are empty.
 | `traded` | Lots the group bought plus lots it sold |
 | `cash`, `pnl` | In tick-lots; `pnl` is the change in cash plus the change in position valued at `last_price`, before fees |
 | `fees` | Fees paid net of rebates, in tick-lots |
+
+A played, served or replayed session of a scenario with `[scoring]` also has `scores`, one per
+seat: `seat`, then `total`, `pnl`, `inventory`, `close`, `paper` and `unfinished` in points
+(thousandths of a tick-lot), `unfinished_lots`, and `stopped_at_ns`, when the loss limit stopped
+the seat, or `null`.
 
 ## Playing and replaying
 

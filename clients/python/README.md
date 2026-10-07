@@ -36,13 +36,18 @@ print(end.pnl)
 Lower down, `crowdbook.Connection` sends and receives the protocol's messages, defined in
 `crowdbook.protocol`; [docs/protocol.md](../../docs/protocol.md) specifies them.
 
-[examples](examples) has a market maker and a trend follower. Each runs against a served market:
+[examples](examples) has a market maker, a trend follower and an execution algorithm that works a
+challenge's target evenly over the session. Each runs against a served market:
 
 ```bash
 ./build/release/apps/crowdbook serve examples/scenarios/playable.toml --seat maker --seat trend
 python clients/python/examples/market_maker.py --seat maker
 python clients/python/examples/momentum.py --seat trend
 ```
+
+A seat in a scored challenge gets the challenge's name, briefing and scoring rules in
+`settings.challenge` and `settings.scoring`, and its score at the end, in points, in the `End`
+that `run` returns.
 
 The tests run with `python -m unittest discover -s tests` from this directory; the ones that
 trade against a real server need `CROWDBOOK` set to the `crowdbook` command, as CTest does.

@@ -1,0 +1,77 @@
+# Challenge: work a large order. Buy 300 lots over ten minutes without paying more than the
+# market's average price.
+#
+#   crowdbook play examples/challenges/large_order.toml --record session.toml
+#   crowdbook serve examples/challenges/large_order.toml --seat broker
+
+seed = 22
+duration = "600s"
+reference_price = 10000
+
+[challenge]
+name = "Work a large order"
+briefing = """
+A client wants 300 lots bought before the close, ten minutes from now. You are measured against
+the market's volume-weighted average price over the session: buying all 300 at that price scores
+zero, buying cheaper scores above zero. Every lot not bought by the end costs 10.
+
+Buy too fast and you push the price up against yourself; too slow and you may run out of time, or
+of market. The market maker and the noise traders supply liquidity; informed traders know where
+the true value is going. Orders of at most 10 lots; your position may not go past 300 either way.
+Fees: a rebate of 0.1 a lot for resting orders that trade, 0.2 a lot for taking."""
+
+[scoring]
+mark = "last"
+
+[scoring.target]
+side = "buy"
+quantity = 300
+benchmark = "vwap"
+unfinished_penalty = 10.0
+
+[fundamental]
+volatility = 0.5
+step = "250ms"
+
+[exchange]
+depth_levels = 10
+maker_fee = -0.1
+taker_fee = 0.2
+
+[participant]
+latency = { to_exchange = "1ms", from_exchange = "1ms" }
+account = { max_position = 300, max_order_quantity = 10 }
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 60
+limit_rate = 0.5
+market_rate = 0.05
+cancel_rate = 0.1
+max_offset = 8
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 200, max_order_quantity = 10 }
+
+[[agents]]
+type = "market_maker"
+name = "maker"
+intensity = 1.0
+quote_size = 5
+max_inventory = 100
+requote_interval = "250ms"
+post_only = true
+latency = { to_exchange = "20us", from_exchange = "20us" }
+account = { max_position = 110, max_order_quantity = 10 }
+
+[[agents]]
+type = "informed"
+name = "informed"
+count = 5
+interval = "2s"
+noise = 1.0
+threshold = 2.0
+order_size = 3
+max_position = 300
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 303, max_order_quantity = 3 }

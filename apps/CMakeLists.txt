@@ -132,7 +132,15 @@ if(CROWDBOOK_BUILD_TESTS)
         message(STATUS "Python 3.11 or later not found: the Python client's tests are skipped")
     endif()
 
-    # Every example scenario has to keep working: run each one briefly, with an event log.
+    # Every example scenario and challenge has to keep working: run each one briefly, with an
+    # event log.
+    file(GLOB challenges CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/challenges/*.toml")
+    foreach(challenge IN LISTS challenges)
+        get_filename_component(name "${challenge}" NAME_WE)
+        add_test(NAME cli.challenge.${name}
+            COMMAND crowdbook_cli run "${challenge}" --duration 2s
+                --log "${CMAKE_CURRENT_BINARY_DIR}/challenge_${name}.csv")
+    endforeach()
     file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")
     foreach(example IN LISTS examples)
         get_filename_component(name "${example}" NAME_WE)
