@@ -96,21 +96,25 @@ private:
         const Simulation& simulation = market_.run.simulation();
         const auto [rows, columns] = terminal.size();
         const auto& tape = market_.agent->tape();
-        return {.now = simulation.now(),
-                .end = scenario_.duration,
-                .speed = pacer.speed(),
-                .paused = pacer.paused(),
-                .market = simulation.marketSeenBy(market_.participant),
-                .ledger = &simulation.ledger(market_.participant),
-                .tape = std::vector<TapeEntry>(tape.begin(), tape.end()),
-                .referencePrice = scenario_.referencePrice,
-                .initialCash = scenario_.participant.account.initialCash,
-                .initialPosition = scenario_.participant.account.initialPosition,
-                .cursor = cursor_,
-                .size = size_,
-                .message = over() ? "the session is over: press q to see the results" : message_,
-                .rows = rows,
-                .columns = columns};
+        // Filled in field by field: GCC 14 at -O3 mistakes the vectors of a braced temporary
+        // for uninitialized.
+        ladder::Screen view;
+        view.now = simulation.now();
+        view.end = scenario_.duration;
+        view.speed = pacer.speed();
+        view.paused = pacer.paused();
+        view.market = simulation.marketSeenBy(market_.participant);
+        view.ledger = &simulation.ledger(market_.participant);
+        view.tape.assign(tape.begin(), tape.end());
+        view.referencePrice = scenario_.referencePrice;
+        view.initialCash = scenario_.participant.account.initialCash;
+        view.initialPosition = scenario_.participant.account.initialPosition;
+        view.cursor = cursor_;
+        view.size = size_;
+        view.message = over() ? "the session is over: press q to see the results" : message_;
+        view.rows = rows;
+        view.columns = columns;
+        return view;
     }
 
     [[nodiscard]] bool over() const {

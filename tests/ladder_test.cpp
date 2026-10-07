@@ -14,27 +14,29 @@ namespace {
 
 using test::limitOrder;
 
-// A two-sided market around 100 with the participant bidding 4 at 98.
+// A two-sided market around 100 with the participant bidding 4 at 98. The screen is filled in
+// field by field: GCC 14 at -O3 mistakes the vectors of a braced temporary for uninitialized.
 struct Fixture {
     Fixture() {
         ledger.recordRequest(limitOrder(1, Side::Buy, 98, 4));
-        screen = {.now = 65 * kSecond + 300 * kMillisecond,
-                  .end = 600 * kSecond,
-                  .speed = 2.0,
-                  .market = {.bid = LevelSummary{.price = 99, .quantity = 7},
-                             .ask = LevelSummary{.price = 101, .quantity = 3},
-                             .lastTrade = 101,
-                             .bids = {{.price = 99, .quantity = 7}, {.price = 98, .quantity = 12}},
-                             .asks = {{.price = 101, .quantity = 3}}},
-                  .ledger = &ledger,
-                  .tape = {{.time = 1, .trade = {.price = 101, .quantity = 2}}},
-                  .referencePrice = 100,
-                  .cursor = 98,
-                  .size = 4,
-                  .message = "hello",
-                  .rows = 20,
-                  .columns = 80,
-                  .color = false};
+        screen.now = 65 * kSecond + 300 * kMillisecond;
+        screen.end = 600 * kSecond;
+        screen.speed = 2.0;
+        screen.market.bid = LevelSummary{.price = 99, .quantity = 7};
+        screen.market.ask = LevelSummary{.price = 101, .quantity = 3};
+        screen.market.lastTrade = 101;
+        screen.market.bids.push_back({.price = 99, .quantity = 7});
+        screen.market.bids.push_back({.price = 98, .quantity = 12});
+        screen.market.asks.push_back({.price = 101, .quantity = 3});
+        screen.ledger = &ledger;
+        screen.tape.push_back({.time = 1, .trade = {.price = 101, .quantity = 2}});
+        screen.referencePrice = 100;
+        screen.cursor = 98;
+        screen.size = 4;
+        screen.message = "hello";
+        screen.rows = 20;
+        screen.columns = 80;
+        screen.color = false;
     }
 
     Ledger ledger{0, 0};
