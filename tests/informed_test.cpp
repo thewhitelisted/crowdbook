@@ -1,0 +1,81 @@
+#include <memory>
+#include <stdexcept>
+#include <vector>
+
+#include <gtest/gtest.h>
+
+#include "crowdbook/agents/informed.hpp"
+#include "exchange_test_support.hpp"
+#include "fake_context.hpp"
+
+namespace crowdbook {
+namespace {
+
+using test::FakeContext;
+using test::limitOrder;
+
+// A fundamental that never moves, so the tests know the value exactly.
+std::shared_ptr<Fundamental> fixedValue(double value) {
+    return std::make_shared<Fundamental>(FundamentalConfig{.initial = value, .volatility = 0.0},
+                                         Random{1, 0});
+}
+
+const InformedConfig kExact{.interval = 100 * kMillisecond,
+                            .noise = 0.0,
+                            .threshold = 3.0,
+                            .orderSize = 5,
+                            .maxPosition = 10};
+
+const TopOfBook kTop{.bid = LevelSummary{.price = 98, .quantity = 1},
+                     .ask = LevelSummary{.price = 100, .quantity = 1}};
+
+std::vector<Request> lookOnce(InformedTrader& trader, FakeContext& context) {
+    trader.onTopOfBook(context, kTop);
+    trader.onWakeup(context, 0);
+    return context.takeSent();
+}
+
+TEST(InformedTest, BuysWhenTheAskIsWellBelowItsEstimate) {
+    InformedTrader trader{kExact, fixedValue(105.0)};
+    FakeContext context;
+    // Edge 105 - 100 = 5 >= 3, and the limit keeps 3 ticks of it: never pays more than 102.
+    EXPECT_EQ(lookOnce(trader, context),
+              (std::vector<Request>{
+                  limitOrder(1, Side::Buy, 102, 5, TimeInForce::ImmediateOrCancel)}));
+}
+
+TEST(InformedTest, SellsWhenTheBidIsWellAboveItsEstimate) {
+    InformedTrader trader{kExact, fixedValue(94.5)};
+    FakeContext context;
+    EXPECT_EQ(lookOnce(trader, context),
+              (std::vector<Request>{
+                  limitOrder(1, Side::Sell, 98, 5, TimeInForce::ImmediateOrCancel)}));
+}
+
+TEST(InformedTest, WaitsWhenTheEdgeIsTooSmall) {
+    InformedTrader trader{kExact, fixedValue(101.0)};
+    FakeContext context;
+    EXPECT_TRUE(lookOnce(trader, context).empty());
+    EXPECT_EQ(context.wakeups.size(), 1U); // and looks again later
+}
+
+TEST(InformedTest, StopsAtItsPositionLimit) {
+    InformedTrader trader{kExact, fixedValue(105.0)};
+    FakeContext context;
+    std::size_t orders = 0;
+    for (int i = 0; i < 10; ++i) {
+        orders += lookOnce(trader, context).size();
+    }
+    EXPECT_EQ(orders, 2U); // two orders of 5 in flight reach the limit of 10
+}
+
+TEST(InformedTest, RequiresAFundamentalAndAValidConfig) {
+    EXPECT_THROW((InformedTrader{kExact, nullptr}), std::invalid_argument);
+    EXPECT_THROW((InformedTrader{{.interval = 0}, fixedValue(100.0)}), std::invalid_argument);
+    EXPECT_THROW((InformedTrader{{.noise = -1.0}, fixedValue(100.0)}), std::invalid_argument);
+    EXPECT_THROW((InformedTrader{{.orderSize = 6, .maxPosition = 5}, fixedValue(100.0)}),
+                 std::invalid_argument);
+}
+
+} // namespace
+} // namespace crowdbook
