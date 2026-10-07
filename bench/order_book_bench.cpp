@@ -34,7 +34,7 @@ struct Operation {
     enum class Kind : std::uint8_t { Submit, Cancel };
 
     Kind kind = Kind::Submit;
-    OrderRequest request; // for Submit
+    OrderRequest request{}; // for Submit
     OrderId cancelId = 0; // for Cancel
 };
 

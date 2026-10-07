@@ -137,7 +137,7 @@ public:
 
 private:
     struct Entry {
-        RestingOrder order;
+        RestingOrder order{};
         std::uint64_t sequence = 0; // arrival order, for time priority
 
         [[nodiscard]] OrderId id() const { return order.id; }
