@@ -372,12 +372,15 @@ Choices for later milestones may change once they are implemented; changes are r
 | M9 | Large orders worked over time: execution agents slicing parent orders (TWAP, VWAP, percentage of volume) | Long memory in the signs of market orders; square-root impact of parent orders | Planned |
 | M10 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |
 | M11 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
-| M12 | Gateway: one network protocol for market data and orders, used by humans and bots alike; a Python client | A Python bot trades through it under the same limits, latency and fees as built-in agents | Planned |
-| M13 | Trading screen: price ladder with click-to-trade, chart, trade tape, position and PnL, and a report after each session | A full session played by hand, with its report | Planned |
-| M14 | Truth and counterfactuals: after a session, who you traded with and what they knew; the session replayed without your orders; rewind and re-trade | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Planned |
-| M15 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
-| M16 | Challenges and tournaments: scored scenarios (work a large order against VWAP, make markets within a risk limit, trade the news), bot tournaments, leaderboards | Scenarios with published scoring; a tournament of the example bots | Planned |
-| Later | Multiplayer markets hosted online, multiple instruments, an environment for training learning agents, rule-based agents | | |
+| M12 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
+| M13 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |
+| M14 | Gateway: one network protocol for market data and orders, used by humans and bots alike; a Python client | A Python bot trades through it under the same limits, latency and fees as built-in agents | Planned |
+| M15 | Trading screen: price ladder with click-to-trade, chart, trade tape, position and PnL, and a report after each session | A full session played by hand, with its report | Planned |
+| M16 | Truth and counterfactuals: after a session, who you traded with and what they knew; the session replayed without your orders; rewind and re-trade | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Planned |
+| M17 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Planned |
+| M18 | Options research and game: whether a volatility smile emerges from supply and demand, dealers' hedging feeding back into the stock, pinning at expiry; an options market-making challenge | Results in results.md; the challenge playable on the trading screen | Planned |
+| M19 | Challenges and tournaments: scored scenarios (work a large order against VWAP, make markets within a risk limit, trade the news), bot tournaments, leaderboards | Scenarios with published scoring; a tournament of the example bots | Planned |
+| Later | Multiplayer markets hosted online, one stock on several exchanges, ETFs and their constituents, an environment for training learning agents, rule-based agents | | |
 
 ## Code conventions
 
