@@ -52,6 +52,8 @@ venues until the single-instrument market is calibrated.
 - **Scenarios** — a TOML file choosing the agent population and parameters, so experiments run
   without recompiling. Agents register under a name, so user-defined agents work in scenarios too.
   See [Agents and scenarios](#agents-and-scenarios) and [scenarios.md](scenarios.md).
+- **Live sessions** — a person trades in a running market from a terminal screen, and the session
+  replays exactly. See [Live sessions](#live-sessions).
 - **Event log** — every request the exchange receives and every event it produces, written as CSV
   and analysed in Python (`analysis/`). Long runs can keep only chosen kinds of rows or sample
   prices at fixed times instead, and each run's results can be written as JSON. See
@@ -185,6 +187,33 @@ time order. Items due at the same nanosecond run in the order they were schedule
 One trap for agent authors: C++ leaves the evaluation order of function arguments unspecified, so
 `context.modify(id, random.uniformInt(...), random.uniformInt(...))` may consume the random stream
 in a different order on another compiler. Draw into local variables first.
+
+## Live sessions
+
+`crowdbook play` puts a person in the market. Nothing about the simulation changes for it: the
+person trades through a `Participant` agent, added last, with the scenario's `[participant]`
+account and latency, and their orders take the same path as every other agent's.
+
+- **Pacing:** `Pacer` maps a steady wall clock to simulated time at an adjustable speed, stands
+  still while paused, and never goes backwards. Each frame, about thirty a second, the session
+  runs the market up to the paced time, draws the screen, and reads a key.
+- **Acting from outside:** `Simulation::act` runs code with an agent's context at the current
+  time, as if one of its callbacks were running. A key press becomes one call, at the moment the
+  market has been run to. Everything stays on one thread, so there are no locks.
+- **Recording and replay:** each request is recorded with the simulated nanosecond it was sent
+  at, and a session file holds the scenario's text, the seed and those requests. A replay builds
+  the market the same way, runs it up to each recorded time and sends the request there. That is
+  exactly what happened live, because running to t₁ and then to t₂ processes the same items in
+  the same order as running straight to t₂. The replay's event log is therefore the session's,
+  byte for byte, and a new order that gets a different client order id than recorded stops the
+  replay with an error.
+- **The screen:** a price ladder drawn in the terminal with ANSI escape codes, with no library
+  behind it. Drawing is a pure function from the screen's state to lines of text, so it is tested
+  without a terminal; `RawTerminal` only switches the terminal into raw mode and back.
+
+`ScenarioRun` is what makes this possible: `runScenario` used to build a market and run it to the
+end in one call, and now builds a `ScenarioRun`, which can also run in steps and take agents of
+the caller's own.
 
 ## Agents and scenarios
 
@@ -327,8 +356,15 @@ uv run --project analysis crowdbook-experiments
   that reorder messages, no same-time tie-break, the ledger updated after the callback, market
   data sent to one agent only, jitter drawn from the agent's own stream, wakeups scheduled in the
   past, start times ignored. Later features got the same treatment: four planted bugs in post-only
-  orders, six in fees, seven in the depth feed and three in the market maker's post-only quoting
-  were each caught.
+  orders, six in fees, seven in the depth feed, three in the market maker's post-only quoting and
+  eight in live sessions (the participant's settings ignored, actions replayed early, a replay
+  stopping at its last action, unescaped session text, out-of-order actions accepted, recorded
+  ids unchecked, a pacer that ignores pause) were each caught.
+- **Session tests** play a scripted session the way a live one runs, in uneven steps with requests
+  at chosen nanoseconds, then write it, read it back and replay it: the event log must come out
+  byte for byte the same. The real `play` command was also driven through a pseudo-terminal with
+  scripted key presses, and its live log and the replay of its recording matched byte for byte.
+  The ladder's drawing is tested on fixed screens, with and without colors.
 - **Analysis tests** check each statistic in `analysis/` on inputs with known answers: a random
   walk's flat volatility signature, a normal sample's zero excess kurtosis, hand-computed spreads
   and price moves.
@@ -371,6 +407,9 @@ Choices for later milestones may change once they are implemented; changes are r
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
 | Post-only | A time in force, rejected if it would trade | Several exchanges model it this way ("good till crossing"), and it needs no new order field |
 | Fee units | Thousandths of a tick-lot, kept apart from cash | Real fees are fractions of a tick; a separate integer keeps accounting exact without shrinking the price range |
+| Live play | A pacer around runUntil plus Simulation::act, on one thread | Wall-clock time only decides when a person's actions happen, so a recording replays exactly |
+| Trading screen | Terminal, with ANSI escape codes and no library | Runs anywhere with a terminal and adds no dependency; a browser screen comes with the gateway |
+| Session files | TOML holding the scenario's text, the seed and every request with its time | A session replays even when its scenario file changes or is gone |
 | Depth feed | Optional, published as events when the best levels change | Agents, the analysis and a trading screen need depth; computing it costs about half again the run time, so markets that do not need it do not pay |
 | Analysis | Python (polars, matplotlib) in its own uv project, driving the command line | The C++ build keeps no analysis dependencies, and the analysis uses only what any user gets |
 | Long runs | Prices sampled at fixed times, or a log filtered by row kind | The full log of the thousand-trader market comes to about 12 GB per simulated day |
@@ -387,8 +426,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M5a | On-demand market data, so crowds of thousands of agents run faster than real time | Scaling benchmark: 10,000 traders at 52× real time | Done |
 | M5b | Analysis package; stylized facts, crowd size and price impact by trader type in the thousand-trader markets; market-maker self-impact and PnL against informed flow and latency | [results.md](results.md): four simulated days per market, 32 seeds per experiment point | Done |
 | M6 | Depth and order types: the best levels of the book in market data, post-only orders, maker–taker fees | The published depth matches the book after every random request; fees paid add up to fees collected; planted bugs caught | Done |
-| M7 | Playable slice: real time at adjustable speed, an outside participant whose orders arrive through a queue, a bare price ladder, sessions recorded for replay | A recorded session replays to a byte-identical log | Next |
-| M8 | Memory in the crowd: news jumps in the true value, self-exciting activity (Hawkes processes), traders who switch between value and trend strategies by recent PnL | Volatility clustering at one minute that lasts hours; fat one-minute tails; ablations name the cause | Planned |
+| M7 | Playable slice: real time at adjustable speed, an outside participant, a terminal price ladder, sessions recorded for replay | A recorded session, scripted and played through the real screen, replays to a byte-identical log | Done |
+| M8 | Memory in the crowd: news jumps in the true value, self-exciting activity (Hawkes processes), traders who switch between value and trend strategies by recent PnL | Volatility clustering at one minute that lasts hours; fat one-minute tails; ablations name the cause | Next |
 | M9 | Large orders worked over time: execution agents slicing parent orders (TWAP, VWAP, percentage of volume) | Long memory in the signs of market orders; square-root impact of parent orders | Planned |
 | M10 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |
 | M11 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |

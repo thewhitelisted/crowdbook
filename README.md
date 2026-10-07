@@ -10,9 +10,9 @@ interact. Writing your own agent means writing one C++ class and naming it in a 
 
 > **Status:** the order book, the exchange, the simulation kernel, four built-in agents, scenario
 > files, the `crowdbook` command and the Python analysis package are done, and
-> [docs/results.md](docs/results.md) reports the first experiments. The exchange also publishes
-> depth, takes post-only orders and charges maker–taker fees. Next comes a first playable slice:
-> the market in real time, with you in it. See
+> [docs/results.md](docs/results.md) reports the first experiments. You can trade in a market
+> yourself, in real time, and replay the session exactly afterwards. Next: agents whose activity
+> reacts to the market, for volatility that clusters as it does in real markets. See
 > [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
 > roadmap.
 
@@ -71,6 +71,49 @@ The analysis is a separate Python package that drives the `crowdbook` command:
 cmake --workflow --preset release
 uv run --project analysis crowdbook-facts
 uv run --project analysis crowdbook-experiments
+```
+
+## Trade in it yourself
+
+`crowdbook play` runs a scenario in real time on a trading screen in the terminal, with you as
+one more trader:
+
+```bash
+./build/release/apps/crowdbook play examples/scenarios/playable.toml --record session.toml
+```
+
+```
+crowdbook  00:11.6 of 01:00.0  speed 5x  running
+position +5  cash -50012  fees 1.0  pnl +4.5 at 10003.5
+
+  your bids     bids    price     asks your asks
+                        10008        46
+                        10007        53
+                        10006        64
+                        10005        95
+>                       10004        97         7
+                   1    10003*
+                  15    10002
+                  50    10001
+                  78    10000
+                  53     9999
+
+trades:  10003 x3 down  10004 x7 up  10004 x8 up  10004 x2 up  10004 x4 up
+arrows price  m mid  b bid  s offer  B buy now  S sell now  size 7 (+/-)
+c cancel here  C cancel all  [ ] speed  space pause  q quit
+offer 7 at 10004
+```
+
+The arrow keys move the price you trade at. `b` and `s` bid and offer there, `B` and `S` buy and
+sell at the market, and `c` and `C` cancel. `[` and `]` change the speed, and space pauses. Your
+orders travel like everyone else's: a millisecond each way, under the exchange's position limits
+and fees.
+
+With `--record`, the session can be replayed exactly. The replay produces the same event log,
+byte for byte, so a played session becomes data to analyse:
+
+```bash
+./build/release/apps/crowdbook replay session.toml --log session.csv
 ```
 
 ## Writing an agent

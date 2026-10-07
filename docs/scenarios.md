@@ -17,7 +17,8 @@ asset's true value, and groups of agents. Run one with:
 | `--sample-interval D` | How often `--prices` and `--depth` sample; `"1s"` unless given |
 | `--json FILE` | Write the results for analysis scripts ([results as JSON](#results-as-json)) |
 
-`crowdbook agents` lists the agent types.
+`crowdbook agents` lists the agent types. `crowdbook play` and `crowdbook replay` run a scenario
+with a person trading in it; see [playing and replaying](#playing-and-replaying).
 
 Durations are written as text with a unit: `"250ns"`, `"50us"`, `"1.5ms"`, `"2s"`. Prices are in
 ticks and quantities in lots. Any key crowdbook does not know is an error, so a typo stops the run
@@ -60,6 +61,16 @@ which only trades move, and every fill reports its own fee.
 A depth feed lets agents see the book beyond the best prices, both in `context.market()` and, for
 agents that stream market data, in `onDepth`. It costs time: ten levels add about half again to
 the run time of the thousand-trader example market, so it is off unless a scenario asks for it.
+
+## `[participant]` (optional)
+
+The account and latency of the person trading in the market with `crowdbook play`. Agents' runs
+ignore it.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `latency` | table | no delay | `to_exchange`, `from_exchange` and `jitter`, all durations |
+| `account` | table | no limits | `initial_cash`, `initial_position`, `max_position`, `max_order_quantity` |
 
 ## `[[agents]]`
 
@@ -224,3 +235,55 @@ have are empty.
 | `traded` | Lots the group bought plus lots it sold |
 | `cash`, `pnl` | In tick-lots; `pnl` is the change in cash plus the change in position valued at `last_price`, before fees |
 | `fees` | Fees paid net of rebates, in tick-lots |
+
+## Playing and replaying
+
+```bash
+./build/release/apps/crowdbook play examples/scenarios/playable.toml --record session.toml
+./build/release/apps/crowdbook replay session.toml --log session.csv
+```
+
+`play` runs the scenario in real time on a trading screen in the terminal, with you as the
+scenario's participant, until the scenario's duration or until you quit. It takes `--seed`,
+`--duration`, `--log` and `--log-only` like `run`, and:
+
+| Option | Meaning |
+|---|---|
+| `--speed X` | How many simulated seconds pass per second; `1` unless given. `[` and `]` change it as you play |
+| `--record FILE` | Write the session, for `replay` |
+
+| Key | Does |
+|---|---|
+| up, down, page up, page down | Move the price you trade at by one or ten ticks |
+| `m` | Move it to the middle of the market |
+| `b`, `s` | Bid or offer at that price |
+| `B`, `S` | Buy or sell at the market |
+| `+`, `-` | Change the size of your orders |
+| `c`, `C` | Cancel your orders at that price, or all of them |
+| `[`, `]` | Slower or faster |
+| space | Pause or carry on |
+| `q` | Stop and see the results |
+
+The ladder shows the depth feed, so the scenario needs `depth_levels` in its `[exchange]` section
+to show more than the best prices. Your orders are a participant agent's: they wait out its
+latency, count against its limits and pay the exchange's fees, and you are reported as the group
+`you`.
+
+`replay` plays a recorded session back: the same market with the same seed, your orders at the
+same simulated nanoseconds, up to where you stopped. Its event log is the session's, byte for
+byte. It takes the output options of `run`; the seed and the duration come from the session.
+
+### Session files
+
+A session is a TOML file holding everything a replay needs:
+
+| Key | Meaning |
+|---|---|
+| `session_version` | `1` |
+| `seed` | The seed the session ran with |
+| `end_ns` | When it stopped, in simulated nanoseconds |
+| `scenario` | The scenario file's text, so a session replays even if the file changes |
+| `actions` | Your requests in time order, one table each: `time_ns`, `instrument` (always 0 for now), `request` (`new`, `cancel` or `modify`) and the request's fields: `client_order_id`, `side`, `type`, `time_in_force`, `price`, `quantity` |
+
+A replay checks that each new order gets the client order id the session recorded, and stops with
+an error if it does not, which would mean the market had come out differently.
