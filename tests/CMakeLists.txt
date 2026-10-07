@@ -11,6 +11,7 @@ add_executable(crowdbook_tests
     event_log_test.cpp
     exchange_random_test.cpp
     exchange_test.cpp
+    fundamental_test.cpp
     ledger_test.cpp
     order_book_differential_test.cpp
     order_book_test.cpp

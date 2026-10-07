@@ -1,6 +1,7 @@
 add_library(crowdbook
     event_log.cpp
     exchange.cpp
+    fundamental.cpp
     ledger.cpp
     messages.cpp
     order_book.cpp
