@@ -43,7 +43,7 @@ One simulated day of the mixed market is 17 million trades and takes 37 seconds 
 | Price anchored to value at long horizons | Yes: volatility over an hour equals the true value's | No value to anchor to |
 | Uninformed impact decays, informed impact stays | Yes | — |
 
-Two facts of real markets are missing. Fat tails and volatility clustering appear here only over
+In these two markets, two facts of real markets are missing (the [memory market](#memory-what-makes-volatility-cluster) brings them in). Fat tails and volatility clustering appear here only over
 seconds, and fade within a minute. Real markets show fat tails at intraday and daily horizons, and
 volatility clustering that lasts for weeks (Cont, 2001). Every agent here acts at a constant
 average rate, and none remembers more than a few seconds of prices. Nothing can make a busy hour
@@ -165,6 +165,42 @@ print, the spread is tighter and 1-second volatility is lower.
 What makes market behaviour is what agents react to, not how many there are. The thousand
 independent noise traders show no fat tails at all. Twenty trend followers reacting to the same
 price do.
+
+### Memory: what makes volatility cluster
+
+[memory_market.toml](../examples/scenarios/memory_market.toml) is the mixed market with news
+(a 6-tick jump in the true value every 30 minutes on average) and noise traders who react to the
+market: their pace follows recent activity against its usual level, and when prices have been
+jumping more than usual they place their limit orders further from the best prices. Its informed
+traders have larger limits, 10,000 lots each, so they never run out of room.
+
+![Autocorrelation of absolute one-minute returns at lags up to two hours](images/clustering.png)
+
+| Market | Excess kurtosis, 1 min | Clustering at 1 min | 15 min | 1 h | 2 h |
+|---|---:|---:|---:|---:|---:|
+| Memory market | +7.6 ± 1.2 | +0.24 | +0.18 | +0.12 | −0.00 |
+| … without news | +7.0 ± 1.4 | +0.34 | +0.27 | +0.11 | +0.02 |
+| … without the activity response | +5.8 ± 1.2 | +0.22 | +0.10 | +0.06 | +0.00 |
+| … without the volatility response | +2.4 ± 0.6 | +0.06 | +0.02 | +0.03 | +0.01 |
+| … with fifty adaptive traders | +2.3 ± 0.4 | +0.05 | +0.03 | +0.03 | +0.00 |
+| Mixed market, no memory | −0.1 | +0.07 | +0.01 | −0.01 | −0.02 |
+
+"Clustering" is the autocorrelation of absolute one-minute returns at that lag; the 95% band for no
+correlation is ±0.03. Tails thin with the horizon, as in real markets: excess kurtosis is +18 at
+10 seconds, +7.6 at a minute and +1.8 at five minutes.
+
+- **Liquidity feedback is the cause.** Without the volatility response the clustering is gone.
+  Jumpy prices make the noise traders stand back, a thinner book makes the next jump bigger, and
+  volatile spells last about an hour.
+- **Activity feedback alone does nothing:** a thousand traders already trade hundreds of times a
+  second, so activity barely fluctuates (trades per minute varied by about 4%). On top of the
+  liquidity feedback it lengthens the clustering.
+- **News adds fat tails but not clustering.**
+- **Adaptive traders cancel it.** Fifty traders switching between value and trend strategies
+  (Brock and Hommes, 1998) wipe the clustering out; why is still an open question.
+- Clustering fades by two hours, where in real markets it lasts weeks. Splitting the noise
+  traders across memories of a minute, ten minutes and an hour did not stretch it further than
+  judging "usual" over a day did.
 
 ## Market-maker experiments
 

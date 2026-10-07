@@ -34,8 +34,9 @@ instead of silently using a default.
 
 ## `[fundamental]` (optional)
 
-The asset's true value, which informed agents observe with noise. It follows an
-Ornstein–Uhlenbeck process, or a random walk when `mean_reversion` is 0.
+The asset's true value, which informed and adaptive agents observe with noise. It follows an
+Ornstein–Uhlenbeck process, or a random walk when `mean_reversion` is 0, and jumps when there is
+news.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -43,6 +44,8 @@ Ornstein–Uhlenbeck process, or a random walk when `mean_reversion` is 0.
 | `mean_reversion` | number | `0` | Per second; 0 makes the value a random walk |
 | `volatility` | number | `1` | Ticks per square root of a second |
 | `step` | duration | `"100ms"` | How often the value changes |
+| `jump_rate` | number | `0` | News per second: jumps come at random times, this many a second on average |
+| `jump_size` | number | `0` | Ticks: the standard deviation of each jump, which is normally distributed |
 
 ## `[exchange]` (optional)
 
@@ -91,11 +94,11 @@ within it. Cash has no limit. Every other key in the table is a parameter of the
 
 ## Built-in agents
 
-The market maker receives every trade and quote change as it happens. The other three read the
-market on demand when they act, which keeps crowds of thousands fast; either way, each sees the
-market only after its own `from_exchange` latency. Agents that act on a timer (the market maker,
-momentum and informed traders) start it at a random point within the first interval, so a group
-of them does not act in lockstep.
+The market maker receives every trade and quote change as it happens. The others read the market
+on demand when they act, which keeps crowds of thousands fast; either way, each sees the market
+only after its own `from_exchange` latency. Agents that act on a timer (the market maker and the
+momentum, informed and adaptive traders) start it at a random point within the first interval, so
+a group of them does not act in lockstep.
 
 ### `zero_intelligence`
 
@@ -109,6 +112,14 @@ limit order that rests is cancelled after its own random lifetime.
 | `cancel_rate` | `0.2` | Per resting order per second: an order that never fills rests 1/`cancel_rate` seconds on average; `0` keeps orders until they fill |
 | `max_offset` | `10` | Limit prices are 1 to `max_offset` ticks inside the opposite best quote |
 | `min_size`, `max_size` | `1`, `10` | Range of order sizes, in lots |
+| `activity_response` | `0` | How the trader's pace follows the market's: its rates are multiplied by (recent trade rate ÷ usual trade rate) to this power, within 0.1 to 10 |
+| `volatility_response` | `0` | How its limit orders stand back when prices jump: `max_offset` is multiplied by (recent volatility ÷ usual volatility) to this power, within 0.25 to 4 |
+| `activity_memory` | `"60s"` | How far back "recent" reaches, for both responses |
+| `activity_baseline` | `"1800s"` | How far back "usual" reaches; no shorter than `activity_memory` |
+
+The trader measures activity from the trades published so far and volatility from the moves of
+the mid, both as it sees them when it acts. With the responses at 0, the default, it behaves as it
+always has. [memory_market.toml](../examples/scenarios/memory_market.toml) uses both.
 
 ### `market_maker`
 
@@ -145,6 +156,31 @@ direction of the trend.
 | `order_size` | `5` | Lots per order |
 | `max_position` | `50` | Largest position it builds, counting orders in flight |
 
+### `adaptive`
+
+Switches between a value strategy and a trend strategy by how well each has been doing, after
+Brock and Hommes (1998). Needs a `[fundamental]` section.
+
+Every interval it looks at the price and, with noise, at the true value. The value strategy calls
+a buy when the value is at least `threshold` above the price and a sell when it is that far below;
+the trend strategy calls a buy when a fast moving average of the price leads a slow one by
+`threshold`, and a sell when it trails. Each keeps a track record: the price change after each of
+its calls, in the call's direction, fading with half-life `memory`. The trader follows the trend
+strategy with probability 1 ÷ (1 + e^(−`choice_intensity` × (trend record − value record))), and its
+position follows the chosen strategy's call: long `max_position` on a buy, short on a sell, flat
+without a call. It trades toward that position at the market, `order_size` at a time.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `interval` | `"1s"` | How often it decides |
+| `noise` | `2.0` | Ticks; standard deviation of each look at the value |
+| `fast_half_life`, `slow_half_life` | `"2s"`, `"20s"` | The trend strategy's moving averages |
+| `memory` | `"60s"` | Half-life of the track records |
+| `choice_intensity` | `1.0` | Per tick of track record: how surely the better strategy is chosen |
+| `threshold` | `1.0` | Ticks of signal before a strategy calls a trade |
+| `order_size` | `2` | Lots per order |
+| `max_position` | `20` | The position it holds when its strategy calls a trade |
+
 ### `informed`
 
 Observes the fundamental value with noise and trades when the book is far enough from it, using
@@ -170,7 +206,8 @@ Subclass `crowdbook::Agent`, register a factory for it under a name, and use tha
 in about 40 lines; the factory reads its parameters from `crowdbook::Parameters`, and anything it
 does not read is reported as an unknown parameter. An agent that only needs the market when it
 acts should override `marketData()` to return `MarketDataMode::Snapshot` and call
-`context.market()`, instead of receiving every update.
+`context.market()`, instead of receiving every update. Snapshots also carry the trades and the
+volume published so far, which is how an agent can tell how busy the market has been.
 
 ## The event log
 

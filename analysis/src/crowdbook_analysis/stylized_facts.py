@@ -4,12 +4,15 @@
 
 Three sets of runs, all through crowdbook:
 
-- examples/scenarios/large_market.toml and large_noise.toml for a simulated day under each of
-  several seeds, with prices sampled every second: returns over horizons from a second to five
-  minutes, their tails and autocorrelation, and the volatility measured at each horizon;
+- examples/scenarios/large_market.toml, large_noise.toml and memory_market.toml for a simulated
+  day under each of several seeds, with prices sampled every second: returns over horizons from
+  a second to five minutes, their tails and autocorrelation, the volatility measured at each
+  horizon, and how long volatility clusters;
 - an hour of each under the same seeds with its event log: the spread, and how the mid moves
   after the aggressive orders of each kind of trader;
 - the mixed market with one group of agents left out at a time, to see which of them shape it;
+- the memory market with one of its sources of memory taken away at a time, or adaptive traders
+  added, to see what makes volatility cluster;
 - the noise traders alone as 10, 100 or 1,000 agents sending the same total order flow, to see
   whether the number of agents matters.
 
@@ -33,6 +36,7 @@ from crowdbook_analysis.runner import REPO, Run, agent_groups, find_tool, pnl_at
 MARKETS = {
     "mixed market": REPO / "examples" / "scenarios" / "large_market.toml",
     "noise traders only": REPO / "examples" / "scenarios" / "large_noise.toml",
+    "memory market": REPO / "examples" / "scenarios" / "memory_market.toml",
 }
 HORIZONS = {"1 s": 1, "10 s": 10, "1 min": 60, "5 min": 300}  # in one-second samples
 SIGNATURE_HORIZONS = [1, 2, 5, 10, 30, 60, 120, 300, 600, 1800, 3600]  # seconds
@@ -40,6 +44,8 @@ TIME_TICKS = {1: "1 s", 10: "10 s", 60: "1 min", 600: "10 min", 3600: "1 h"}
 TAIL_HORIZONS = ["10 s", "1 min"]
 ACF_HORIZON = "10 s"  # where the trend followers leave their mark
 MAX_LAG = 30
+CLUSTERING_LAGS = 120  # minutes, for the absolute values of one-minute returns
+CLUSTERING_TICKS = {1: "1 min", 10: "10 min", 60: "1 h", 120: "2 h"}
 
 IMPACT_SECONDS = [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 60, 120]
 IMPACT_TICKS = {0.001: "1 ms", 0.01: "10 ms", 0.1: "100 ms", 1: "1 s", 10: "10 s", 60: "1 min"}
@@ -69,6 +75,43 @@ CROWD_LIMIT_RATE = 400.0  # limit orders per second from the whole crowd
 CROWD_MARKET_RATE = 100.0  # market orders per second from the whole crowd
 
 
+# Fifty traders who switch between value and trend strategies, added to the memory market.
+ADAPTIVE = """
+[[agents]]
+type = "adaptive"
+name = "adaptive"
+count = 50
+interval = "1s"
+noise = 2.0
+fast_half_life = "5s"
+slow_half_life = "60s"
+memory = "600s"
+choice_intensity = 0.5
+threshold = 1.0
+order_size = 5
+max_position = 200
+latency = { to_exchange = "500us", from_exchange = "500us", jitter = "200us" }
+account = { max_position = 200, max_order_quantity = 5 }
+"""
+
+
+def without_keys(text: str, keys: list[str]) -> str:
+    """The scenario with every setting called one of `keys` left out, so it takes its default."""
+    lines = text.splitlines(keepends=True)
+    kept = [line for line in lines if line.split("=")[0].strip() not in keys]
+    if len(lines) - len(kept) < len(keys):
+        raise ValueError(f"the scenario does not set all of {keys}")
+    return "".join(kept)
+
+
+MEMORY_VARIANTS = {
+    "without news": lambda text: without_keys(text, ["jump_rate", "jump_size"]),
+    "without the activity response": lambda text: without_keys(text, ["activity_response"]),
+    "without the volatility response": lambda text: without_keys(text, ["volatility_response"]),
+    "with fifty adaptive traders": lambda text: text + ADAPTIVE,
+}
+
+
 def without_group(text: str, name: str) -> str:
     """The scenario with its agent group called `name` left out."""
     head, *groups = re.split(r"(?m)^(?=\[\[agents\]\])", text)
@@ -91,8 +134,10 @@ def price_statistics(prices: pl.DataFrame) -> dict:
             "acf_abs": facts.autocorrelation(np.abs(returns), MAX_LAG),
         }
     spreads = (prices["ask"] - prices["bid"]).drop_nulls().to_numpy()
+    minutes = np.abs(facts.horizon_returns(mids, 60))
     return {
         "horizons": horizons,
+        "clustering": facts.autocorrelation(minutes, CLUSTERING_LAGS),
         "signature": [
             facts.volatility_per_root_second(mids, steps, 1.0) for steps in SIGNATURE_HORIZONS
         ],
@@ -149,6 +194,7 @@ def summarize(runs: list[dict]) -> dict:
             for label in TAIL_HORIZONS
         },
         "signature": facts.mean_and_error([one["signature"] for one in runs]),
+        "clustering": facts.mean_and_error([one["clustering"] for one in runs]),
         "mean_spread": facts.mean_and_error([one["mean_spread"] for one in runs]),
         "trades_per_second": facts.mean_and_error([one["trades_per_second"] for one in runs]),
         "lots_per_second": {
@@ -254,6 +300,24 @@ def plot_autocorrelation(markets: dict, path: Path) -> None:
     style.finish(fig, axes, path, end_labels=False)
 
 
+def plot_clustering(markets: dict, path: Path) -> None:
+    fig, ax = style.figure(
+        "How long volatility clusters",
+        "lag between one-minute returns",
+        "autocorrelation of their absolute values",
+    )
+    lags = np.arange(1, CLUSTERING_LAGS + 1)
+    samples = min(one["horizons"]["1 min"]["returns"] for one in markets.values())
+    noise = 1.96 / np.sqrt(samples)
+    style.band(ax, -noise, noise, "95% band for no correlation")
+    ax.axhline(0, color=style.AXIS, linewidth=style.HAIRLINE)
+    for slot, (label, summary) in enumerate(markets.items()):
+        mean, _ = summary["clustering"]
+        style.line(ax, lags, mean, slot, label, markers=False)
+    time_axis(ax, CLUSTERING_TICKS)
+    style.finish(fig, ax, path, end_labels=False)
+
+
 def plot_signature(curves: dict, title: str, path: Path) -> None:
     fig, ax = style.figure(title, "horizon", "volatility per √second (ticks)")
     for slot, (label, (mean, error)) in enumerate(curves.items()):
@@ -304,7 +368,8 @@ def estimate(pair: tuple, digits: int = 2, signed: bool = True) -> str:
     return f"{mean:{'+' if signed else ''}.{digits}f} ± {error:.{digits}f}"
 
 
-def print_tables(markets: dict, variants: dict, logged: dict, crowds: dict) -> None:
+def print_tables(markets: dict, variants: dict, memory: dict, logged: dict,
+                 crowds: dict) -> None:
     print("| market | horizon | returns | excess kurtosis | lag-1 autocorrelation | "
           "lag-1 autocorrelation of absolute returns |")
     print("|---|---|---:|---:|---:|---:|")
@@ -342,6 +407,20 @@ def print_tables(markets: dict, variants: dict, logged: dict, crowds: dict) -> N
         mean, error = summary["signature"]
         cells.append(f"{mean[hour]:.2f} ± {error[hour]:.2f}")
         print(f"| {label} | " + " | ".join(cells) + " |")
+
+    print()
+    shown_lags = [1, 15, 60, 120]
+    print("| market | trades per second | excess kurtosis at 1 min | "
+          + " | ".join(f"clustering at {lag} min" for lag in shown_lags)
+          + " | volatility at 1 h |")
+    print("|---|---:|---:|" + "---:|" * len(shown_lags) + "---:|")
+    for label, summary in memory.items():
+        mean, error = summary["clustering"]
+        signature, signature_error = summary["signature"]
+        print(f"| {label} | {estimate(summary['trades_per_second'], 0, signed=False)} | "
+              f"{estimate(summary['horizons']['1 min']['kurtosis'])} | "
+              + " | ".join(f"{mean[lag - 1]:+.3f} ± {error[lag - 1]:.3f}" for lag in shown_lags)
+              + f" | {signature[hour]:.2f} ± {signature_error[hour]:.2f} |")
 
     mixed = markets["mixed market"]
     print()
@@ -406,7 +485,11 @@ def main() -> None:
     }
     mixed = texts["mixed market"]
     variant_texts = {label: without_group(mixed, name) for name, label in LEFT_OUT.items()}
-    cases = [*texts.values(), *variant_texts.values(), *crowd_texts.values()]
+    memory_texts = {
+        label: change(texts["memory market"]) for label, change in MEMORY_VARIANTS.items()
+    }
+    cases = [*texts.values(), *variant_texts.values(), *memory_texts.values(),
+             *crowd_texts.values()]
     jobs = [Run(text, seed, args.duration) for text in cases for seed in seeds]
 
     with tempfile.TemporaryDirectory() as scratch:
@@ -424,11 +507,15 @@ def main() -> None:
         summarize(statistics[index * len(seeds) : (index + 1) * len(seeds)])
         for index in range(len(cases))
     ]
-    markets = dict(zip(texts, per_case[: len(texts)], strict=True))
-    left_out = dict(zip(variant_texts, per_case[len(texts) : -len(crowd_texts)], strict=True))
-    crowds = dict(zip(crowd_texts, per_case[-len(crowd_texts) :], strict=True))
+    remaining = iter(per_case)
+    markets = {label: next(remaining) for label in texts}
+    left_out = {label: next(remaining) for label in variant_texts}
+    memory_variants = {label: next(remaining) for label in memory_texts}
+    crowds = {count: next(remaining) for count in crowd_texts}
     variants = {"mixed market": markets["mixed market"], **left_out,
                 "noise traders only": markets["noise traders only"]}
+    memory = {"memory market": markets["memory market"], **memory_variants,
+              "mixed market, without memory": markets["mixed market"]}
 
     plot_tails(markets, args.out / "return_tails.png")
     plot_autocorrelation(markets, args.out / "autocorrelation.png")
@@ -442,9 +529,10 @@ def main() -> None:
         "The same order flow from 10, 100 or 1,000 noise traders",
         args.out / "crowd_size.png",
     )
+    plot_clustering(markets, args.out / "clustering.png")
     plot_spreads(logged, args.out / "spreads.png")
     plot_impact(logged["mixed market"]["impact"], args.out / "impact.png")
-    print_tables(markets, variants, logged, crowds)
+    print_tables(markets, variants, memory, logged, crowds)
 
 
 if __name__ == "__main__":

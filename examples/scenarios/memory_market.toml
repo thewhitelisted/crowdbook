@@ -1,0 +1,71 @@
+# The thousand-trader market of large_market.toml with memory: news that moves the true value,
+# and noise traders who react to how the market has been behaving. They trade faster when it has
+# been busier than usual, and when prices have been jumping more than usual they place their
+# limit orders further from the best prices, which thins the book and makes prices jump further.
+# That feedback makes volatility cluster for hours, as in real markets; docs/results.md measures it.
+#
+#   crowdbook run examples/scenarios/memory_market.toml --prices prices.csv --duration 86400s
+
+seed = 21
+duration = "600s"
+reference_price = 10000
+
+# A random walk of 0.2 ticks per square root of a second, about 60 ticks over a day: calmer than
+# the noise traders move the price on their own.
+[fundamental]
+volatility = 0.2
+step = "100ms"
+jump_rate = 0.000556      # news: one jump every 30 minutes on average
+jump_size = 6.0           # ticks
+
+[[agents]]
+type = "market_maker"
+name = "maker"
+risk_aversion = 0.005
+volatility = 3.0
+intensity = 1.0
+quote_size = 10
+max_inventory = 200
+requote_interval = "50ms"
+latency = { to_exchange = "20us", from_exchange = "20us" }
+account = { max_position = 220, max_order_quantity = 10 }
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 1000
+limit_rate = 0.4
+market_rate = 0.1
+cancel_rate = 0.2
+max_offset = 10
+activity_response = 0.8   # trade faster when recent activity runs above its usual level
+volatility_response = 1.2 # place limit orders deeper when prices jump more than usual
+activity_memory = "300s"  # "recent" means the last five minutes or so
+activity_baseline = "86400s" # and "usual" the last day
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 1000, max_order_quantity = 10 }
+
+[[agents]]
+type = "momentum"
+name = "trend"
+count = 20
+interval = "100ms"
+fast_half_life = "500ms"
+slow_half_life = "5s"
+threshold = 1.0
+order_size = 5
+max_position = 50
+latency = { to_exchange = "500us", from_exchange = "500us", jitter = "200us" }
+account = { max_position = 60, max_order_quantity = 5 }
+
+[[agents]]
+type = "informed"
+name = "informed"
+count = 20
+interval = "200ms"
+noise = 1.0
+threshold = 2.0
+order_size = 5
+max_position = 10000
+latency = { to_exchange = "100us", from_exchange = "100us", jitter = "20us" }
+account = { max_position = 10010, max_order_quantity = 5 }

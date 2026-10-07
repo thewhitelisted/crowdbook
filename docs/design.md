@@ -217,12 +217,15 @@ the caller's own.
 
 ## Agents and scenarios
 
-Four agent types are built in. Each is a plain class configured by a struct, so it can be used
+Five agent types are built in. Each is a plain class configured by a struct, so it can be used
 from C++ directly; [scenarios.md](scenarios.md) lists their parameters.
 
 - **Zero-intelligence trader** (Farmer, Patelli and Zovko, 2005): limit and market orders at
   Poisson times, on random sides, with limit prices drawn inside the opposite best quote. Each
-  resting order is cancelled after its own exponentially distributed lifetime.
+  resting order is cancelled after its own exponentially distributed lifetime. Optionally it
+  reacts to the market: its pace follows recent activity against its usual level, and its limit
+  orders stand further back from the best prices when prices have been jumping more than usual.
+  It measures both from its own snapshots, which carry the trades and volume published so far.
 - **Market maker** (Avellaneda and Stoikov, 2008): one bid and one ask around a reservation price
   that leans against inventory, requoted on a timer and after every fill. Its fair price is a
   running average of trade prices rather than the mid, because the mid is often its own quotes.
@@ -231,10 +234,15 @@ from C++ directly; [scenarios.md](scenarios.md) lists their parameters.
 - **Informed trader:** observes the fundamental value with noise and trades with
   immediate-or-cancel orders priced to keep its edge, so it never sweeps the book past its
   estimate.
+- **Adaptive trader** (Brock and Hommes, 1998): switches between a value strategy and a trend
+  strategy by the track record of each, choosing by a logit of the difference, and holds the
+  position its chosen strategy calls for. Traders like it herd, since they all score the same
+  price moves.
 
 The fundamental value is an Ornstein–Uhlenbeck process (a random walk when its mean reversion is
-zero, the default) stepped with its exact discrete-time formulas from its own random stream, so its path does not
-depend on who reads it or when.
+zero, the default) stepped with its exact discrete-time formulas from its own random stream, so
+its path does not depend on who reads it or when. News adds jumps at random times; without news it
+makes no draws for them, so turning news off leaves every earlier path as it was.
 
 A scenario names agent groups with shared settings. `AgentRegistry` maps type names to factories
 that read a `Parameters` object; after a factory runs, any parameter it did not read is an error,
@@ -243,7 +251,7 @@ a `Scenario` struct and reports trades, volume, the last price, the fundamental'
 each group's position, cash and PnL. Scenario files are only one way to fill in that struct: the
 TOML reader lives in its own library, so the core library stays free of dependencies.
 
-Running the examples and analysing the results taught four things worth keeping.
+Running the examples and analysing the results taught five things worth keeping.
 
 **Market-maker self-impact.** In Avellaneda–Stoikov the mid price is
 exogenous, but here the zero-intelligence traders anchor on the best quotes, which are often the
@@ -274,6 +282,13 @@ walk: tens of thousands of lots over a simulated day. With limits of a hundred l
 filled up within half an hour, the price then drifted hundreds of ticks from the value, and the
 fat tails that market showed were an artifact of the drift. Long runs need a check that every
 agent can still act, so the analysis reports each group's volume and PnL.
+
+**Memory comes from feedback on volatility, not on activity.** Making the noise traders' pace
+follow recent activity changed almost nothing: a thousand traders already trade hundreds of times
+a second, so activity barely fluctuates and there is little for the feedback to amplify. Trades
+per minute varied by four percent. Having them place their limit orders further back when prices
+have been jumping more than usual made volatility cluster for hours, because it closes a loop
+around volatility itself: jumps thin the book, and a thin book makes the next jump bigger.
 
 ## Analysis
 
@@ -359,7 +374,8 @@ uv run --project analysis crowdbook-experiments
   orders, six in fees, seven in the depth feed, three in the market maker's post-only quoting and
   eight in live sessions (the participant's settings ignored, actions replayed early, a replay
   stopping at its last action, unescaped session text, out-of-order actions accepted, recorded
-  ids unchecked, a pacer that ignores pause) were each caught.
+  ids unchecked, a pacer that ignores pause), five in the adaptive trader and three in the
+  noise traders' responses were each caught.
 - **Session tests** play a scripted session the way a live one runs, in uneven steps with requests
   at chosen nanoseconds, then write it, read it back and replay it: the event log must come out
   byte for byte the same. The real `play` command was also driven through a pseudo-terminal with
@@ -405,6 +421,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | Realism | Defined by a scorecard measured the same way on simulated and real data | Without a target, tuning never ends |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
+| Market memory | Noise traders who respond to recent activity and volatility, measured from their own snapshots | Feedback on volatility through liquidity produced long-lived clustering where feedback on activity alone did not, and snapshots keep it cheap for a thousand traders |
+| Adaptive traders | A target position set by the chosen strategy, not an order per decision | Ordering every decision filled their limits within a minute; Brock and Hommes model demand as a position |
 | Post-only | A time in force, rejected if it would trade | Several exchanges model it this way ("good till crossing"), and it needs no new order field |
 | Fee units | Thousandths of a tick-lot, kept apart from cash | Real fees are fractions of a tick; a separate integer keeps accounting exact without shrinking the price range |
 | Live play | A pacer around runUntil plus Simulation::act, on one thread | Wall-clock time only decides when a person's actions happen, so a recording replays exactly |
@@ -427,8 +445,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M5b | Analysis package; stylized facts, crowd size and price impact by trader type in the thousand-trader markets; market-maker self-impact and PnL against informed flow and latency | [results.md](results.md): four simulated days per market, 32 seeds per experiment point | Done |
 | M6 | Depth and order types: the best levels of the book in market data, post-only orders, maker–taker fees | The published depth matches the book after every random request; fees paid add up to fees collected; planted bugs caught | Done |
 | M7 | Playable slice: real time at adjustable speed, an outside participant, a terminal price ladder, sessions recorded for replay | A recorded session, scripted and played through the real screen, replays to a byte-identical log | Done |
-| M8 | Memory in the crowd: news jumps in the true value, self-exciting activity (Hawkes processes), traders who switch between value and trend strategies by recent PnL | Volatility clustering at one minute that lasts hours; fat one-minute tails; ablations name the cause | Next |
-| M9 | Large orders worked over time: execution agents slicing parent orders (TWAP, VWAP, percentage of volume) | Long memory in the signs of market orders; square-root impact of parent orders | Planned |
+| M8 | Memory in the crowd: news jumps in the true value, noise traders whose pace follows activity and whose limit orders stand back when prices jump, traders who switch between value and trend strategies by their track records | Volatility clustering at one minute that lasts hours, fat one-minute tails, and ablations naming the cause, in [results.md](results.md) | Done |
+| M9 | Large orders worked over time: execution agents slicing parent orders (TWAP, VWAP, percentage of volume) | Long memory in the signs of market orders; square-root impact of parent orders | Next |
 | M10 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |
 | M11 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
 | M12 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
