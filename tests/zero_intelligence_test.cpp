@@ -129,6 +129,52 @@ TEST(ZeroIntelligenceTest, AnchorsOnTheReferencePriceBeforeSeeingAnyQuotes) {
     EXPECT_EQ(sellPrices, (std::set<Price>{1'000, 1'001}));
 }
 
+// Shows the trader the market's trade count so far and fires its order timer at `time`.
+void tick(ZeroIntelligenceTrader& trader, FakeContext& context, Timestamp time,
+          std::uint64_t trades) {
+    context.setNow(time);
+    context.snapshot.trades = trades;
+    trader.onWakeup(context, 0);
+}
+
+TEST(ZeroIntelligenceTest, PaceFollowsRecentActivityAgainstItsUsualLevel) {
+    const ZeroIntelligenceConfig steady{.limitRate = 1.0, .marketRate = 0.0};
+    ZeroIntelligenceConfig responsive = steady;
+    responsive.activityResponse = 1.0;
+    responsive.activityMemory = kSecond;
+    responsive.activityBaseline = 100 * kSecond;
+    ZeroIntelligenceTrader trader{responsive, kReference};
+    ZeroIntelligenceTrader constant{steady, kReference}; // the same draws, at a steady pace
+    FakeContext context;
+    FakeContext constantContext;
+    trader.onStart(context);
+    constant.onStart(constantContext);
+
+    Timestamp time = 0;
+    std::uint64_t trades = 0;
+    const auto seconds = [&](int count, std::uint64_t perSecond) {
+        for (int i = 0; i < count; ++i) {
+            time += kSecond;
+            trades += perSecond;
+            tick(trader, context, time, trades);
+            tick(constant, constantContext, time, trades);
+        }
+    };
+
+    seconds(60, 10); // a steady 10 trades a second: recent and usual agree
+    EXPECT_NEAR(trader.pace(), 1.0, 0.01);
+    seconds(5, 100); // a burst of 100 a second: it speeds up about fivefold
+    EXPECT_GT(trader.pace(), 4.0);
+    // Its next order comes sooner by exactly that factor.
+    const auto lastDelay = [&time](const FakeContext& fake) {
+        return static_cast<double>(fake.wakeups.back().first - time);
+    };
+    EXPECT_NEAR(lastDelay(constantContext) / lastDelay(context), trader.pace(), 1e-3);
+    seconds(10, 10); // quiet again, while the burst still weighs on its usual level: it slows
+    EXPECT_LT(trader.pace(), 1.0);
+    EXPECT_EQ(constant.pace(), 1.0);
+}
+
 TEST(ZeroIntelligenceTest, RejectsInvalidConfigs) {
     EXPECT_THROW((ZeroIntelligenceTrader{{.limitRate = -1.0}, kReference}), std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.limitRate = 0.0, .marketRate = 0.0}, kReference}),
@@ -137,6 +183,13 @@ TEST(ZeroIntelligenceTest, RejectsInvalidConfigs) {
                  std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.maxOffset = 0}, kReference}), std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.minSize = 5, .maxSize = 4}, kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((ZeroIntelligenceTrader{{.activityResponse = -0.5}, kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((ZeroIntelligenceTrader{{.activityMemory = 0}, kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((ZeroIntelligenceTrader{
+                     {.activityMemory = 10 * kSecond, .activityBaseline = kSecond}, kReference}),
                  std::invalid_argument);
 }
 

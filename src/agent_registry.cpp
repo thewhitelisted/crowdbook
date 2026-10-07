@@ -32,6 +32,10 @@ std::unique_ptr<Agent> makeZeroIntelligence(const Parameters& parameters,
             .maxOffset = parameters.integer("max_offset", defaults.maxOffset),
             .minSize = parameters.integer("min_size", defaults.minSize),
             .maxSize = parameters.integer("max_size", defaults.maxSize),
+            .activityResponse = parameters.number("activity_response", defaults.activityResponse),
+            .activityMemory = parameters.duration("activity_memory", defaults.activityMemory),
+            .activityBaseline =
+                parameters.duration("activity_baseline", defaults.activityBaseline),
         },
         environment.referencePrice);
 }

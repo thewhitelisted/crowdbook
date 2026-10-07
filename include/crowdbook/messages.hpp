@@ -136,15 +136,17 @@ struct BookDepth {
     friend bool operator==(const BookDepth&, const BookDepth&) = default;
 };
 
-// The public market as one agent can see it: the best bid and ask, the last trade price and, with
-// a depth feed, the best levels on each side, as the exchange had published them one of the
-// agent's latencies ago.
+// The public market as one agent can see it: the best bid and ask, the last trade price, the
+// trades and volume so far and, with a depth feed, the best levels on each side, as the exchange
+// had published them one of the agent's latencies ago.
 struct MarketSnapshot {
     std::optional<LevelSummary> bid{};
     std::optional<LevelSummary> ask{};
     std::optional<Price> lastTrade{};
     std::vector<LevelSummary> bids{}; // best first; empty without a depth feed
     std::vector<LevelSummary> asks{};
+    std::uint64_t trades = 0; // trades published since the start of the run
+    Quantity volume = 0;      // and the lots they traded
 
     friend bool operator==(const MarketSnapshot&, const MarketSnapshot&) = default;
 };

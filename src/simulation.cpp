@@ -199,6 +199,8 @@ void Simulation::process(const Arrival& arrival) {
         }
         if (const auto* trade = std::get_if<Trade>(&event)) {
             published_.lastTrade = trade->price;
+            ++published_.trades;
+            published_.volume += trade->quantity;
         } else if (const auto* top = std::get_if<TopOfBook>(&event)) {
             published_.bid = top->bid;
             published_.ask = top->ask;

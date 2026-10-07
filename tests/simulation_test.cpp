@@ -304,6 +304,8 @@ TEST(SimulationTest, SnapshotsAgreeWithTheStreamOverABusyRun) {
             }
             if (const auto* trade = std::get_if<Trade>(&received.event)) {
                 expected.lastTrade = trade->price;
+                ++expected.trades;
+                expected.volume += trade->quantity;
             } else if (const auto* top = std::get_if<TopOfBook>(&received.event)) {
                 expected.bid = top->bid;
                 expected.ask = top->ask;

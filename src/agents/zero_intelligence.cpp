@@ -32,6 +32,37 @@ ZeroIntelligenceTrader::ZeroIntelligenceTrader(const ZeroIntelligenceConfig& con
     if (config.minSize < 1 || config.minSize > config.maxSize) {
         throw std::invalid_argument("zero_intelligence sizes need 1 <= min_size <= max_size");
     }
+    if (!(config.activityResponse >= 0.0) || config.activityMemory <= 0 ||
+        config.activityBaseline < config.activityMemory) {
+        throw std::invalid_argument("zero_intelligence needs activity_response >= 0 and "
+                                    "0 < activity_memory <= activity_baseline");
+    }
+}
+
+void ZeroIntelligenceTrader::Average::add(double value, double keep) noexcept {
+    weightedSum = weightedSum * keep + value * (1.0 - keep);
+    weight = weight * keep + (1.0 - keep);
+}
+
+void ZeroIntelligenceTrader::observeActivity(const MarketSnapshot& market, Timestamp now) {
+    if (config_.activityResponse == 0.0) {
+        return;
+    }
+    if (lastSeenAt_ >= 0 && now > lastSeenAt_) {
+        const double seconds = static_cast<double>(now - lastSeenAt_) / kSecond;
+        const double rate = static_cast<double>(market.trades - lastSeenTrades_) / seconds;
+        const auto keep = [seconds](Duration window) {
+            return std::exp(-seconds * kSecond / static_cast<double>(window));
+        };
+        recent_.add(rate, keep(config_.activityMemory));
+        usual_.add(rate, keep(config_.activityBaseline));
+        if (recent_.value() > 0.0 && usual_.value() > 0.0) {
+            pace_ = std::clamp(std::pow(recent_.value() / usual_.value(), config_.activityResponse),
+                               0.1, 10.0);
+        }
+    }
+    lastSeenAt_ = now;
+    lastSeenTrades_ = market.trades;
 }
 
 void ZeroIntelligenceTrader::onStart(AgentContext& context) { scheduleNextOrder(context); }
@@ -46,7 +77,9 @@ void ZeroIntelligenceTrader::onWakeup(AgentContext& context, std::uint64_t tag) 
         return;
     }
 
-    market_.update(context.market());
+    const MarketSnapshot market = context.market();
+    market_.update(market);
+    observeActivity(market, context.now());
     // Picking limit or market in proportion to its rate, with one exponential timer for both, is
     // the same as running two independent Poisson processes.
     if (context.random().uniform() * orderRate() < config_.limitRate) {
@@ -62,8 +95,9 @@ double ZeroIntelligenceTrader::orderRate() const noexcept {
 }
 
 void ZeroIntelligenceTrader::scheduleNextOrder(AgentContext& context) const {
-    context.wakeAt(context.now() + secondsToDuration(context.random().exponential(orderRate())),
-                   kNextOrder);
+    context.wakeAt(
+        context.now() + secondsToDuration(context.random().exponential(orderRate() * pace_)),
+        kNextOrder);
 }
 
 void ZeroIntelligenceTrader::sendLimit(AgentContext& context) const {
