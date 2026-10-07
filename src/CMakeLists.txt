@@ -1,4 +1,6 @@
 add_library(crowdbook
+    exchange.cpp
+    messages.cpp
     order_book.cpp
     types.cpp
     version.cpp)

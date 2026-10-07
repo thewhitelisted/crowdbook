@@ -10,8 +10,16 @@ namespace crowdbook {
 // accounting never touch floating point.
 using Price = std::int64_t;
 using Quantity = std::int64_t;
-using OrderId = std::uint64_t;
+// Money, in units of one tick times one lot.
+using Cash = std::int64_t;
+using OrderId = std::uint64_t;       // assigned by the exchange
+using ClientOrderId = std::uint64_t; // chosen by the agent, unique among its live orders
 using AgentId = std::uint32_t;
+
+// Upper bounds the exchange enforces on prices and order sizes. They keep every notional
+// (price × quantity) and every risk sum far inside int64.
+inline constexpr Price kMaxPrice = 1'000'000'000;
+inline constexpr Quantity kMaxQuantity = 1'000'000'000;
 
 enum class Side : std::uint8_t { Buy, Sell };
 
@@ -63,15 +71,23 @@ enum class OrderStatus : std::uint8_t {
 
 enum class CancelReason : std::uint8_t {
     None,
+    Requested,         // the owner cancelled it
     ImmediateOrCancel, // immediate-or-cancel or market order that could not fill completely
     SelfTrade,         // reached a resting order from the same owner
 };
 
+// The order book only produces NonPositiveQuantity, DuplicateOrderId and UnknownOrderId; the
+// exchange checks the rest before an order reaches the book.
 enum class RejectReason : std::uint8_t {
     None,
     NonPositiveQuantity,
+    InvalidPrice,           // limit price outside [1, kMaxPrice]
+    OrderSizeLimit,         // quantity above the agent's maximum order size
+    PositionLimit,          // could breach the agent's position limit if every open order filled
     DuplicateOrderId,
-    UnknownOrderId,
+    DuplicateClientOrderId, // the agent already has a live order with this client order id
+    UnknownOrderId,         // no such live order
+    UnknownAgent,           // the agent has no account
 };
 
 struct OrderResult {

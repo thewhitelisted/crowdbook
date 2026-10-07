@@ -50,6 +50,8 @@ std::string_view toString(CancelReason reason) noexcept {
     switch (reason) {
     case CancelReason::None:
         return "none";
+    case CancelReason::Requested:
+        return "requested";
     case CancelReason::ImmediateOrCancel:
         return "immediate-or-cancel";
     case CancelReason::SelfTrade:
@@ -64,10 +66,20 @@ std::string_view toString(RejectReason reason) noexcept {
         return "none";
     case RejectReason::NonPositiveQuantity:
         return "non-positive quantity";
+    case RejectReason::InvalidPrice:
+        return "invalid price";
+    case RejectReason::OrderSizeLimit:
+        return "order size limit";
+    case RejectReason::PositionLimit:
+        return "position limit";
     case RejectReason::DuplicateOrderId:
         return "duplicate order id";
+    case RejectReason::DuplicateClientOrderId:
+        return "duplicate client order id";
     case RejectReason::UnknownOrderId:
         return "unknown order id";
+    case RejectReason::UnknownAgent:
+        return "unknown agent";
     }
     return "unknown";
 }
