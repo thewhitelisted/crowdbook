@@ -114,6 +114,55 @@ TEST(MarketMakerTest, CancelsTheQuoteThatWouldBreachItsLimit) {
                                                                     .quantity = 5}}));
 }
 
+TEST(MarketMakerTest, PostOnlyQuotesStayOffTheFarSideOfTheBook) {
+    MarketMakerConfig config = kConfig;
+    config.postOnly = true;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(),
+              (std::vector<Request>{limitOrder(1, Side::Buy, 99, 5, TimeInForce::PostOnly),
+                                    limitOrder(2, Side::Sell, 101, 5, TimeInForce::PostOnly)}));
+    context.accept(1);
+    context.accept(2);
+
+    // Long 5 after the bid fills, r = 98 wants the ask at 99, but that would trade with the bid at
+    // 99 it last saw, so the ask only comes down to 100.
+    context.fill(1, 5);
+    maker.onFilled(context, {});
+    EXPECT_EQ(context.takeSent(),
+              (std::vector<Request>{limitOrder(3, Side::Buy, 97, 5, TimeInForce::PostOnly),
+                                    ModifyOrder{.clientOrderId = 2, .price = 100, .quantity = 5}}));
+}
+
+TEST(MarketMakerTest, SendsARejectedModifyAgain) {
+    MarketMaker maker{kConfig, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+
+    // A trade at 103 moves the fair price there, so the quotes move to 102 and 104.
+    maker.onTrade(context, {.price = 103, .quantity = 1});
+    maker.onWakeup(context, 0);
+    ASSERT_EQ(context.takeSent(),
+              (std::vector<Request>{ModifyOrder{.clientOrderId = 1, .price = 102, .quantity = 5},
+                                    ModifyOrder{.clientOrderId = 2, .price = 104, .quantity = 5}}));
+
+    // The exchange turns the ask's modify down, so it is still at 101: the next requote asks
+    // again. The bid's modify is still on its way, so it is not repeated.
+    maker.onRejected(context, {.agent = 1,
+                               .clientOrderId = 2,
+                               .request = RequestKind::Modify,
+                               .reason = RejectReason::PostOnlyWouldTrade});
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(context.takeSent(),
+              (std::vector<Request>{ModifyOrder{.clientOrderId = 2, .price = 104, .quantity = 5}}));
+}
+
 TEST(MarketMakerTest, FairPriceIsARunningAverageOfTrades) {
     MarketMaker maker{kConfig, kReference};
     FakeContext context;

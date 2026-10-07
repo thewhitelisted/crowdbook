@@ -24,6 +24,7 @@ horizon = "1s"
 quote_size = 10
 max_inventory = 200
 requote_interval = "50ms"
+post_only = true          # only ever add liquidity, so every fill earns the rebate
 latency = { to_exchange = "20us", from_exchange = "20us" }
 account = { max_position = 220, max_order_quantity = 10 }
 

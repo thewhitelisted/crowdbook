@@ -1,5 +1,6 @@
 #include "crowdbook/agents/market_maker.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -59,6 +60,18 @@ void MarketMaker::onFilled(AgentContext& context, const OrderFilled& /*event*/) 
     requote(context);
 }
 
+void MarketMaker::onRejected(AgentContext& context, const OrderRejected& event) {
+    // The order kept its old price; remember that, so the next requote asks again.
+    for (std::optional<Quote>* quote : {&bid_, &ask_}) {
+        if (event.request == RequestKind::Modify && *quote &&
+            (*quote)->clientOrderId == event.clientOrderId) {
+            if (const OwnOrder* live = context.ledger().find(event.clientOrderId)) {
+                (*quote)->price = live->price;
+            }
+        }
+    }
+}
+
 void MarketMaker::onTopOfBook(AgentContext& /*context*/, const TopOfBook& top) {
     market_.update(top);
 }
@@ -78,8 +91,15 @@ double MarketMaker::fairPrice() const noexcept {
 }
 
 void MarketMaker::requote(AgentContext& context) {
-    const Quotes target =
-        avellanedaStoikovQuotes(config_, fairPrice(), context.ledger().position());
+    Quotes target = avellanedaStoikovQuotes(config_, fairPrice(), context.ledger().position());
+    if (config_.postOnly) {
+        if (target.bid && market_.bestAsk()) {
+            target.bid = std::min(*target.bid, *market_.bestAsk() - 1);
+        }
+        if (target.ask && market_.bestBid()) {
+            target.ask = std::max(*target.ask, *market_.bestBid() + 1);
+        }
+    }
     maintain(context, bid_, Side::Buy, target.bid);
     maintain(context, ask_, Side::Sell, target.ask);
 }
@@ -98,8 +118,11 @@ void MarketMaker::maintain(AgentContext& context, std::optional<Quote>& quote, S
             quote.reset();
         }
     } else if (!quote) {
-        quote = Quote{.clientOrderId = context.submitLimit(side, *price, config_.quoteSize),
-                      .price = *price};
+        const TimeInForce timeInForce =
+            config_.postOnly ? TimeInForce::PostOnly : TimeInForce::GoodTillCancel;
+        quote = Quote{
+            .clientOrderId = context.submitLimit(side, *price, config_.quoteSize, timeInForce),
+            .price = *price};
     } else if (quote->price != *price || live->leaves != config_.quoteSize) {
         context.modify(quote->clientOrderId, *price, config_.quoteSize);
         quote->price = *price;

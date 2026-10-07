@@ -21,6 +21,9 @@ struct MarketMakerConfig {
     Quantity maxInventory = 50; // never quote a side that could take |position| past this
     Duration requoteInterval = 100 * kMillisecond;
     double fairValueWeight = 0.2; // how far each trade moves the fair price toward its price
+    // Quote with post-only orders, kept a tick off the far side of the book as last seen, so the
+    // market maker only ever adds liquidity (and earns any maker rebate).
+    bool postOnly = false;
 };
 
 struct Quotes {
@@ -44,7 +47,7 @@ struct Quotes {
 // prices (the mid before the first trade), not the mid itself, because the mid is often the market
 // maker's own quotes. It quotes on start, then requotes on a timer (whose first tick falls at a
 // random point in the first interval) and straight after each of its own fills, moving a live
-// quote with modify.
+// quote with modify. A modify the exchange rejects is sent again at the next requote.
 class MarketMaker final : public Agent {
 public:
     // Throws std::invalid_argument for a config the formulas cannot use.
@@ -53,6 +56,7 @@ public:
     void onStart(AgentContext& context) override;
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
     void onFilled(AgentContext& context, const OrderFilled& event) override;
+    void onRejected(AgentContext& context, const OrderRejected& event) override;
     void onTopOfBook(AgentContext& context, const TopOfBook& top) override;
     void onTrade(AgentContext& context, const Trade& trade) override;
 

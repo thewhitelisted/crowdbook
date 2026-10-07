@@ -49,6 +49,7 @@ std::unique_ptr<Agent> makeMarketMaker(const Parameters& parameters,
             .maxInventory = parameters.integer("max_inventory", defaults.maxInventory),
             .requoteInterval = parameters.duration("requote_interval", defaults.requoteInterval),
             .fairValueWeight = parameters.number("fair_value_weight", defaults.fairValueWeight),
+            .postOnly = parameters.flag("post_only", defaults.postOnly),
         },
         environment.referencePrice);
 }
