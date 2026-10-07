@@ -6,6 +6,7 @@
 #include <iterator>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 #include "overloaded.hpp"
@@ -58,7 +59,7 @@ public:
     }
 
     void wakeAt(Timestamp time, std::uint64_t tag) override {
-        simulation_.schedule(std::max(time, simulation_.now_), Wakeup{.agent = agent_, .tag = tag});
+        simulation_.schedule(std::max(time, simulation_.now_)).emplace<Wakeup>(agent_, tag);
     }
 
 private:
@@ -100,17 +101,18 @@ AgentId Simulation::addAgent(std::unique_ptr<Agent> agent, const AgentOptions& o
     // An agent added mid-run with a longer delay than anyone before it sees nothing from before it
     // joined that has already been dropped; it sees the oldest state still kept instead.
     longestDelay_ = std::max(longestDelay_, latency.fromExchange);
-    schedule(startTime, Start{.agent = id});
+    schedule(startTime).emplace<Start>(id);
     return id;
 }
 
 void Simulation::runUntil(Timestamp endTime) {
     while (!queue_.empty() && queue_.front().time <= endTime) {
         std::ranges::pop_heap(queue_, Later{});
-        Scheduled item = std::move(queue_.back());
+        const Scheduled item = queue_.back();
         queue_.pop_back();
         now_ = item.time;
-        std::visit([this](const auto& action) { process(action); }, item.action);
+        std::visit([this](const auto& action) { process(action); }, actions_[item.action]);
+        freeActions_.push_back(item.action); // only now, as processing may schedule more
     }
     now_ = std::max(now_, endTime);
 }
@@ -137,10 +139,19 @@ const Ledger& Simulation::ledger(AgentId id) const {
     return slots_[id - 1].ledger;
 }
 
-void Simulation::schedule(Timestamp time, Action action) {
-    queue_.push_back(
-        Scheduled{.time = time, .sequence = nextSequence_++, .action = std::move(action)});
+Simulation::Action& Simulation::schedule(Timestamp time) {
+    static_assert(std::is_trivially_copyable_v<Scheduled>);
+    std::uint32_t slot = 0;
+    if (freeActions_.empty()) {
+        slot = static_cast<std::uint32_t>(actions_.size());
+        actions_.emplace_back();
+    } else {
+        slot = freeActions_.back();
+        freeActions_.pop_back();
+    }
+    queue_.push_back(Scheduled{.time = time, .sequence = nextSequence_++, .action = slot});
     std::ranges::push_heap(queue_, Later{});
+    return actions_[slot];
 }
 
 void Simulation::send(AgentId sender, Request request) {
@@ -149,7 +160,7 @@ void Simulation::send(AgentId sender, Request request) {
     const Timestamp arrival = std::max(now_ + from.latency.toExchange + drawJitter(from),
                                        from.lastArrivalAtExchange);
     from.lastArrivalAtExchange = arrival;
-    schedule(arrival, Arrival{.sender = sender, .request = std::move(request)});
+    schedule(arrival).emplace<Arrival>(sender, std::move(request));
 }
 
 void Simulation::deliver(AgentId recipient, const Event& event) {
@@ -157,7 +168,7 @@ void Simulation::deliver(AgentId recipient, const Event& event) {
     const Timestamp arrival = std::max(now_ + to.latency.fromExchange + drawJitter(to),
                                        to.lastArrivalAtAgent);
     to.lastArrivalAtAgent = arrival;
-    schedule(arrival, Delivery{.recipient = recipient, .event = event});
+    schedule(arrival).emplace<Delivery>(recipient, event);
 }
 
 Duration Simulation::drawJitter(Slot& endpoint) {

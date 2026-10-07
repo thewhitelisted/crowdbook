@@ -104,10 +104,13 @@ private:
     };
     using Action = std::variant<Start, Wakeup, Arrival, Delivery>;
 
+    // An entry in the queue: when, in what order among equal times, and where its action is kept.
+    // The heap moves entries constantly, so they stay small and trivially copyable, and the
+    // actions, which can hold vectors, stay put.
     struct Scheduled {
         Timestamp time = 0;
         std::uint64_t sequence = 0;
-        Action action{};
+        std::uint32_t action = 0; // index into actions_
     };
 
     // The exchange's public state from `time` until the next change.
@@ -116,7 +119,8 @@ private:
         MarketSnapshot market{};
     };
 
-    void schedule(Timestamp time, Action action);
+    // Queues an action for `time` and returns its slot, for the caller to build the action in.
+    Action& schedule(Timestamp time);
     void send(AgentId sender, Request request);
     void deliver(AgentId recipient, const Event& event);
     Duration drawJitter(Slot& endpoint);
@@ -132,6 +136,10 @@ private:
     Exchange exchange_;
     std::vector<Slot> slots_;
     std::vector<Scheduled> queue_; // a binary heap with the earliest item at the front
+    // What each queued entry does. A deque, so that an action being processed stays where it is
+    // while processing it schedules more; a slot is reused once its action is done.
+    std::deque<Action> actions_;
+    std::vector<std::uint32_t> freeActions_;
     std::uint64_t nextSequence_ = 0;
     Timestamp now_ = 0;
     EventSink* sink_ = nullptr;
