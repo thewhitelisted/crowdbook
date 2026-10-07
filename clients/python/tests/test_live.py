@@ -29,7 +29,7 @@ taker_fee = 0.3
 
 [participant]
 latency = { to_exchange = "1ms", from_exchange = "2ms" }
-account = { max_position = 5, max_order_quantity = 3 }
+account = { initial_position = 4, max_position = 5, max_order_quantity = 3 }
 
 [[agents]]
 type = "zero_intelligence"
@@ -71,25 +71,30 @@ def served(directory, scenario, *arguments):
 
 
 class Tester(crowdbook.Bot):
-    """Tries the seat's limits once the market opens, and keeps every order event."""
+    """Tries the seat's limits once the book has filled in, and keeps every order event."""
 
     def __init__(self):
         super().__init__()
         self.sent = []  # the new orders' ids, in the order sent
         self.events = []
+        self.tried_limits = False
 
     def on_start(self):
-        self.sent.append(self.buy_market(4))  # over the largest order of three
-        self.sent.append(self.buy_market(3))  # a taker
-        self.sent.append(self.buy(900, 3))  # 3 held and 3 more would pass the limit of five
-        self.wake_after(100 * MILLISECOND)
+        self.wake_after(300 * MILLISECOND)
 
     def on_wakeup(self, tag):
-        if not self.ledger.orders and self.ledger.position > 0:
-            # Offer what was bought where buyers will take it, to be a maker.
-            self.sent.append(self.sell((self.book.bid.price if self.book.bid else 1000) + 1, 3))
-        else:
-            self.wake_after(100 * MILLISECOND)
+        self.wake_after(100 * MILLISECOND)
+        if self.book.bid is None or self.book.ask is None or self.ledger.orders:
+            return
+        if not self.tried_limits:
+            self.tried_limits = True
+            self.sent.append(self.buy_market(4))  # over the largest order of three
+            self.sent.append(self.buy(900, 3))  # 4 held and 3 more would pass the limit of 5
+        elif not any(isinstance(event, crowdbook.protocol.Filled) and event.liquidity == "taker"
+                     for event in self.events) and self.ledger.position < 5:
+            self.sent.append(self.buy_market(1))  # a taker, tried until it fills
+        elif self.ledger.position > 0:
+            self.sent.append(self.sell(self.book.ask.price, 1))  # a maker, if anyone takes it
 
     def record(self, event):
         self.events.append(event)
@@ -113,7 +118,7 @@ class LiveTest(unittest.TestCase):
         rejected = {event.id: event.reason for event in bot.events
                     if isinstance(event, crowdbook.protocol.Rejected)}
         self.assertEqual(rejected[bot.sent[0]], "order-size-limit")
-        self.assertEqual(rejected[bot.sent[2]], "position-limit")
+        self.assertEqual(rejected[bot.sent[1]], "position-limit")
 
         fills = [event for event in bot.events if isinstance(event, crowdbook.protocol.Filled)]
         self.assertTrue(any(fill.liquidity == "taker" for fill in fills))
