@@ -11,7 +11,8 @@ set(BENCHMARK_INSTALL_DOCS OFF)
 FetchContent_MakeAvailable(benchmark)
 
 add_executable(crowdbook_bench
-    order_book_bench.cpp)
+    order_book_bench.cpp
+    simulation_bench.cpp)
 target_link_libraries(crowdbook_bench PRIVATE crowdbook::crowdbook benchmark::benchmark_main)
 crowdbook_set_warnings(crowdbook_bench)
 
