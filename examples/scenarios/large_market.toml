@@ -1,0 +1,71 @@
+# A thousand zero-intelligence traders with a market maker, twenty trend followers and twenty
+# informed traders who see the asset's true value. The stylized facts in docs/results.md come
+# from this market and from large_noise.toml, the same noise traders on their own.
+#
+# The informed traders keep the price at the true value, and to do that they must absorb the
+# noise traders' net order flow, which wanders like a random walk: tens of thousands of lots over
+# a day. With limits of a hundred lots each they filled up within half an hour, and the price
+# then drifted hundreds of ticks from the value, so their limits are large. The market maker
+# quotes about a tick either side of its fair price and the trend followers act on a one-tick
+# trend; with wider settings, both sat idle once the informed traders held the price to the value.
+#
+#   crowdbook run examples/scenarios/large_market.toml --log large_market.csv \
+#       --log-only trade,top_of_book
+
+seed = 21
+duration = "600s"
+reference_price = 10000
+
+# A random walk of 0.2 ticks per square root of a second, about 60 ticks over a day: calmer than
+# the noise traders move the price on their own.
+[fundamental]
+volatility = 0.2
+step = "100ms"
+
+[[agents]]
+type = "market_maker"
+name = "maker"
+risk_aversion = 0.005
+volatility = 3.0
+intensity = 1.0
+quote_size = 10
+max_inventory = 200
+requote_interval = "50ms"
+latency = { to_exchange = "20us", from_exchange = "20us" }
+account = { max_position = 220, max_order_quantity = 10 }
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 1000
+limit_rate = 0.4
+market_rate = 0.1
+cancel_rate = 0.2
+max_offset = 10
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 1000, max_order_quantity = 10 }
+
+[[agents]]
+type = "momentum"
+name = "trend"
+count = 20
+interval = "100ms"
+fast_half_life = "500ms"
+slow_half_life = "5s"
+threshold = 1.0
+order_size = 5
+max_position = 50
+latency = { to_exchange = "500us", from_exchange = "500us", jitter = "200us" }
+account = { max_position = 60, max_order_quantity = 5 }
+
+[[agents]]
+type = "informed"
+name = "informed"
+count = 20
+interval = "200ms"
+noise = 1.0
+threshold = 2.0
+order_size = 5
+max_position = 3000
+latency = { to_exchange = "100us", from_exchange = "100us", jitter = "20us" }
+account = { max_position = 3010, max_order_quantity = 5 }

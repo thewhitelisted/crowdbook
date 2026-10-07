@@ -1,0 +1,20 @@
+# The thousand zero-intelligence traders of large_market.toml on their own: the baseline its
+# stylized facts are compared with in docs/results.md.
+#
+#   crowdbook run examples/scenarios/large_noise.toml --log large_noise.csv \
+#       --log-only trade,top_of_book
+
+seed = 21
+duration = "600s"
+reference_price = 10000
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 1000
+limit_rate = 0.4
+market_rate = 0.1
+cancel_rate = 0.2
+max_offset = 10
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 1000, max_order_quantity = 10 }
