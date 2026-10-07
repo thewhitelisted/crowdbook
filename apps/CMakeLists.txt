@@ -117,6 +117,21 @@ if(CROWDBOOK_BUILD_TESTS)
             --tokens no-such-tokens.txt)
     set_tests_properties(cli.serve_tokens_file PROPERTIES PASS_REGULAR_EXPRESSION "cannot read")
 
+    # The Python client's tests, its bots trading against the real server. They need Python 3.11
+    # or later, and nothing else.
+    find_package(Python3 3.11 COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        set(client "${PROJECT_SOURCE_DIR}/clients/python")
+        add_test(NAME python.client
+            COMMAND Python3::Interpreter -m unittest discover -s tests
+            WORKING_DIRECTORY "${client}")
+        set_tests_properties(python.client PROPERTIES
+            ENVIRONMENT "CROWDBOOK=$<TARGET_FILE:crowdbook_cli>;PYTHONPATH=${client}/src"
+            TIMEOUT 300)
+    else()
+        message(STATUS "Python 3.11 or later not found: the Python client's tests are skipped")
+    endif()
+
     # Every example scenario has to keep working: run each one briefly, with an event log.
     file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")
     foreach(example IN LISTS examples)

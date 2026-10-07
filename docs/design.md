@@ -31,7 +31,7 @@ Out of scope: connecting to real exchanges or trading real money, and multiple i
 venues until the single-instrument market is calibrated.
 
 This repository is the open engine, under the MIT license: the simulator, its agents, the
-analysis, the terminal trading screen, and, to come, the gateway's protocol and its Python client.
+analysis, the terminal trading screen, the gateway with its protocol, and the Python client.
 A trading screen in the browser, multiplayer markets hosted online, and tournaments with
 leaderboards are planned as part of a hosted product built on the engine, and are not built here;
 the roadmap marks them.
@@ -285,6 +285,15 @@ byte for byte. [protocol.md](protocol.md) specifies the messages.
   server around it moves bytes between sockets and the gateway, and the clock between the wall
   and the market.
 
+The Python client in `clients/python` speaks the protocol with the standard library alone, so
+it installs anywhere without pulling in anything. A bot subclasses `Bot` and overrides callbacks,
+as an agent inside the market subclasses `Agent`: `on_start`, `on_trade`, `on_filled` and the
+rest, with `buy`, `sell`, `cancel` and `wake_after` to act. It keeps the seat's ledger by the same
+rules as the C++ `Ledger`, and the market's best prices and depth from the public messages. One
+thread reads the socket with `select`, so a bot's callbacks never run concurrently. It decodes
+the server's messages leniently, ignoring fields it does not know, so that a newer server can add
+fields without breaking older clients; the server, which must not trust its input, is strict.
+
 `crowdbook connect` is the terminal trading screen as a client of a served market. It keeps the
 seat's ledger from its own requests and events, and the market from the public messages, and draws
 the same ladder as `crowdbook play`.
@@ -499,6 +508,13 @@ uv run --project analysis crowdbook-large-orders
   trading, a hang-up that cancels orders, and two clients whose session replays byte for byte.
   The real `connect` command was also driven through a pseudo-terminal against `serve`, and the
   served session's log and its replay matched byte for byte.
+- **Python client tests** check the client's encoding against the specification's examples and
+  its ledger's rules on hand-made events. Run from CTest, a bot trades against the real server:
+  an order over the size limit and one past the position limit are rejected for those reasons,
+  every fill's fee is the exchange's rate for its side times its size, every answer from the
+  exchange arrives exactly one round trip after the request left by the recording's clock, the
+  bot's ledger ends equal to the server's results, and the recording replays. The two example
+  bots then trade side by side in one served market.
 - **Analysis tests** check each statistic in `analysis/` on inputs with known answers: a random
   walk's flat volatility signature, a normal sample's zero excess kurtosis, hand-computed spreads
   and price moves.
@@ -545,6 +561,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | Arrival time | The paced simulated time when the server reads a message | The only time the server can know; recording it is what makes a session with many participants replay exactly |
 | Disconnects | Cancel the seat's open orders | Protects a participant whose connection drops, as exchanges' cancel-on-disconnect does |
 | Server | POSIX sockets and `poll` on the market's thread, listening on 127.0.0.1 by default | No locks and no dependency; nothing is exposed to other machines unless asked |
+| Python client | Standard library only, one thread with `select`, bots as subclasses with callbacks | Nothing to conflict with a user's environment; the same shape as agents inside the market; no locking in user code |
 | Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
@@ -577,8 +594,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M8 | Memory in the crowd: news jumps in the true value, noise traders whose pace follows activity and whose limit orders stand back when prices jump, traders who switch between value and trend strategies by their track records | Volatility clustering at one minute that lasts hours, fat one-minute tails, and ablations naming the cause, in [results.md](results.md) | Done |
 | M9 | Large orders worked over time: execution agents slicing parent orders (TWAP and percentage of volume), parent ids in the log | Long memory in the signs of market orders; how the impact of parent orders grows with their size, in [results.md](results.md) | Done |
 | M10 | Gateway: a network protocol for orders and market data, its messages kept apart from their encoding (JSON lines first); `crowdbook serve`, a market with seats for several people and bots at once; every arrival recorded, so a session with many participants still replays exactly; input treated as untrusted, with size and rate limits; the terminal screen as a client over the network | A bot and the terminal screen trade in one served market, and its recording replays byte for byte; the parser survives randomized malformed input; planted bugs caught | Done |
-| M11 | Python client and example bots: a package installable with pip, using only the standard library; a market maker and a momentum bot as examples | A Python bot trades under the same limits, latency and fees as built-in agents, in CI | Next |
-| M12 | Scoring and challenges: a scoring section in scenarios (PnL, risk-adjusted PnL, slippage against a benchmark, inventory and loss limits), computed by the engine; challenges with briefings (make markets within a risk limit, work a large order, trade the news, find the informed flow) | A score recomputed from the session's replay equals the live one; the example bots play every challenge in CI | Planned |
+| M11 | Python client and example bots: a package installable with pip, using only the standard library; a market maker and a momentum bot as examples | A Python bot trades under the same limits, latency and fees as built-in agents, in CI | Done |
+| M12 | Scoring and challenges: a scoring section in scenarios (PnL, risk-adjusted PnL, slippage against a benchmark, inventory and loss limits), computed by the engine; challenges with briefings (make markets within a risk limit, work a large order, trade the news, find the informed flow) | A score recomputed from the session's replay equals the live one; the example bots play every challenge in CI | Next |
 | M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Planned |
 | M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Planned |
 | M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Planned (hosted product) |

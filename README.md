@@ -12,13 +12,13 @@ or writing a program in any language that trades over the network.
 
 > **Status:** the order book, the exchange, the simulation kernel, six built-in agents, scenario
 > files, the `crowdbook` command and the Python analysis package are done, and
-> [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself,
-> in real time, and replay the session exactly afterwards, and a server lets several people and
-> bots trade in one market over the network. A market with memory shows volatility clustering
-> for about an hour, and brokers working large orders give order flow long memory and price
-> impact whose shape depends on how long the book remembers. Next: a Python client and example
-> bots. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach
-> and the roadmap.
+> [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself, in
+> real time, and replay the session exactly afterwards, and a server lets several people and bots
+> trade in one market over the network, with a Python client for writing bots. A market with memory
+> shows volatility clustering for about an hour, and brokers working large orders give order flow
+> long memory and price impact whose shape depends on how long the book remembers. Next: scoring and
+> challenges. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
+> approach and the roadmap.
 
 ## Quick start
 
@@ -158,6 +158,21 @@ send({"type": "hello", "protocol": 1, "seat": "bob"})
 send({"type": "new", "id": 1, "side": "buy", "order_type": "market", "quantity": 2})
 for line in conn:
     print(json.loads(line))  # welcome, start, the order's events, trades, quotes...
+```
+
+The Python client in [clients/python](clients/python), standard library only, does the
+bookkeeping: a bot overrides callbacks and acts through methods, much as an agent inside the
+market does.
+
+```python
+import crowdbook
+
+class DipBuyer(crowdbook.Bot):
+    def on_trade(self, trade):
+        if trade.price < self.settings.reference_price - 5 and self.ledger.position < 10:
+            self.buy_market(1)
+
+crowdbook.run(DipBuyer(), port=7878, seat="bob")
 ```
 
 Clients name orders with their own ids and can cancel an order before it is acknowledged. A
