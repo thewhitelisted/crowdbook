@@ -37,6 +37,20 @@ void settleSide(Account& account, Side side, Quantity quantity, Cash notional) {
 
 } // namespace
 
+Exchange::Exchange(const ExchangeConfig& config) : config_(config) {
+    for (const Fee rate : {config.makerFee, config.takerFee}) {
+        if (rate < -kMaxFeeRate || rate > kMaxFeeRate) {
+            throw std::invalid_argument(
+                std::format("fee rates must be within ±{} fee units per lot", kMaxFeeRate));
+        }
+    }
+    if (config.makerFee + config.takerFee < 0) {
+        throw std::invalid_argument(
+            "the maker fee plus the taker fee must not be negative, or the exchange would pay "
+            "out more than it collects on every trade");
+    }
+}
+
 void Exchange::addAgent(AgentId agent, const AccountConfig& config) {
     if (config.maxPosition < 0 || config.maxPosition > kMaxQuantity) {
         throw std::invalid_argument("maxPosition must be between 0 and kMaxQuantity");
@@ -105,6 +119,7 @@ std::optional<std::string> Exchange::audit() const {
     Cash initialCash = 0;
     Quantity position = 0;
     Quantity initialPosition = 0;
+    Fee fees = 0;
     for (const auto& [agent, state] : agents_) {
         Quantity openBuy = 0;
         Quantity openSell = 0;
@@ -142,6 +157,7 @@ std::optional<std::string> Exchange::audit() const {
         initialCash += state.config.initialCash;
         position += balances.position;
         initialPosition += state.config.initialPosition;
+        fees += balances.fees;
     }
 
     if (agentLiveOrders != liveOrders_.size() || liveOrders_.size() != book_.orderCount()) {
@@ -154,6 +170,10 @@ std::optional<std::string> Exchange::audit() const {
     if (position != initialPosition) {
         return std::format("shares are not conserved: {} now, {} at the start", position,
                            initialPosition);
+    }
+    if (fees != feesCollected_) {
+        return std::format("agents paid {} in fees but the exchange collected {}", fees,
+                           feesCollected_);
     }
     return std::nullopt;
 }
@@ -306,9 +326,14 @@ void Exchange::settle(const IncomingOrder& incoming, std::vector<Event>& events)
         AgentState& takerState = agents_.at(fill.takerOwner);
         const Side makerSide = opposite(fill.takerSide);
         const Cash notional = fill.price * fill.quantity;
+        const Fee makerFee = config_.makerFee * fill.quantity;
+        const Fee takerFee = config_.takerFee * fill.quantity;
 
         settleSide(makerState.account, makerSide, fill.quantity, notional);
         settleSide(takerState.account, fill.takerSide, fill.quantity, notional);
+        makerState.account.fees += makerFee;
+        takerState.account.fees += takerFee;
+        feesCollected_ += makerFee + takerFee;
         openQuantity(makerState.account, makerSide) -= fill.quantity;
         takerLeaves -= fill.quantity;
         if (fill.makerRemaining == 0) {
@@ -323,7 +348,8 @@ void Exchange::settle(const IncomingOrder& incoming, std::vector<Event>& events)
                                      .price = fill.price,
                                      .quantity = fill.quantity,
                                      .leavesQuantity = fill.makerRemaining,
-                                     .liquidity = Liquidity::Maker});
+                                     .liquidity = Liquidity::Maker,
+                                     .fee = makerFee});
         events.push_back(OrderFilled{.agent = fill.takerOwner,
                                      .clientOrderId = incoming.clientOrderId,
                                      .orderId = fill.takerOrderId,
@@ -331,7 +357,8 @@ void Exchange::settle(const IncomingOrder& incoming, std::vector<Event>& events)
                                      .price = fill.price,
                                      .quantity = fill.quantity,
                                      .leavesQuantity = takerLeaves,
-                                     .liquidity = Liquidity::Taker});
+                                     .liquidity = Liquidity::Taker,
+                                     .fee = takerFee});
         events.push_back(
             Trade{.price = fill.price, .quantity = fill.quantity, .aggressorSide = fill.takerSide});
     }

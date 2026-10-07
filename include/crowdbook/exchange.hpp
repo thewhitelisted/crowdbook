@@ -11,6 +11,14 @@
 
 namespace crowdbook {
 
+// Settings that apply to everyone trading on the exchange.
+struct ExchangeConfig {
+    // Fees per lot, in fee units, charged on every fill: the owner of the resting order pays
+    // makerFee and the owner of the incoming order takerFee. A negative fee is a rebate.
+    Fee makerFee = 0;
+    Fee takerFee = 0;
+};
+
 struct AccountConfig {
     Cash initialCash = 0;
     Quantity initialPosition = 0;
@@ -26,8 +34,9 @@ struct Account {
     Quantity position = 0;         // negative when short
     Quantity openBuyQuantity = 0;  // resting buy quantity
     Quantity openSellQuantity = 0; // resting sell quantity
+    Fee fees = 0;                  // paid to the exchange; negative when rebates exceed fees
 
-    // Cash plus the position valued at `markPrice`.
+    // Cash plus the position valued at `markPrice`, before fees.
     [[nodiscard]] constexpr Cash equity(Price markPrice) const noexcept {
         return cash + position * markPrice;
     }
@@ -40,6 +49,10 @@ struct Account {
 // everything that happened as events.
 class Exchange {
 public:
+    // Throws std::invalid_argument for a fee rate beyond kMaxFeeRate, or fees that would pay out
+    // more in rebates than they collect on a trade.
+    explicit Exchange(const ExchangeConfig& config = {});
+
     // Opens an account. Throws std::invalid_argument if the agent already has one or a limit is out
     // of range.
     void addAgent(AgentId agent, const AccountConfig& config = {});
@@ -56,9 +69,13 @@ public:
                                                      ClientOrderId clientOrderId) const;
     [[nodiscard]] TopOfBook topOfBook() const;
     [[nodiscard]] const OrderBook& book() const noexcept { return book_; }
+    [[nodiscard]] const ExchangeConfig& config() const noexcept { return config_; }
+    // Fees collected from every agent, net of rebates, in fee units.
+    [[nodiscard]] Fee feesCollected() const noexcept { return feesCollected_; }
 
-    // Cross-checks accounts, live orders and the book, including conservation of cash and shares,
-    // and describes the first inconsistency found. Walks everything, so it is meant for tests.
+    // Cross-checks accounts, live orders and the book, including conservation of cash, shares
+    // and fees, and describes the first inconsistency found. Walks everything, so it is meant for
+    // tests.
     [[nodiscard]] std::optional<std::string> audit() const;
 
 private:
@@ -101,11 +118,13 @@ private:
     // Whether a limit order on `side` at `price` would trade against the book now.
     [[nodiscard]] bool wouldTrade(Side side, Price price) const noexcept;
 
+    ExchangeConfig config_;
     OrderBook book_;
     std::unordered_map<AgentId, AgentState> agents_;
     std::unordered_map<OrderId, LiveOrder> liveOrders_;
     OrderId nextOrderId_ = 1;
     TopOfBook publishedTop_;
+    Fee feesCollected_ = 0;
     std::vector<Fill> fills_; // reused for every request
 };
 

@@ -15,9 +15,10 @@ class AgentGroupsTest(unittest.TestCase):
 
 
 class PnlAtValueTest(unittest.TestCase):
-    def test_values_the_change_in_position_at_the_given_price(self):
+    def test_values_the_change_in_position_at_the_given_price_after_fees(self):
         team = {"cash": -950, "initial_cash": 0, "position": 10, "initial_position": 0}
         self.assertEqual(pnl_at_value(team, 100.0), 50.0)
+        self.assertEqual(pnl_at_value(team | {"fees": 2.5}, 100.0), 47.5)
 
 
 if __name__ == "__main__":

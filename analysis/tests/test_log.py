@@ -12,23 +12,23 @@ from crowdbook_analysis.log import (
 )
 
 HEADER = """time,kind,agent,client_order_id,order_id,side,type,time_in_force,price,quantity,leaves,\
-liquidity,request,reason,bid_price,bid_quantity,ask_price,ask_quantity
+liquidity,fee,request,reason,bid_price,bid_quantity,ask_price,ask_quantity
 """
-LOG = HEADER + """100,new,1,7,,buy,limit,good-till-cancel,99,5,,,,,,,,
-100,top_of_book,,,,,,,,,,,,,99,5,,
-150,trade,,,,sell,,,99,2,,,,,,,,
-150,top_of_book,,,,,,,,,,,,,99,3,101,4
+LOG = HEADER + """100,new,1,7,,buy,limit,good-till-cancel,99,5,,,,,,,,,
+100,top_of_book,,,,,,,,,,,,,,99,5,,
+150,trade,,,,sell,,,99,2,,,,,,,,,
+150,top_of_book,,,,,,,,,,,,,,99,3,101,4
 """
 
 
 # Agent 3's buy sweeps two of agent 4's and 5's sell orders; then agent 4 sells one lot to agent 3.
 # Each execution logs the maker's fill, then the taker's.
-FILLS = HEADER + """200,filled,4,9,8,sell,,,101,2,0,maker,,,,,,
-200,filled,3,1,10,buy,,,101,2,3,taker,,,,,,
-200,filled,5,2,7,sell,,,102,3,0,maker,,,,,,
-200,filled,3,1,10,buy,,,102,3,0,taker,,,,,,
-300,filled,3,3,12,buy,,,100,1,0,maker,,,,,,
-300,filled,4,10,11,sell,,,100,1,0,taker,,,,,,
+FILLS = HEADER + """200,filled,4,9,8,sell,,,101,2,0,maker,-0.2,,,,,,
+200,filled,3,1,10,buy,,,101,2,3,taker,0.3,,,,,,
+200,filled,5,2,7,sell,,,102,3,0,maker,-0.2,,,,,,
+200,filled,3,1,10,buy,,,102,3,0,taker,0.3,,,,,,
+300,filled,3,3,12,buy,,,100,1,0,maker,-0.2,,,,,,
+300,filled,4,10,11,sell,,,100,1,0,taker,0.3,,,,,,
 """
 
 
@@ -67,6 +67,9 @@ class FillsTest(unittest.TestCase):
     def test_aggressive_orders_sum_each_taking_orders_fills(self):
         orders = aggressive_orders(self.log)
         self.assertEqual(orders.rows(), [(200, 3, 10, "buy", 5), (300, 4, 11, "sell", 1)])
+
+    def test_reads_each_fills_fee(self):
+        self.assertEqual(self.log["fee"].to_list(), [-0.2, 0.3, -0.2, 0.3, -0.2, 0.3])
 
     def test_executions_pair_each_maker_with_its_taker(self):
         self.assertEqual(

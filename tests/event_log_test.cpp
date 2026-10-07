@@ -12,7 +12,7 @@
 namespace crowdbook {
 namespace {
 
-constexpr std::size_t kColumns = 18;
+constexpr std::size_t kColumns = 19;
 
 // Joins fields into one CSV line, padding with empty trailing columns.
 std::string row(std::initializer_list<std::string_view> fields) {
@@ -52,7 +52,8 @@ TEST(CsvEventLogTest, WritesAHeaderAndOneRowPerRequestOrEvent) {
                                  .price = 99,
                                  .quantity = 2,
                                  .leavesQuantity = 3,
-                                 .liquidity = Liquidity::Maker});
+                                 .liquidity = Liquidity::Maker,
+                                 .fee = -250});
     log.onEvent(150, OrderFilled{.agent = 2,
                                  .clientOrderId = 1,
                                  .orderId = 4,
@@ -60,7 +61,8 @@ TEST(CsvEventLogTest, WritesAHeaderAndOneRowPerRequestOrEvent) {
                                  .price = 99,
                                  .quantity = 2,
                                  .leavesQuantity = 0,
-                                 .liquidity = Liquidity::Taker});
+                                 .liquidity = Liquidity::Taker,
+                                 .fee = 1'500});
     log.onEvent(150, Trade{.price = 99, .quantity = 2, .aggressorSide = Side::Sell});
     log.onEvent(150, TopOfBook{.bid = LevelSummary{.price = 99, .quantity = 3, .orderCount = 1}});
     log.onRequest(200, 1, CancelOrder{.clientOrderId = 7});
@@ -77,19 +79,21 @@ TEST(CsvEventLogTest, WritesAHeaderAndOneRowPerRequestOrEvent) {
 
     const std::string expected =
         row({"time", "kind", "agent", "client_order_id", "order_id", "side", "type",
-             "time_in_force", "price", "quantity", "leaves", "liquidity", "request", "reason",
-             "bid_price", "bid_quantity", "ask_price", "ask_quantity"}) +
+             "time_in_force", "price", "quantity", "leaves", "liquidity", "fee", "request",
+             "reason", "bid_price", "bid_quantity", "ask_price", "ask_quantity"}) +
         row({"100", "new", "1", "7", "", "buy", "limit", "good-till-cancel", "99", "5"}) +
         row({"100", "accepted", "1", "7", "3", "buy", "limit", "good-till-cancel", "99", "5"}) +
         row({"150", "new", "2", "1", "", "sell", "market", "", "", "2"}) +
-        row({"150", "filled", "1", "7", "3", "buy", "", "", "99", "2", "3", "maker"}) +
-        row({"150", "filled", "2", "1", "4", "sell", "", "", "99", "2", "0", "taker"}) +
+        row({"150", "filled", "1", "7", "3", "buy", "", "", "99", "2", "3", "maker", "-0.25"}) +
+        row({"150", "filled", "2", "1", "4", "sell", "", "", "99", "2", "0", "taker", "1.5"}) +
         row({"150", "trade", "", "", "", "sell", "", "", "99", "2"}) +
-        row({"150", "top_of_book", "", "", "", "", "", "", "", "", "", "", "", "", "99", "3"}) +
+        row({"150", "top_of_book", "", "", "", "", "", "", "", "", "", "", "", "", "", "99",
+             "3"}) +
         row({"200", "cancel", "1", "7"}) +
-        row({"200", "cancelled", "1", "7", "3", "", "", "", "", "3", "", "", "", "requested"}) +
+        row({"200", "cancelled", "1", "7", "3", "", "", "", "", "3", "", "", "", "",
+             "requested"}) +
         row({"250", "modify", "1", "8", "", "", "", "", "98", "1"}) +
-        row({"250", "rejected", "1", "8", "", "", "", "", "", "", "", "", "modify",
+        row({"250", "rejected", "1", "8", "", "", "", "", "", "", "", "", "", "modify",
              "unknown order id"});
     EXPECT_EQ(out.str(), expected);
 }

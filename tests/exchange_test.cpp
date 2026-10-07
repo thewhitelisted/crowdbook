@@ -383,6 +383,40 @@ TEST_F(ExchangeTest, ClientOrderIdIsFreeAgainOnceTheOrderIsDone) {
                                    .quantity = 2}}));
 }
 
+TEST(ExchangeFeeTest, ChargesMakersAndTakersTheirOwnRateOnEveryFill) {
+    Exchange exchange{{.makerFee = -200, .takerFee = 300}}; // a 0.2 tick rebate, a 0.3 tick fee
+    exchange.addAgent(kAlice);
+    exchange.addAgent(kBob);
+    std::vector<Event> events;
+    exchange.handle(kBob, limitOrder(1, Side::Sell, 101, 3), events);
+    events.clear();
+    exchange.handle(kAlice, limitOrder(1, Side::Buy, 101, 5), events);
+
+    ASSERT_GE(events.size(), 3U);
+    EXPECT_EQ(std::get<OrderFilled>(events[1]).fee, -600);
+    EXPECT_EQ(std::get<OrderFilled>(events[2]).fee, 900);
+    EXPECT_EQ(exchange.account(kBob).fees, -600);
+    EXPECT_EQ(exchange.account(kAlice).fees, 900);
+    EXPECT_EQ(exchange.feesCollected(), 300);
+    // Fees are kept apart from cash, which trading alone moves.
+    EXPECT_EQ(exchange.account(kAlice).cash, -303);
+    EXPECT_EQ(exchange.audit(), std::nullopt);
+}
+
+TEST(ExchangeFeeTest, RejectsRebatesLargerThanFeesAndOutlandishRates) {
+    EXPECT_NO_THROW((Exchange{{.makerFee = -300, .takerFee = 300}}));
+    EXPECT_THROW((Exchange{{.makerFee = -301, .takerFee = 300}}), std::invalid_argument);
+    EXPECT_THROW((Exchange{{.takerFee = kMaxFeeRate + 1}}), std::invalid_argument);
+}
+
+TEST(FeeTest, FormatsFeesExactlyInTickLots) {
+    EXPECT_EQ(formatFee(0), "0");
+    EXPECT_EQ(formatFee(1'500), "1.5");
+    EXPECT_EQ(formatFee(-250), "-0.25");
+    EXPECT_EQ(formatFee(7), "0.007");
+    EXPECT_EQ(formatFee(-12'000), "-12");
+}
+
 TEST(ExchangeSetupTest, RejectsDuplicateAgentsAndInvalidLimits) {
     Exchange exchange;
     exchange.addAgent(kAlice);

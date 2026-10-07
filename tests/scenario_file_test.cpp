@@ -32,6 +32,10 @@ mean_reversion = 0.5
 volatility = 3.0
 step = "50ms"
 
+[exchange]
+maker_fee = -0.25
+taker_fee = 0.3
+
 [[agents]]
 type = "market_maker"
 name = "maker"
@@ -61,6 +65,8 @@ count = 30
     EXPECT_EQ(scenario.fundamental->meanReversion, 0.5);
     EXPECT_EQ(scenario.fundamental->volatility, 3.0);
     EXPECT_EQ(scenario.fundamental->step, 50 * kMillisecond);
+    EXPECT_EQ(scenario.exchange.makerFee, -250);
+    EXPECT_EQ(scenario.exchange.takerFee, 300);
 
     ASSERT_EQ(scenario.groups.size(), 2U);
     const AgentGroup& maker = scenario.groups[0];
@@ -104,7 +110,7 @@ TEST(ScenarioFileTest, ReportsSyntaxErrorsWithTheirLine) {
 TEST(ScenarioFileTest, RejectsUnknownKeysWithTheirLine) {
     EXPECT_EQ(parseError("seed = 1\nduraton = \"5s\"\n[[agents]]\ntype = \"momentum\"\n"),
               "test.toml:2: unknown key 'duraton' at the top level; expected one of: seed, "
-              "duration, reference_price, fundamental, agents");
+              "duration, reference_price, fundamental, exchange, agents");
     EXPECT_EQ(parseError("[[agents]]\ntype = \"momentum\"\n"
                          "latency = { to_exchange = \"1us\", jiter = \"1us\" }\n"),
               "test.toml:3: unknown key 'jiter' in latency; expected one of: to_exchange, "
@@ -123,6 +129,10 @@ TEST(ScenarioFileTest, RejectsValuesOfTheWrongKindOrRange) {
         {agent + "weights = { a = 1 }\n", "agent parameter 'weights' must be a number"},
         {agent + "account = { max_position = -1 }\n", "'max_position' must be between 0"},
         {"seed = 1\n", "the scenario has no [[agents]]"},
+        {"[exchange]\ntaker_fee = 0.0005\n" + agent, "at most three decimals"},
+        {"[exchange]\nmaker_fee = -0.5\ntaker_fee = 0.3\n" + agent,
+         "maker_fee plus taker_fee must not be negative"},
+        {"[exchange]\nfee = 1\n" + agent, "unknown key 'fee' in [exchange]"},
     };
     for (const auto& [text, expected] : cases) {
         EXPECT_NE(parseError(text).find(expected), std::string::npos)

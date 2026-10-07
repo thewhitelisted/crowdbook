@@ -70,6 +70,23 @@ TEST(ScenarioTest, CountsEachGroupsVolumeAndStartingBalances) {
                   (result.groups[1].position - 60) * result.lastPrice);
 }
 
+TEST(ScenarioTest, ChargesEveryLotTradedTheMakerAndTakerFees) {
+    Scenario scenario = marketWithAMaker();
+    scenario.exchange = {.makerFee = -200, .takerFee = 300};
+    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns());
+
+    Fee fees = 0;
+    for (const GroupResult& summary : result.groups) {
+        fees += summary.fees;
+    }
+    EXPECT_GT(result.volume, 0);
+    EXPECT_EQ(fees, (-200 + 300) * result.volume); // every lot has one maker and one taker
+
+    scenario.exchange = {.makerFee = -400, .takerFee = 300};
+    EXPECT_THROW(static_cast<void>(runScenario(scenario, AgentRegistry::withBuiltIns())),
+                 ScenarioError);
+}
+
 TEST(ScenarioTest, WritesResultsAsJson) {
     Scenario scenario{.seed = 3, .duration = 2 * kSecond, .referencePrice = 500};
     RunResult result{.trades = 4, .volume = 9, .lastPrice = 501, .finalValue = 499.5};
@@ -81,7 +98,8 @@ TEST(ScenarioTest, WritesResultsAsJson) {
                                         .initialPosition = -1,
                                         .cash = 20,
                                         .position = 3,
-                                        .pnl = 2014});
+                                        .pnl = 2014,
+                                        .fees = -1'250});
     std::ostringstream out;
     writeResultJson(out, scenario, result);
     EXPECT_EQ(out.str(), "{\n"
@@ -96,7 +114,7 @@ TEST(ScenarioTest, WritesResultsAsJson) {
                          "    {\"name\": \"a \\\"quoted\\\" name\", \"type\": \"market_maker\", "
                          "\"agents\": 2, \"agent_ids\": [1, 2], \"traded\": 9, "
                          "\"initial_cash\": 10, \"initial_position\": -1, \"cash\": 20, "
-                         "\"position\": 3, \"pnl\": 2014}\n"
+                         "\"position\": 3, \"pnl\": 2014, \"fees\": -1.25}\n"
                          "  ]\n"
                          "}\n");
 }

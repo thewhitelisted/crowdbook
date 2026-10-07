@@ -1,5 +1,8 @@
 #include "crowdbook/types.hpp"
 
+#include <format>
+#include <string>
+
 namespace crowdbook {
 
 std::string_view toString(Side side) noexcept {
@@ -60,6 +63,19 @@ std::string_view toString(CancelReason reason) noexcept {
         return "self-trade";
     }
     return "unknown";
+}
+
+std::string formatFee(Fee fee) {
+    const Fee magnitude = fee < 0 ? -fee : fee;
+    std::string text = std::format("{}{}", fee < 0 ? "-" : "", magnitude / kFeeUnitsPerTickLot);
+    if (const Fee fraction = magnitude % kFeeUnitsPerTickLot; fraction != 0) {
+        std::string digits = std::format("{:03}", fraction);
+        while (digits.back() == '0') {
+            digits.pop_back();
+        }
+        text += '.' + digits;
+    }
+    return text;
 }
 
 std::string_view toString(RejectReason reason) noexcept {

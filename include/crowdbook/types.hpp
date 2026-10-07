@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace crowdbook {
@@ -12,6 +13,9 @@ using Price = std::int64_t;
 using Quantity = std::int64_t;
 // Money, in units of one tick times one lot.
 using Cash = std::int64_t;
+// Fees, in thousandths of a tick-lot, so that fee rates finer than a tick per lot stay exact.
+using Fee = std::int64_t;
+inline constexpr Fee kFeeUnitsPerTickLot = 1'000;
 using OrderId = std::uint64_t;       // assigned by the exchange
 using ClientOrderId = std::uint64_t; // chosen by the agent, unique among its live orders
 using AgentId = std::uint32_t;
@@ -20,6 +24,8 @@ using AgentId = std::uint32_t;
 // (price × quantity) and every risk sum far inside int64.
 inline constexpr Price kMaxPrice = 1'000'000'000;
 inline constexpr Quantity kMaxQuantity = 1'000'000'000;
+// The largest fee or rebate per lot, in fee units: 1,000 ticks per lot.
+inline constexpr Fee kMaxFeeRate = 1'000'000;
 
 // Simulation time, in nanoseconds since the start of the run.
 using Timestamp = std::int64_t;
@@ -138,5 +144,7 @@ struct LevelSummary {
 [[nodiscard]] std::string_view toString(OrderStatus status) noexcept;
 [[nodiscard]] std::string_view toString(CancelReason reason) noexcept;
 [[nodiscard]] std::string_view toString(RejectReason reason) noexcept;
+// A fee in tick-lots, written exactly: 1500 fee units is "1.5" and -250 is "-0.25".
+[[nodiscard]] std::string formatFee(Fee fee);
 
 } // namespace crowdbook

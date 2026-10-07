@@ -83,6 +83,11 @@ void validate(const Scenario& scenario) {
     if (scenario.groups.empty()) {
         throw ScenarioError("the scenario has no agents");
     }
+    try {
+        const Exchange check{scenario.exchange};
+    } catch (const std::invalid_argument& error) {
+        throw ScenarioError(std::format("exchange: {}", error.what()));
+    }
 }
 
 } // namespace
@@ -101,7 +106,7 @@ RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
         }
     }
 
-    Simulation simulation{scenario.seed};
+    Simulation simulation{scenario.seed, scenario.exchange};
     TradeCounter counter{sink};
     simulation.setEventSink(&counter);
 
@@ -141,6 +146,7 @@ RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
             summary.traded += counter.traded(id);
             summary.cash += account.cash;
             summary.position += account.position;
+            summary.fees += account.fees;
         }
         const auto agents = static_cast<std::int64_t>(summary.agents.size());
         summary.initialCash = agents * start.initialCash;
@@ -168,10 +174,10 @@ void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResul
         out << (index == 0 ? "\n" : ",\n");
         out << std::format("    {{\"name\": {}, \"type\": {}, \"agents\": {}, \"agent_ids\": [{}], "
                            "\"traded\": {}, \"initial_cash\": {}, \"initial_position\": {}, "
-                           "\"cash\": {}, \"position\": {}, \"pnl\": {}}}",
+                           "\"cash\": {}, \"position\": {}, \"pnl\": {}, \"fees\": {}}}",
                            jsonString(group.name), jsonString(group.type), group.agents.size(),
                            ids, group.traded, group.initialCash, group.initialPosition,
-                           group.cash, group.position, group.pnl);
+                           group.cash, group.position, group.pnl, formatFee(group.fees));
     }
     out << "\n  ]\n}\n";
 }

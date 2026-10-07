@@ -1,6 +1,7 @@
 #include "crowdbook/scenario_file.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <fstream>
@@ -132,6 +133,34 @@ FundamentalConfig readFundamental(const Reader& reader, const toml::table& table
     return config;
 }
 
+// A fee rate given in ticks per lot, such as 0.3, in fee units.
+Fee readFeeRate(const Reader& reader, const toml::node& node, std::string_view key) {
+    const double units = reader.number(node, key) * static_cast<double>(kFeeUnitsPerTickLot);
+    const double whole = std::round(units);
+    if (std::abs(units - whole) > 1e-6 || std::abs(whole) > static_cast<double>(kMaxFeeRate)) {
+        reader.fail(node, std::format("'{}' must be in ticks per lot, with at most three "
+                                      "decimals and within ±{}",
+                                      key, kMaxFeeRate / kFeeUnitsPerTickLot));
+    }
+    return static_cast<Fee>(whole);
+}
+
+ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table, {"maker_fee", "taker_fee"}, "in [exchange]");
+    ExchangeConfig config;
+    if (const auto* node = table.get("maker_fee")) {
+        config.makerFee = readFeeRate(reader, *node, "maker_fee");
+    }
+    if (const auto* node = table.get("taker_fee")) {
+        config.takerFee = readFeeRate(reader, *node, "taker_fee");
+    }
+    if (config.makerFee + config.takerFee < 0) {
+        reader.fail(table, "maker_fee plus taker_fee must not be negative, or the exchange would "
+                           "pay out more than it collects on every trade");
+    }
+    return config;
+}
+
 Latency readLatency(const Reader& reader, const toml::table& table) {
     reader.allowOnly(table, {"to_exchange", "from_exchange", "jitter"}, "in latency");
     Latency latency;
@@ -208,7 +237,8 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     }
 
     const Reader reader{source};
-    reader.allowOnly(root, {"seed", "duration", "reference_price", "fundamental", "agents"},
+    reader.allowOnly(root,
+                     {"seed", "duration", "reference_price", "fundamental", "exchange", "agents"},
                      "at the top level");
 
     Scenario scenario;
@@ -225,6 +255,9 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     if (const auto* node = root.get("fundamental")) {
         scenario.fundamental =
             readFundamental(reader, reader.table(*node, "fundamental"), scenario.referencePrice);
+    }
+    if (const auto* node = root.get("exchange")) {
+        scenario.exchange = readExchange(reader, reader.table(*node, "exchange"));
     }
     if (const auto* node = root.get("agents")) {
         const auto* list = node->as_array();

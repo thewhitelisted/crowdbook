@@ -100,6 +100,7 @@ void expectLedgerMatchesExchange(const Simulation& simulation, AgentId id) {
     const Account& account = simulation.exchange().account(id);
     EXPECT_EQ(ledger.cash(), account.cash);
     EXPECT_EQ(ledger.position(), account.position);
+    EXPECT_EQ(ledger.fees(), account.fees);
     EXPECT_EQ(ledger.openQuantity(Side::Buy), account.openBuyQuantity);
     EXPECT_EQ(ledger.openQuantity(Side::Sell), account.openSellQuantity);
     for (const auto& [clientOrderId, order] : ledger.orders()) {
@@ -117,7 +118,7 @@ void expectLedgerMatchesExchange(const Simulation& simulation, AgentId id) {
 std::string runMarket(std::uint64_t seed) {
     std::ostringstream log;
     CsvEventLog sink{log};
-    Simulation simulation{seed};
+    Simulation simulation{seed, {.makerFee = -100, .takerFee = 300}};
     simulation.setEventSink(&sink);
     for (int i = 0; i < kTraders; ++i) {
         const Duration delay = (10 + 5 * i) * kMicrosecond;

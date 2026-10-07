@@ -28,6 +28,7 @@ struct Row {
     std::optional<Quantity> quantity{};
     std::optional<Quantity> leaves{};
     std::string_view liquidity{};
+    std::optional<Fee> fee{}; // written in tick-lots
     std::string_view request{};
     std::string_view reason{};
     std::optional<Price> bidPrice{};
@@ -58,6 +59,10 @@ void write(std::ostream& out, const Row& row) {
     writeField(out, row.quantity);
     writeField(out, row.leaves);
     writeField(out, row.liquidity);
+    out << ',';
+    if (row.fee) {
+        out << formatFee(*row.fee);
+    }
     writeField(out, row.request);
     writeField(out, row.reason);
     writeField(out, row.bidPrice);
@@ -92,7 +97,7 @@ CsvEventLog::CsvEventLog(std::ostream& out, const std::vector<std::string>& kind
         kinds_.insert(kind);
     }
     out_ << "time,kind,agent,client_order_id,order_id,side,type,time_in_force,price,quantity,"
-            "leaves,liquidity,request,reason,bid_price,bid_quantity,ask_price,ask_quantity\n";
+            "leaves,liquidity,fee,request,reason,bid_price,bid_quantity,ask_price,ask_quantity\n";
 }
 
 bool CsvEventLog::keeps(std::string_view kind) const {
@@ -159,7 +164,8 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
                            .price = filled.price,
                            .quantity = filled.quantity,
                            .leaves = filled.leavesQuantity,
-                           .liquidity = toString(filled.liquidity)};
+                           .liquidity = toString(filled.liquidity),
+                           .fee = filled.fee};
             },
             [time](const OrderCancelled& cancelled) {
                 return Row{.time = time,

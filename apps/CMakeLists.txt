@@ -28,6 +28,10 @@ if(CROWDBOOK_BUILD_TESTS)
             --duration 2s --prices "${CMAKE_CURRENT_BINARY_DIR}/prices.csv"
             --price-interval 500ms)
     set_tests_properties(cli.prices PROPERTIES PASS_REGULAR_EXPRESSION "prices written to")
+    add_test(NAME cli.fees
+        COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/maker_taker.toml"
+            --duration 2s)
+    set_tests_properties(cli.fees PROPERTIES PASS_REGULAR_EXPRESSION "fees +net pnl")
 
     # Every example scenario has to keep working: run each one briefly, with an event log.
     file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")

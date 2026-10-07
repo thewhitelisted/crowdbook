@@ -80,7 +80,10 @@ def agent_groups(result: dict) -> dict[int, str]:
 
 
 def pnl_at_value(group_result: dict, value: float) -> float:
-    """A group's PnL with its position valued at `value` instead of the last trade price."""
-    return (group_result["cash"] - group_result["initial_cash"]) + (
-        group_result["position"] - group_result["initial_position"]
-    ) * value
+    """A group's PnL after fees, with its position valued at `value` instead of the last trade
+    price."""
+    return (
+        (group_result["cash"] - group_result["initial_cash"])
+        + (group_result["position"] - group_result["initial_position"]) * value
+        - group_result.get("fees", 0.0)
+    )

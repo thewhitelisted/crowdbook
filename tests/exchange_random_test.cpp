@@ -58,6 +58,7 @@ public:
             const Cash notional = filled->price * filled->quantity;
             position_ += filled->side == Side::Buy ? filled->quantity : -filled->quantity;
             cash_ += filled->side == Side::Buy ? -notional : notional;
+            fees_ += filled->fee;
             OpenOrder& order = open_.at(filled->clientOrderId);
             if (order.leaves - filled->quantity != filled->leavesQuantity) {
                 throw std::logic_error("fill leaves quantity does not add up");
@@ -80,11 +81,13 @@ public:
 
     [[nodiscard]] Cash cash() const { return cash_; }
     [[nodiscard]] Quantity position() const { return position_; }
+    [[nodiscard]] Fee fees() const { return fees_; }
     [[nodiscard]] const std::map<ClientOrderId, OpenOrder>& open() const { return open_; }
 
 private:
     Cash cash_ = 0;
     Quantity position_ = 0;
+    Fee fees_ = 0;
     std::map<ClientOrderId, OpenOrder> open_;
 };
 
@@ -95,6 +98,7 @@ void expectLedgersMatch(const Exchange& exchange, const std::map<AgentId, Ledger
         const Account& account = exchange.account(agent);
         ASSERT_EQ(ledger.cash(), account.cash);
         ASSERT_EQ(ledger.position(), account.position);
+        ASSERT_EQ(ledger.fees(), account.fees);
         for (const auto& [clientOrderId, order] : ledger.open()) {
             const std::optional<OrderId> id = exchange.liveOrderId(agent, clientOrderId);
             ASSERT_TRUE(id.has_value()) << "client order " << clientOrderId;
@@ -122,7 +126,7 @@ TEST_P(ExchangeRandomTest, AccountsBooksAndEventsStayConsistent) {
         return low + static_cast<std::int64_t>(below(static_cast<std::uint64_t>(high - low + 1)));
     };
 
-    Exchange exchange;
+    Exchange exchange{{.makerFee = -150, .takerFee = 400}};
     std::map<AgentId, Ledger> ledgers;
     std::map<AgentId, ClientOrderId> nextClientOrderId;
     for (std::size_t i = 0; i < kConfigs.size(); ++i) {

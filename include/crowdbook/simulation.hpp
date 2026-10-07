@@ -38,7 +38,8 @@ struct AgentOptions {
 // with jitter. The exchange itself takes no time to process a request.
 class Simulation {
 public:
-    explicit Simulation(std::uint64_t seed);
+    // Throws std::invalid_argument for exchange settings Exchange rejects.
+    explicit Simulation(std::uint64_t seed, const ExchangeConfig& exchange = {});
 
     // Opens an account for the agent, schedules its start and returns its id: 1 for the first
     // agent, then 2, and so on. Throws std::invalid_argument if the agent is null, a latency is

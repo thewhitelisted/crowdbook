@@ -166,13 +166,21 @@ int run(std::span<char*> args) {
         std::cout << std::format(", true value {:.1f}", *result.finalValue);
     }
     std::cout << "\n\n";
-    std::cout << std::format("{:<20} {:>7} {:>10} {:>14} {:>12}\n", "group", "agents",
-                             "position", "cash", "pnl");
+    // Fee columns appear only when the exchange charges fees.
+    const bool fees = scenario.exchange.makerFee != 0 || scenario.exchange.takerFee != 0;
+    const auto signedFee = [](Fee fee) { return (fee > 0 ? "+" : "") + formatFee(fee); };
+    std::cout << std::format("{:<20} {:>7} {:>10} {:>14} {:>12}", "group", "agents", "position",
+                             "cash", "pnl");
+    std::cout << (fees ? std::format(" {:>12} {:>12}\n", "fees", "net pnl") : "\n");
     for (const GroupResult& group : result.groups) {
-        std::cout << std::format("{:<20} {:>7} {:>10} {:>14} {:>+12}\n", group.name,
+        std::cout << std::format("{:<20} {:>7} {:>10} {:>14} {:>+12}", group.name,
                                  group.agents.size(), group.position, group.cash, group.pnl);
+        std::cout << (fees ? std::format(" {:>12} {:>12}\n", formatFee(group.fees),
+                                         signedFee(group.pnl * kFeeUnitsPerTickLot - group.fees))
+                           : "\n");
     }
-    std::cout << "\ncash and pnl are in tick-lots; pnl values positions at the last price\n";
+    std::cout << "\ncash and pnl are in tick-lots; pnl values positions at the last price"
+              << (fees ? ", and net pnl is pnl minus fees\n" : "\n");
     if (options.logPath) {
         std::cout << std::format("event log written to {}\n", *options.logPath);
     }

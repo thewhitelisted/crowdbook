@@ -61,6 +61,7 @@ void Ledger::apply(const Event& event) {
             position_ -= filled->quantity;
             cash_ += notional;
         }
+        fees_ += filled->fee;
         order.leaves = filled->leavesQuantity;
         if (order.leaves == 0) {
             orders_.erase(filled->clientOrderId);

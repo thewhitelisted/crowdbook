@@ -66,7 +66,8 @@ private:
     AgentId agent_;
 };
 
-Simulation::Simulation(std::uint64_t seed) : seed_(seed) {}
+Simulation::Simulation(std::uint64_t seed, const ExchangeConfig& exchange)
+    : seed_(seed), exchange_(exchange) {}
 
 AgentId Simulation::addAgent(std::unique_ptr<Agent> agent, const AgentOptions& options) {
     if (!agent) {

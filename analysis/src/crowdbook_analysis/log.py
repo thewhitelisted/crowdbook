@@ -22,6 +22,7 @@ SCHEMA = {
     "quantity": _NUMBER,
     "leaves": _NUMBER,
     "liquidity": _TEXT,
+    "fee": pl.Float64,  # in tick-lots, on fills
     "request": _TEXT,
     "reason": _TEXT,
     "bid_price": _NUMBER,

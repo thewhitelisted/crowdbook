@@ -94,6 +94,7 @@ struct OrderFilled {
     Quantity quantity = 0;
     Quantity leavesQuantity = 0; // still open after this fill
     Liquidity liquidity = Liquidity::Maker;
+    Fee fee = 0; // charged for this fill, in fee units; negative for a rebate
 
     friend bool operator==(const OrderFilled&, const OrderFilled&) = default;
 };

@@ -62,6 +62,20 @@ TEST(LedgerTest, FollowsAnOrderFromRequestToFullFill) {
     EXPECT_EQ(ledger.cash(), -495);
 }
 
+TEST(LedgerTest, AddsUpFeesAndRebatesFromFills) {
+    Ledger ledger;
+    ledger.recordRequest(limitOrder(1, Side::Buy, 99, 5));
+    ledger.apply(accepted(1, 17));
+    OrderFilled maker = filled(1, Side::Buy, 99, 2, 3);
+    maker.fee = -400;
+    OrderFilled taker = filled(1, Side::Buy, 99, 3, 0);
+    taker.fee = 900;
+    ledger.apply(maker);
+    ledger.apply(taker);
+    EXPECT_EQ(ledger.fees(), 500);
+    EXPECT_EQ(ledger.cash(), -495); // fees never touch cash
+}
+
 TEST(LedgerTest, SellingWithoutSharesGoesShort) {
     Ledger ledger;
     ledger.recordRequest(marketOrder(1, Side::Sell, 3));

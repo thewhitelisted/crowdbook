@@ -37,6 +37,7 @@ struct Scenario {
     Duration duration = 60 * kSecond;
     Price referencePrice = 10'000;
     std::optional<FundamentalConfig> fundamental{};
+    ExchangeConfig exchange{};
     std::vector<AgentGroup> groups{};
 };
 
@@ -50,8 +51,9 @@ struct GroupResult {
     Quantity initialPosition = 0;
     Cash cash = 0;
     Quantity position = 0;
-    // Change in cash plus change in position valued at the last price, in tick-lots.
+    // Change in cash plus change in position valued at the last price, in tick-lots, before fees.
     Cash pnl = 0;
+    Fee fees = 0; // paid to the exchange, net of rebates, in fee units
 };
 
 struct RunResult {
