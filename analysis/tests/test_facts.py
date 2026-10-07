@@ -26,6 +26,10 @@ class SampleLastTest(unittest.TestCase):
         self.assertTrue(math.isnan(sampled[0]))
         self.assertEqual(list(sampled[1:]), [1.0, 1.0, 2.0, 3.0])
 
+    def test_gives_nan_everywhere_without_any_values(self):
+        sampled = facts.sample_last(np.array([], dtype=np.int64), np.array([]), np.array([5, 10]))
+        self.assertTrue(np.all(np.isnan(sampled)))
+
 
 class ReturnStatisticsTest(unittest.TestCase):
     def test_kurtosis_is_near_zero_for_normal_returns_and_positive_for_fat_tails(self):
@@ -55,6 +59,14 @@ class HorizonTest(unittest.TestCase):
         self.assertTrue(
             np.allclose(facts.horizon_returns(mids, 2), [np.log(102 / 100), np.log(108 / 102)])
         )
+
+    def test_windows_that_start_or_end_without_a_mid_are_left_out(self):
+        mids = np.array([np.nan, 100.0, 101.0, 102.0, 103.0, np.nan, 105.0, 106.0, 107.0])
+        # Windows of two samples from the first mid: 100 to 102, then two that touch the gap.
+        self.assertTrue(np.allclose(facts.horizon_returns(mids, 2), [np.log(102 / 100)]))
+        # A tick a second, but for the gap, which no change may straddle.
+        steady = np.array([np.nan, 100.0, 101.0, np.nan, 104.0, 105.0])
+        self.assertEqual(facts.volatility_per_root_second(steady, 1, 1.0), 0.0)
 
     def test_volatility_of_a_random_walk_is_the_same_at_every_horizon(self):
         walk = np.cumsum(np.random.default_rng(3).normal(size=400_000))

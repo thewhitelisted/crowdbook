@@ -6,6 +6,8 @@ import polars as pl
 
 def sample_last(times: np.ndarray, values: np.ndarray, grid: np.ndarray) -> np.ndarray:
     """The value in effect at each grid time: the last one at or before it, or NaN before any."""
+    if len(times) == 0:
+        return np.full(len(grid), np.nan)
     index = np.searchsorted(times, grid, side="right") - 1
     sampled = values[np.clip(index, 0, None)].astype(float)
     sampled[index < 0] = np.nan
@@ -17,17 +19,27 @@ def log_returns(prices: np.ndarray) -> np.ndarray:
     return np.diff(np.log(prices))
 
 
+def _windows(mids: np.ndarray, steps: int) -> np.ndarray:
+    """Every `steps`-th sample of a regularly sampled mid, from the first with a mid. Gaps stay
+    in, as NaN, so that every window spans exactly `steps` samples."""
+    quoted = np.flatnonzero(~np.isnan(mids))
+    return mids[quoted[0] :: steps] if len(quoted) else mids[:0]
+
+
 def horizon_returns(mids: np.ndarray, steps: int) -> np.ndarray:
-    """Log returns over non-overlapping windows of `steps` samples of a regularly sampled mid."""
-    return log_returns(mids[~np.isnan(mids)][::steps])
+    """Log returns over non-overlapping windows of `steps` samples of a regularly sampled mid,
+    leaving out windows that start or end without a mid."""
+    returns = np.diff(np.log(_windows(mids, steps)))
+    return returns[~np.isnan(returns)]
 
 
 def volatility_per_root_second(mids: np.ndarray, steps: int, step_seconds: float) -> float:
     """The standard deviation of mid changes over `steps` samples, in ticks, scaled to one
-    second by the square root of time. A random walk gives the same value at every horizon;
-    microstructure noise makes it larger at short horizons."""
-    changes = np.diff(mids[~np.isnan(mids)][::steps])
-    return float(changes.std() / np.sqrt(steps * step_seconds))
+    second by the square root of time, leaving out changes that start or end without a mid. A
+    random walk gives the same value at every horizon; microstructure noise makes it larger at
+    short horizons."""
+    changes = np.diff(_windows(mids, steps))
+    return float(changes[~np.isnan(changes)].std() / np.sqrt(steps * step_seconds))
 
 
 def markouts(

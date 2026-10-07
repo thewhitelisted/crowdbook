@@ -1,6 +1,8 @@
+import tempfile
 import unittest
+from pathlib import Path
 
-from crowdbook_analysis.runner import agent_groups, pnl_at_value
+from crowdbook_analysis.runner import Run, agent_groups, pnl_at_value, run
 
 
 class AgentGroupsTest(unittest.TestCase):
@@ -19,6 +21,18 @@ class PnlAtValueTest(unittest.TestCase):
         team = {"cash": -950, "initial_cash": 0, "position": 10, "initial_position": 0}
         self.assertEqual(pnl_at_value(team, 100.0), 50.0)
         self.assertEqual(pnl_at_value(team | {"fees": 2.5}, 100.0), 47.5)
+
+
+class RunTest(unittest.TestCase):
+    def test_a_failed_run_says_why(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            tool = Path(scratch) / "crowdbook"
+            tool.write_text(
+                "#!/bin/sh\necho 'crowdbook: scenario.toml:3: unknown key' >&2\nexit 1\n"
+            )
+            tool.chmod(0o755)
+            with self.assertRaisesRegex(RuntimeError, "scenario.toml:3: unknown key"):
+                run(tool, Run(scenario="", seed=1))
 
 
 if __name__ == "__main__":

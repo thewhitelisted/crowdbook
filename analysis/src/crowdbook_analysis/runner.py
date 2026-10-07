@@ -56,7 +56,9 @@ def run(
                 command += ["--log-only", log_only]
         if prices:
             command += ["--prices", str(prices)]
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        finished = subprocess.run(command, capture_output=True, text=True)
+        if finished.returncode != 0:
+            raise RuntimeError(f"{' '.join(command)} failed: {finished.stderr.strip()}")
         return json.loads(result.read_text())
 
 
