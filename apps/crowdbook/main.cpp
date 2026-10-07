@@ -26,6 +26,7 @@
 #include "crowdbook/version.hpp"
 #include "output.hpp"
 #include "play.hpp"
+#include "serve.hpp"
 
 namespace crowdbook {
 namespace {
@@ -36,6 +37,10 @@ constexpr std::string_view kUsage =
     "                     [--prices FILE] [--depth FILE] [--sample-interval D]\n"
     "       crowdbook play <scenario.toml> [--seed N] [--duration D] [--speed X]\n"
     "                      [--record FILE] [--log FILE] [--log-only KIND,KIND...]\n"
+    "       crowdbook serve <scenario.toml> [--seat NAME]... [--listen HOST:PORT]\n"
+    "                       [--tokens FILE] [--rate-limit N] [--seed N] [--duration D]\n"
+    "                       [--speed X] [--record FILE] [--log FILE]\n"
+    "                       [--log-only KIND,KIND...] [--json FILE]\n"
     "       crowdbook replay <session.toml> [--log FILE] [--log-only KIND,KIND...]\n"
     "                        [--json FILE] [--prices FILE] [--depth FILE]\n"
     "                        [--sample-interval D]\n"
@@ -48,6 +53,10 @@ struct CommandLine {
     std::optional<Duration> duration{};
     std::optional<double> speed{};
     std::optional<std::string> recordPath{};
+    std::vector<std::string> seats{};
+    std::optional<std::string> listen{};
+    std::optional<std::string> tokensPath{};
+    std::optional<std::int64_t> rateLimit{};
     OutputOptions outputs{};
 };
 
@@ -82,6 +91,18 @@ double parseSpeed(std::string_view text) {
     return speed;
 }
 
+std::int64_t parseRateLimit(std::string_view text) {
+    std::int64_t rate = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), rate);
+    if (error != std::errc{} || end != text.data() + text.size() || rate < 1 ||
+        rate > 1'000'000) {
+        throw UsageError(std::format(
+            "--rate-limit needs a whole number of messages a second from 1 to 1000000, not '{}'",
+            text));
+    }
+    return rate;
+}
+
 // Reads one command's arguments. `allowed` lists the options it takes.
 CommandLine parseCommandLine(std::span<char*> args, std::string_view command,
                              std::initializer_list<std::string_view> allowed) {
@@ -105,6 +126,14 @@ CommandLine parseCommandLine(std::span<char*> args, std::string_view command,
             line.speed = parseSpeed(value());
         } else if (arg == "--record") {
             line.recordPath = std::string{value()};
+        } else if (arg == "--seat") {
+            line.seats.emplace_back(value());
+        } else if (arg == "--listen") {
+            line.listen = std::string{value()};
+        } else if (arg == "--tokens") {
+            line.tokensPath = std::string{value()};
+        } else if (arg == "--rate-limit") {
+            line.rateLimit = parseRateLimit(value());
         } else if (arg == "--log") {
             line.outputs.logPath = std::string{value()};
         } else if (arg == "--log-only") {
@@ -189,6 +218,26 @@ int playCommand(std::span<char*> args) {
                  .outputs = line.outputs});
 }
 
+int serveCommand(std::span<char*> args) {
+    const CommandLine line = parseCommandLine(
+        args, "serve",
+        {"--seat", "--listen", "--tokens", "--rate-limit", "--seed", "--duration", "--speed",
+         "--record", "--log", "--log-only", "--json"});
+    ServeOptions options{.scenarioPath = line.path,
+                         .seed = line.seed,
+                         .duration = line.duration,
+                         .speed = line.speed.value_or(1.0),
+                         .seats = line.seats,
+                         .tokensPath = line.tokensPath,
+                         .rateLimit = line.rateLimit,
+                         .recordPath = line.recordPath,
+                         .outputs = line.outputs};
+    if (line.listen) {
+        parseListen(*line.listen, options.host, options.port);
+    }
+    return serve(options);
+}
+
 int runCommand(std::span<char*> args) {
     if (args.empty()) {
         throw UsageError("no command given");
@@ -202,6 +251,9 @@ int runCommand(std::span<char*> args) {
     }
     if (command == "play") {
         return playCommand(args.subspan(1));
+    }
+    if (command == "serve") {
+        return serveCommand(args.subspan(1));
     }
     if (command == "agents") {
         std::cout << "agent types:\n";

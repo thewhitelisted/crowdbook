@@ -58,9 +58,11 @@ if(CROWDBOOK_BUILD_SCENARIOS)
         PRIVATE crowdbook::protocol tomlplusplus::tomlplusplus)
     crowdbook_set_warnings(crowdbook_scenario)
 
-    # Serving a market to clients over the protocol: the gateway, which works on bytes.
+    # Serving a market to clients over the protocol: the gateway, which works on bytes, and the
+    # server, which moves them between the gateway and POSIX sockets.
     add_library(crowdbook_gateway
-        gateway.cpp)
+        gateway.cpp
+        server.cpp)
     add_library(crowdbook::gateway ALIAS crowdbook_gateway)
     target_link_libraries(crowdbook_gateway PUBLIC crowdbook::scenario crowdbook::protocol)
     crowdbook_set_warnings(crowdbook_gateway)

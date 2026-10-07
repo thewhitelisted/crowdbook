@@ -31,6 +31,7 @@ add_executable(crowdbook_tests
     random_test.cpp
     scenario_file_test.cpp
     scenario_test.cpp
+    server_test.cpp
     session_test.cpp
     simulation_determinism_test.cpp
     simulation_test.cpp

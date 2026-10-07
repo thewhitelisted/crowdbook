@@ -11,9 +11,10 @@ add_executable(crowdbook_cli
     crowdbook/main.cpp
     crowdbook/output.cpp
     crowdbook/play.cpp
+    crowdbook/serve.cpp
     crowdbook/terminal.cpp)
 set_target_properties(crowdbook_cli PROPERTIES OUTPUT_NAME crowdbook)
-target_link_libraries(crowdbook_cli PRIVATE crowdbook::scenario crowdbook_ladder)
+target_link_libraries(crowdbook_cli PRIVATE crowdbook::gateway crowdbook_ladder)
 crowdbook_set_warnings(crowdbook_cli)
 
 if(CROWDBOOK_BUILD_TESTS)
@@ -88,6 +89,27 @@ if(CROWDBOOK_BUILD_TESTS)
             --record "${CMAKE_CURRENT_BINARY_DIR}/no-such-directory/session.toml")
     set_tests_properties(cli.record_path_checked_first PROPERTIES
         PASS_REGULAR_EXPRESSION "cannot write")
+
+    # serve checks its settings before it listens.
+    add_test(NAME cli.serve_listen_needs_a_port
+        COMMAND crowdbook_cli serve "${PROJECT_SOURCE_DIR}/examples/scenarios/playable.toml"
+            --listen localhost)
+    set_tests_properties(cli.serve_listen_needs_a_port PROPERTIES
+        PASS_REGULAR_EXPRESSION "--listen needs host:port")
+    add_test(NAME cli.serve_seat_names
+        COMMAND crowdbook_cli serve "${PROJECT_SOURCE_DIR}/examples/scenarios/playable.toml"
+            --seat "two words")
+    set_tests_properties(cli.serve_seat_names PROPERTIES
+        PASS_REGULAR_EXPRESSION "is not a seat name")
+    add_test(NAME cli.serve_rate_limit
+        COMMAND crowdbook_cli serve "${PROJECT_SOURCE_DIR}/examples/scenarios/playable.toml"
+            --rate-limit 0)
+    set_tests_properties(cli.serve_rate_limit PROPERTIES
+        PASS_REGULAR_EXPRESSION "--rate-limit needs a whole number")
+    add_test(NAME cli.serve_tokens_file
+        COMMAND crowdbook_cli serve "${PROJECT_SOURCE_DIR}/examples/scenarios/playable.toml"
+            --tokens no-such-tokens.txt)
+    set_tests_properties(cli.serve_tokens_file PROPERTIES PASS_REGULAR_EXPRESSION "cannot read")
 
     # Every example scenario has to keep working: run each one briefly, with an event log.
     file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")
