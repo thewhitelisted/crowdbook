@@ -34,6 +34,7 @@ MomentumTrader::MomentumTrader(const MomentumConfig& config, Price referencePric
 void MomentumTrader::onStart(AgentContext& context) { context.wakeAfter(config_.interval); }
 
 void MomentumTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
+    market_.update(context.market());
     const double price = market_.fairPrice();
     if (fast_ && slow_) {
         *fast_ += fastWeight_ * (price - *fast_);
@@ -54,14 +55,6 @@ void MomentumTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
         context.submitMarket(Side::Sell, size);
     }
     context.wakeAfter(config_.interval);
-}
-
-void MomentumTrader::onTopOfBook(AgentContext& /*context*/, const TopOfBook& top) {
-    market_.update(top);
-}
-
-void MomentumTrader::onTrade(AgentContext& /*context*/, const Trade& trade) {
-    market_.update(trade);
 }
 
 double MomentumTrader::trend() const noexcept {

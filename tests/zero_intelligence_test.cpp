@@ -64,8 +64,8 @@ TEST(ZeroIntelligenceTest, LimitOrdersSitInsideTheOppositeQuoteWithoutCrossing) 
     ZeroIntelligenceTrader trader{{.marketRate = 0.0, .cancelRate = 0.0, .maxOffset = 5},
                                   kReference};
     FakeContext context;
-    trader.onTopOfBook(context, {.bid = LevelSummary{.price = 990, .quantity = 1},
-                                 .ask = LevelSummary{.price = 1'010, .quantity = 1}});
+    context.snapshot = {.bid = LevelSummary{.price = 990, .quantity = 1},
+                        .ask = LevelSummary{.price = 1'010, .quantity = 1}};
 
     std::set<Price> buyPrices;
     std::set<Price> sellPrices;

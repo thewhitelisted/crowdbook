@@ -29,10 +29,12 @@ public:
     // 1 or sizes that do not satisfy 1 <= minSize <= maxSize.
     ZeroIntelligenceTrader(const ZeroIntelligenceConfig& config, Price referencePrice);
 
+    // It only looks at the market when it acts, so it reads snapshots instead of the stream.
+    [[nodiscard]] MarketDataMode marketData() const noexcept override {
+        return MarketDataMode::Snapshot;
+    }
     void onStart(AgentContext& context) override;
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
-    void onTopOfBook(AgentContext& context, const TopOfBook& top) override;
-    void onTrade(AgentContext& context, const Trade& trade) override;
 
 private:
     [[nodiscard]] double totalRate() const noexcept;

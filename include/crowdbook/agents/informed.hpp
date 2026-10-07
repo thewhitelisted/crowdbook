@@ -29,9 +29,12 @@ public:
     // noise or threshold, or sizes that do not satisfy 1 <= orderSize <= maxPosition.
     InformedTrader(const InformedConfig& config, std::shared_ptr<Fundamental> fundamental);
 
+    // It looks at the book only when it checks the value, so it reads snapshots.
+    [[nodiscard]] MarketDataMode marketData() const noexcept override {
+        return MarketDataMode::Snapshot;
+    }
     void onStart(AgentContext& context) override;
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
-    void onTopOfBook(AgentContext& context, const TopOfBook& top) override;
 
 private:
     InformedConfig config_;

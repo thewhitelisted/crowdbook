@@ -26,11 +26,11 @@ const InformedConfig kExact{.interval = 100 * kMillisecond,
                             .orderSize = 5,
                             .maxPosition = 10};
 
-const TopOfBook kTop{.bid = LevelSummary{.price = 98, .quantity = 1},
-                     .ask = LevelSummary{.price = 100, .quantity = 1}};
+const MarketSnapshot kMarket{.bid = LevelSummary{.price = 98, .quantity = 1},
+                             .ask = LevelSummary{.price = 100, .quantity = 1}};
 
 std::vector<Request> lookOnce(InformedTrader& trader, FakeContext& context) {
-    trader.onTopOfBook(context, kTop);
+    context.snapshot = kMarket;
     trader.onWakeup(context, 0);
     return context.takeSent();
 }

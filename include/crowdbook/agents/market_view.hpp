@@ -8,13 +8,15 @@
 namespace crowdbook {
 
 // What an agent knows about the market from public data alone: the best bid and ask it last heard
-// about and the last trade price. Feed it every TopOfBook and Trade the agent receives.
+// about and the last trade price. Feed it every TopOfBook and Trade the agent receives, or a
+// snapshot from context.market() before each decision.
 class MarketView {
 public:
     explicit MarketView(Price referencePrice) noexcept : reference_(referencePrice) {}
 
     void update(const TopOfBook& top) noexcept;
     void update(const Trade& trade) noexcept;
+    void update(const MarketSnapshot& market) noexcept;
 
     [[nodiscard]] std::optional<Price> bestBid() const noexcept { return bid_; }
     [[nodiscard]] std::optional<Price> bestAsk() const noexcept { return ask_; }

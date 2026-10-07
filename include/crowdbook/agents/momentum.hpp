@@ -28,10 +28,12 @@ public:
     // positive, the threshold is not negative and 1 <= orderSize <= maxPosition.
     MomentumTrader(const MomentumConfig& config, Price referencePrice);
 
+    // It samples the market on its own timer, so it reads snapshots instead of the stream.
+    [[nodiscard]] MarketDataMode marketData() const noexcept override {
+        return MarketDataMode::Snapshot;
+    }
     void onStart(AgentContext& context) override;
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
-    void onTopOfBook(AgentContext& context, const TopOfBook& top) override;
-    void onTrade(AgentContext& context, const Trade& trade) override;
 
     // The fast average minus the slow one, in ticks; 0 before the first check.
     [[nodiscard]] double trend() const noexcept;

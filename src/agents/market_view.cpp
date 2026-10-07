@@ -9,6 +9,11 @@ void MarketView::update(const TopOfBook& top) noexcept {
 
 void MarketView::update(const Trade& trade) noexcept { lastTrade_ = trade.price; }
 
+void MarketView::update(const MarketSnapshot& market) noexcept {
+    update(TopOfBook{.bid = market.bid, .ask = market.ask});
+    lastTrade_ = market.lastTrade;
+}
+
 double MarketView::fairPrice() const noexcept {
     if (bid_ && ask_) {
         return static_cast<double>(*bid_ + *ask_) / 2.0;

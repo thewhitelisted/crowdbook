@@ -25,6 +25,7 @@ InformedTrader::InformedTrader(const InformedConfig& config,
 void InformedTrader::onStart(AgentContext& context) { context.wakeAfter(config_.interval); }
 
 void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
+    market_.update(context.market());
     const double noise = context.random().normal(0.0, config_.noise);
     const double estimate = fundamental_->valueAt(context.now()) + noise;
 
@@ -43,10 +44,6 @@ void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
         context.submitLimit(Side::Sell, limit, size, TimeInForce::ImmediateOrCancel);
     }
     context.wakeAfter(config_.interval);
-}
-
-void InformedTrader::onTopOfBook(AgentContext& /*context*/, const TopOfBook& top) {
-    market_.update(top);
 }
 
 } // namespace crowdbook

@@ -23,10 +23,10 @@ const MomentumConfig kConfig{.interval = 100 * kMillisecond,
                              .orderSize = 5,
                              .maxPosition = 15};
 
-// Shows the trader a one-tick market at `mid` and wakes it, as its timer would.
+// Shows the trader a two-tick-wide market around `mid` and wakes it, as its timer would.
 void tick(MomentumTrader& trader, FakeContext& context, Price mid) {
-    trader.onTopOfBook(context, {.bid = LevelSummary{.price = mid - 1, .quantity = 1},
-                                 .ask = LevelSummary{.price = mid + 1, .quantity = 1}});
+    context.snapshot = {.bid = LevelSummary{.price = mid - 1, .quantity = 1},
+                        .ask = LevelSummary{.price = mid + 1, .quantity = 1}};
     trader.onWakeup(context, 0);
 }
 

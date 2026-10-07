@@ -33,6 +33,7 @@ ZeroIntelligenceTrader::ZeroIntelligenceTrader(const ZeroIntelligenceConfig& con
 void ZeroIntelligenceTrader::onStart(AgentContext& context) { scheduleNext(context); }
 
 void ZeroIntelligenceTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
+    market_.update(context.market());
     // Picking an action in proportion to its rate, with one exponential timer for all of them, is
     // the same as running three independent Poisson processes.
     const double pick = context.random().uniform() * totalRate();
@@ -44,14 +45,6 @@ void ZeroIntelligenceTrader::onWakeup(AgentContext& context, std::uint64_t /*tag
         cancelOne(context);
     }
     scheduleNext(context);
-}
-
-void ZeroIntelligenceTrader::onTopOfBook(AgentContext& /*context*/, const TopOfBook& top) {
-    market_.update(top);
-}
-
-void ZeroIntelligenceTrader::onTrade(AgentContext& /*context*/, const Trade& trade) {
-    market_.update(trade);
 }
 
 double ZeroIntelligenceTrader::totalRate() const noexcept {
