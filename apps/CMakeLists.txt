@@ -23,6 +23,11 @@ if(CROWDBOOK_BUILD_TESTS)
             --log "${CMAKE_CURRENT_BINARY_DIR}/trades.csv" --log-only trade,top_of_book)
     set_tests_properties(cli.json_and_filtered_log PROPERTIES
         PASS_REGULAR_EXPRESSION "results written to")
+    add_test(NAME cli.prices
+        COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/market_maker.toml"
+            --duration 2s --prices "${CMAKE_CURRENT_BINARY_DIR}/prices.csv"
+            --price-interval 500ms)
+    set_tests_properties(cli.prices PROPERTIES PASS_REGULAR_EXPRESSION "prices written to")
 
     # Every example scenario has to keep working: run each one briefly, with an event log.
     file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")

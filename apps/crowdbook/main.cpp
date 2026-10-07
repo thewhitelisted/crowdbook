@@ -27,6 +27,7 @@ namespace {
 constexpr std::string_view kUsage =
     "usage: crowdbook run <scenario.toml> [--seed N] [--duration D] [--log FILE]\n"
     "                     [--log-only KIND,KIND...] [--json FILE]\n"
+    "                     [--prices FILE] [--price-interval D]\n"
     "       crowdbook agents\n"
     "       crowdbook --version\n";
 
@@ -43,6 +44,8 @@ struct RunOptions {
     std::optional<std::string> logPath{};
     std::vector<std::string> logKinds{}; // empty logs every kind
     std::optional<std::string> jsonPath{};
+    std::optional<std::string> pricesPath{};
+    Duration priceInterval = kSecond;
 };
 
 std::vector<std::string> splitList(std::string_view text) {
@@ -82,6 +85,10 @@ RunOptions parseRunOptions(std::span<char*> args) {
             options.logKinds = splitList(value());
         } else if (arg == "--json") {
             options.jsonPath = std::string{value()};
+        } else if (arg == "--prices") {
+            options.pricesPath = std::string{value()};
+        } else if (arg == "--price-interval") {
+            options.priceInterval = parseDuration(value());
         } else if (arg.starts_with("--")) {
             throw UsageError(std::format("unknown option {}", arg));
         } else if (options.scenarioPath.empty()) {
@@ -130,17 +137,26 @@ int run(std::span<char*> args) {
         scenario.duration = *options.duration;
     }
 
+    BroadcastSink sinks;
     std::ofstream logFile;
     std::optional<CsvEventLog> log;
     if (options.logPath) {
         logFile = openForWriting(*options.logPath);
-        log.emplace(logFile, options.logKinds);
+        sinks.add(log.emplace(logFile, options.logKinds));
+    }
+    std::ofstream pricesFile;
+    std::optional<PriceSampler> prices;
+    if (options.pricesPath) {
+        pricesFile = openForWriting(*options.pricesPath);
+        sinks.add(prices.emplace(pricesFile, options.priceInterval));
     }
 
     const auto started = std::chrono::steady_clock::now();
-    const RunResult result =
-        runScenario(scenario, AgentRegistry::withBuiltIns(), log ? &*log : nullptr);
+    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), &sinks);
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
+    if (prices) {
+        prices->finish(scenario.duration);
+    }
 
     std::cout << std::format("{} (seed {}): simulated {} in {:.2f}s\n", options.scenarioPath,
                              scenario.seed, formatDuration(scenario.duration), elapsed.count());
@@ -159,6 +175,9 @@ int run(std::span<char*> args) {
     std::cout << "\ncash and pnl are in tick-lots; pnl values positions at the last price\n";
     if (options.logPath) {
         std::cout << std::format("event log written to {}\n", *options.logPath);
+    }
+    if (options.pricesPath) {
+        std::cout << std::format("prices written to {}\n", *options.pricesPath);
     }
     if (options.jsonPath) {
         std::ofstream json = openForWriting(*options.jsonPath);

@@ -117,5 +117,42 @@ TEST(CsvEventLogTest, RejectsUnknownKinds) {
     EXPECT_THROW((CsvEventLog{out, {"trades"}}), std::invalid_argument);
 }
 
+TEST(PriceSamplerTest, WritesTheMarketAsOfEachInterval) {
+    std::ostringstream out;
+    PriceSampler sampler{out, 100};
+    sampler.onEvent(0, TopOfBook{.bid = LevelSummary{.price = 99, .quantity = 1}});
+    sampler.onEvent(150, TopOfBook{.bid = LevelSummary{.price = 99, .quantity = 1},
+                                   .ask = LevelSummary{.price = 101, .quantity = 1}});
+    sampler.onEvent(200, Trade{.price = 101, .quantity = 1});
+    sampler.onRequest(390, 1, CancelOrder{.clientOrderId = 1});
+    sampler.finish(400);
+
+    // A row shows everything up to and including its time: the trade at 200 is in the 200 row.
+    EXPECT_EQ(out.str(), "time,bid,ask,last_trade\n"
+                         "0,99,,\n"
+                         "100,99,,\n"
+                         "200,99,101,101\n"
+                         "300,99,101,101\n"
+                         "400,99,101,101\n");
+    EXPECT_THROW((PriceSampler{out, 0}), std::invalid_argument);
+}
+
+TEST(BroadcastSinkTest, PassesEverythingToEachSink) {
+    std::ostringstream first;
+    std::ostringstream second;
+    CsvEventLog firstLog{first};
+    CsvEventLog secondLog{second, {"trade"}};
+    BroadcastSink broadcast;
+    broadcast.add(firstLog);
+    broadcast.add(secondLog);
+    broadcast.onRequest(5, 1, CancelOrder{.clientOrderId = 2});
+    broadcast.onEvent(5, Trade{.price = 99, .quantity = 1});
+
+    EXPECT_NE(first.str().find(",cancel,"), std::string::npos);
+    EXPECT_NE(first.str().find(",trade,"), std::string::npos);
+    EXPECT_EQ(second.str().find(",cancel,"), std::string::npos);
+    EXPECT_NE(second.str().find(",trade,"), std::string::npos);
+}
+
 } // namespace
 } // namespace crowdbook

@@ -196,4 +196,52 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
     }
 }
 
+PriceSampler::PriceSampler(std::ostream& out, Duration interval)
+    : out_(out), interval_(interval) {
+    if (interval <= 0) {
+        throw std::invalid_argument("the price sampling interval must be positive");
+    }
+    out_ << "time,bid,ask,last_trade\n";
+}
+
+void PriceSampler::onRequest(Timestamp time, AgentId /*agent*/, const Request& /*request*/) {
+    writeRowsBefore(time);
+}
+
+void PriceSampler::onEvent(Timestamp time, const Event& event) {
+    writeRowsBefore(time);
+    if (const auto* trade = std::get_if<Trade>(&event)) {
+        market_.lastTrade = trade->price;
+    } else if (const auto* top = std::get_if<TopOfBook>(&event)) {
+        market_.bid = top->bid;
+        market_.ask = top->ask;
+    }
+}
+
+void PriceSampler::finish(Timestamp end) { writeRowsBefore(end + 1); }
+
+void PriceSampler::writeRowsBefore(Timestamp time) {
+    const auto field = [](const std::optional<Price>& price) {
+        return price ? std::to_string(*price) : std::string{};
+    };
+    for (; nextRow_ < time; nextRow_ += interval_) {
+        out_ << nextRow_ << ','
+             << field(market_.bid ? std::optional{market_.bid->price} : std::nullopt) << ','
+             << field(market_.ask ? std::optional{market_.ask->price} : std::nullopt) << ','
+             << field(market_.lastTrade) << '\n';
+    }
+}
+
+void BroadcastSink::onRequest(Timestamp time, AgentId agent, const Request& request) {
+    for (EventSink* sink : sinks_) {
+        sink->onRequest(time, agent, request);
+    }
+}
+
+void BroadcastSink::onEvent(Timestamp time, const Event& event) {
+    for (EventSink* sink : sinks_) {
+        sink->onEvent(time, event);
+    }
+}
+
 } // namespace crowdbook
