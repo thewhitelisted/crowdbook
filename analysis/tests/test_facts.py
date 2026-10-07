@@ -114,6 +114,29 @@ class MarkoutsTest(unittest.TestCase):
         self.assertEqual(result.select("horizon_ns", "markout").rows(), [(2, 1.0), (10, -1.0)])
 
 
+class ParentImpactTest(unittest.TestCase):
+    def test_measures_the_mid_move_its_way_from_just_before_the_start_to_the_end(self):
+        quotes = book([(0, 99, 101), (10, 101, 103), (50, 97, 99)])  # mids 100, 102, 98
+        parents = pl.DataFrame({"side": ["buy", "sell"], "start": [10, 11], "end": [50, 50]})
+        # The buy starts at 10, so the mid before it is 100; at its end, 98: -2. The sell's mid
+        # before it is 102, and 98 at the end: +4.
+        self.assertEqual(facts.parent_impact(parents, quotes)["impact"].to_list(), [-2.0, 4.0])
+
+
+class SignMemoryTest(unittest.TestCase):
+    def test_autocorrelation_at_matches_the_lag_by_lag_one(self):
+        x = np.sign(np.random.default_rng(2).normal(size=1_000).cumsum())
+        lags = np.array([1, 5, 50])
+        n = len(x)
+        # The lag-by-lag version divides every lag by the same sum; this one by the pairs.
+        expected = facts.autocorrelation(x, 50)[lags - 1] * n / (n - lags)
+        self.assertTrue(np.allclose(facts.autocorrelation_at(x, lags), expected))
+
+    def test_log_log_slope_recovers_a_power_law(self):
+        x = np.array([1.0, 10.0, 100.0, 1_000.0])
+        self.assertAlmostEqual(facts.log_log_slope(x, 3.0 * x**-0.5), -0.5)
+
+
 class MeanAndErrorTest(unittest.TestCase):
     def test_averages_over_runs_leaving_out_nan(self):
         mean, error = facts.mean_and_error([1.0, 3.0, float("nan")])

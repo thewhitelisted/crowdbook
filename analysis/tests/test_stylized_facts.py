@@ -1,5 +1,6 @@
 import unittest
 
+from crowdbook_analysis.large_orders import with_settings
 from crowdbook_analysis.stylized_facts import without_group, without_keys
 
 SCENARIO = """seed = 1
@@ -37,6 +38,19 @@ class ScenarioEditsTest(unittest.TestCase):
         self.assertIn('name = "noise"', edited)
         with self.assertRaises(ValueError):
             without_group(SCENARIO, "maker")
+
+
+class WithSettingsTest(unittest.TestCase):
+    def test_changes_each_setting_and_drops_its_comment(self):
+        text = "cancel_rate = 0.2\nparent_tail = 1.5      # the tail\nmax_parent = 5000\n"
+        self.assertEqual(
+            with_settings(text, [("cancel_rate", 0.2, 0.02), ("parent_tail", 1.5, 2.5)]),
+            "cancel_rate = 0.02\nparent_tail = 2.5\nmax_parent = 5000\n",
+        )
+
+    def test_insists_on_the_value_it_replaces(self):
+        with self.assertRaises(ValueError):
+            with_settings("cancel_rate = 0.25\n", [("cancel_rate", 0.2, 0.02)])
 
 
 if __name__ == "__main__":

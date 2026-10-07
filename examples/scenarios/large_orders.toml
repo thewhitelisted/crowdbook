@@ -1,0 +1,41 @@
+# A hundred brokers working large orders for clients, in a market of a thousand noise traders who
+# supply the liquidity. Each broker takes one parent order at a time, of a random side and a size
+# with a heavy Pareto tail, and trades it with a child market order of 3 lots every 200 ms, so a
+# parent of a hundred lots takes seven seconds and one of five thousand lots almost six minutes.
+# The noise traders send few market orders of their own, so most market orders come from parents.
+#
+# Long parents keep sending the same side, so the signs of market orders stay correlated for
+# thousands of orders, and a parent moves the price further the larger it is; docs/results.md
+# measures both.
+#
+#   crowdbook run examples/scenarios/large_orders.toml --duration 3600s --log orders.csv \
+#       --log-only new,filled,top_of_book
+
+seed = 9
+duration = "600s"
+reference_price = 10000
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 1000
+limit_rate = 0.4
+market_rate = 0.02
+cancel_rate = 0.2
+max_offset = 10
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 1000000000, max_order_quantity = 10 }
+
+[[agents]]
+type = "execution"
+name = "brokers"
+count = 100
+style = "twap"
+min_parent = 15           # lots; P(size > q) = (15 / q)^1.5
+parent_tail = 1.5
+max_parent = 5000
+pause = "20s"             # on average, between one parent and the next
+interval = "200ms"
+child_size = 3
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 1000000000, max_order_quantity = 3 }

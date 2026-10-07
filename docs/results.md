@@ -1,13 +1,14 @@
 # Results
 
-What the first experiments with crowdbook found. Every number and chart here comes from the two
-scripts in [`analysis/`](../analysis), run against the Release build. Every run is seeded, so the
-same commands reproduce them exactly:
+What the experiments with crowdbook found. Every number and chart here comes from the scripts in
+[`analysis/`](../analysis), run against the Release build. Every run is seeded, so the same
+commands reproduce them exactly:
 
 ```bash
 cmake --workflow --preset release
-uv run --project analysis crowdbook-facts        # about 5 minutes on 10 cores
-uv run --project analysis crowdbook-experiments  # a few seconds
+uv run --project analysis crowdbook-facts         # about 5 minutes on 10 cores
+uv run --project analysis crowdbook-experiments   # a few seconds
+uv run --project analysis crowdbook-large-orders  # about 2 minutes
 ```
 
 Uncertainties are standard errors across independent runs. Prices are in ticks, and PnL is in
@@ -202,6 +203,86 @@ correlation is ±0.03. Tails thin with the horizon, as in real markets: excess k
   traders across memories of a minute, ten minutes and an hour did not stretch it further than
   judging "usual" over a day did.
 
+## Large orders
+
+Much of the volume in real markets comes from parent orders that brokers' algorithms cut into many
+small child orders over minutes or hours. Two of the best-documented regularities of market
+microstructure follow from that (Bouchaud, Farmer and Lillo, 2009): the signs of market orders stay
+correlated over thousands of orders, and a parent order moves the price roughly as the square root
+of its size.
+
+[large_orders.toml](../examples/scenarios/large_orders.toml) has a hundred brokers working parents
+among the thousand noise traders. Each broker takes one parent at a time, after a pause of 20
+seconds on average, with a random side and a size from a Pareto tail, P(size > q) = (15 / q)^1.5,
+capped at 5,000 lots. It trades the parent with a 3-lot market order every 200 ms, so a parent of
+a hundred lots takes seven seconds and one of five thousand almost six minutes. The noise traders
+send few market orders of their own (0.02 a second each), so three quarters of all market orders
+are children of parents. Each child carries its parent's id into the event log, which is how the
+analysis puts parents back together.
+
+The market has no informed traders. In a trial in the mixed market, whose informed traders see the
+true value and hold thousands of lots, the brokers' parents, which carry no information, moved the
+price by less than half a tick on average at every size: the informed traders absorbed them.
+
+Each case ran for an hour under 16 seeds, with its event log.
+
+### The signs of market orders remember
+
+![Autocorrelation of the signs of market orders against the lag between them](images/sign_memory.png)
+
+| Parent sizes | Orders | Lag 10 | Lag 100 | Lag 1,000 | Fitted exponent | Predicted |
+|---|---|---:|---:|---:|---:|---:|
+| Tail 1.5 | brokers' | +0.071 | +0.040 | +0.010 | 0.56 ± 0.03 | 0.5 |
+| Tail 1.5 | all | +0.010 | +0.027 | +0.007 | 0.53 ± 0.02 | 0.5 |
+| Tail 2.5 | brokers' | +0.135 | +0.012 | +0.001 | 1.53 ± 0.14 | 1.5 |
+| Tail 2.5 | all | +0.055 | +0.011 | +0.000 | 1.32 ± 0.07 | 1.5 |
+
+Lags count market orders. Standard errors of the correlations are about 0.001; the exponent of the
+power-law decay is fitted over lags 32 to 2,500 (to a few hundred for the thinner tail, beyond
+which its correlation is lost in noise), with its error from resampling whole runs.
+
+- **The decay follows the tail of parent sizes.** Lillo, Mike and Farmer (2005) showed that when
+  parent sizes have a Pareto tail with exponent α and many parents are worked at once, the
+  correlation decays as lag^−(α−1). The simulation agrees with both tails it was given. With
+  α = 1.5 the correlations decay so slowly that their sum diverges: long memory, as in real order
+  flow. With α = 2.5 they die out within a few hundred orders.
+- **The noise traders' orders dilute the correlation but leave its decay.** Their signs are
+  independent, so the correlation of all orders is smaller, but it falls off at the same rate.
+- **Consecutive orders are not correlated.** About a dozen parents are worked at once, each
+  sending a child every 200 ms, so the next child of the same parent comes about a dozen orders
+  later. In real markets the correlation is strongest at lag 1; their parents are worked more
+  unevenly than this fixed-pace TWAP.
+
+### Impact: the square root needs a book that remembers
+
+![Mean move of the mid in a parent's direction against the parent's size](images/parent_impact.png)
+
+| Noise traders' orders rest | Parents | 15–30 lots | 150–300 lots | 1,500–5,000 lots | Fitted exponent |
+|---|---:|---:|---:|---:|---:|
+| 5 s | 188,021 | +0.10 ± 0.00 | +0.56 ± 0.02 | +7.4 ± 0.6 | 0.90 ± 0.02 |
+| 50 s | 188,021 | +0.06 ± 0.00 | +0.14 ± 0.01 | +1.1 ± 0.1 | 0.60 ± 0.02 |
+| 500 s | 188,021 | +0.05 ± 0.00 | +0.09 ± 0.01 | +0.20 ± 0.05 | 0.20 ± 0.08 |
+
+Impact is the mid's move in the parent's direction from just before its first child to its last
+fill, in ticks. The exponent is fitted to the mean impact in size bins holding at least 50 parents.
+The brokers draw the same parents in all three markets, so the rows differ only in the market.
+
+- **With the noise traders' usual 5-second orders, impact is almost linear in size** (exponent
+  0.90 ± 0.02), not the square root of real markets.
+- **The longer resting orders last, the more concave impact becomes:** an exponent of
+  0.60 ± 0.02, near the square root, when they rest for 50 seconds, and 0.20 ± 0.08 at 500
+  seconds.
+- This is what theories of latent liquidity predict (Tóth et al., 2011; Donier et al., 2015). A
+  book that remembers where the price has been holds orders a parent has to eat through, and
+  they thin out toward the current price, which bends impact into a square root. A book that
+  renews itself faster than the parent trades meets every child with fresh orders around the
+  current price, so each child moves the price about as far as the last, and impact adds up
+  linearly. Here a parent of a thousand lots takes about a minute: longer than a 5-second book
+  remembers, shorter than a 500-second one.
+- Longer-lived orders also make the book deeper, since the noise traders keep placing orders at the
+  same rate, so these runs change the book's depth and its memory together. Separating the two,
+  and measuring how much of the impact stays after a parent ends, are open.
+
 ## Market-maker experiments
 
 These use a smaller market, so many seeds are cheap. Each point averages 32 runs of 60 seconds.
@@ -306,13 +387,14 @@ give other markets. Making that easy to explore is the point of the toolkit.
 
 ## Limitations and next steps
 
-- Agents act at constant rates, so fat tails and volatility clustering cannot outlast the slowest
-  agent's memory. The next agents to add are ones whose activity reacts to the market: traders
-  that act more after big moves, or that respond to news arriving at random times.
+- Volatility clusters for about an hour in the memory market, where in real markets it lasts
+  weeks; no agent here remembers longer than a day.
 - Each scenario is one point in a large parameter space, chosen so that every type of agent
   trades. The scripts make sweeps cheap.
-- One instrument, no fees or rebates, no hidden orders, and an exchange that takes no time to
-  process a message.
+- None of these markets is calibrated to real data yet; a scorecard comparing the same statistics
+  on real order books is on the roadmap.
+- One instrument, no hidden orders, no trading day with auctions, and an exchange that takes no
+  time to process a message.
 - Impact and markouts are measured on the mid, so they miss changes in depth behind the best
   prices.
 
@@ -322,10 +404,21 @@ give other markets. Making that easy to explore is the point of the toolkit.
   105–108.
 - Avellaneda, M. and Stoikov, S. (2008). High-frequency trading in a limit order book.
   *Quantitative Finance* 8(3), 217–224.
+- Bouchaud, J.-P., Farmer, J. D. and Lillo, F. (2009). How markets slowly digest changes in supply
+  and demand. In *Handbook of Financial Markets: Dynamics and Evolution*, 57–160. North-Holland.
+- Brock, W. and Hommes, C. (1998). Heterogeneous beliefs and routes to chaos in a simple asset
+  pricing model. *Journal of Economic Dynamics and Control* 22(8–9), 1235–1274.
 - Cont, R. (2001). Empirical properties of asset returns: stylized facts and statistical issues.
   *Quantitative Finance* 1(2), 223–236.
+- Donier, J., Bonart, J., Mastromatteo, I. and Bouchaud, J.-P. (2015). A fully consistent,
+  minimal model for non-linear market impact. *Quantitative Finance* 15(7), 1109–1121.
 - Farmer, J. D., Patelli, P. and Zovko, I. (2005). The predictive power of zero intelligence in
   financial markets. *PNAS* 102(6), 2254–2259.
 - Glosten, L. and Milgrom, P. (1985). Bid, ask and transaction prices in a specialist market with
   heterogeneously informed traders. *Journal of Financial Economics* 14(1), 71–100.
 - Kyle, A. (1985). Continuous auctions and insider trading. *Econometrica* 53(6), 1315–1335.
+- Lillo, F., Mike, S. and Farmer, J. D. (2005). Theory for long memory in supply and demand.
+  *Physical Review E* 71, 066122.
+- Tóth, B., Lempérière, Y., Deremble, C., de Lataillade, J., Kockelkoren, J. and Bouchaud, J.-P.
+  (2011). Anomalous price impact and the critical nature of liquidity in financial markets.
+  *Physical Review X* 1, 021006.

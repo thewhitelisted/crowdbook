@@ -12,6 +12,7 @@ dependencies = [
 [project.scripts]
 crowdbook-facts = "crowdbook_analysis.stylized_facts:main"
 crowdbook-experiments = "crowdbook_analysis.experiments:main"
+crowdbook-large-orders = "crowdbook_analysis.large_orders:main"
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]

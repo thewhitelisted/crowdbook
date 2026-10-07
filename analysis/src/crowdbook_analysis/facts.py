@@ -92,6 +92,35 @@ def autocorrelation(x: np.ndarray, max_lag: int) -> np.ndarray:
     )
 
 
+def autocorrelation_at(x: np.ndarray, lags: np.ndarray) -> np.ndarray:
+    """The sample autocorrelation at each of `lags`, through the fast Fourier transform, for
+    series too long to correlate lag by lag. Each lag's covariance is averaged over the pairs that
+    lag apart, as `autocorrelation` does up to the scale of the denominator."""
+    centered = x - x.mean()
+    n = len(centered)
+    spectrum = np.fft.rfft(centered, 2 * n)
+    covariance = np.fft.irfft(spectrum * np.conj(spectrum))[:n] / np.arange(n, 0, -1)
+    return covariance[np.asarray(lags)] / covariance[0]
+
+
+def log_log_slope(x: np.ndarray, y: np.ndarray) -> float:
+    """The slope of log y against log x by least squares: the exponent of a power law y ∝ x^slope.
+    Every x and y must be positive."""
+    return float(np.polyfit(np.log(x), np.log(y), 1)[0])
+
+
+def parent_impact(parents: pl.DataFrame, quotes: pl.DataFrame) -> pl.DataFrame:
+    """Each parent order with how far the mid moved its way, in ticks, from just before its first
+    child reached the exchange to its last fill."""
+    both = quotes.drop_nulls("mid")
+    times = both["time"].to_numpy()
+    mids = both["mid"].to_numpy()
+    before = sample_last(times, mids, parents["start"].to_numpy() - 1)
+    after = sample_last(times, mids, parents["end"].to_numpy())
+    direction = np.where(parents["side"].to_numpy() == "buy", 1.0, -1.0)
+    return parents.with_columns(impact=pl.Series((after - before) * direction))
+
+
 def tail_distribution(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """For returns standardized to unit variance: each |return|, sorted, with the share of
     returns at least that large (the complementary cumulative distribution)."""

@@ -8,11 +8,12 @@ trend followers, noise traders — each sending orders to a simulated exchange o
 link. Spreads, depth, price impact and volatility are not assumed; they emerge from how the agents
 interact. Writing your own agent means writing one C++ class and naming it in a scenario file.
 
-> **Status:** the order book, the exchange, the simulation kernel, four built-in agents, scenario
+> **Status:** the order book, the exchange, the simulation kernel, six built-in agents, scenario
 > files, the `crowdbook` command and the Python analysis package are done, and
-> [docs/results.md](docs/results.md) reports the first experiments. You can trade in a market
-> yourself, in real time, and replay the session exactly afterwards, and a market with memory
-> shows volatility clustering for about an hour. Next: large orders worked over time. See
+> [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself,
+> in real time, and replay the session exactly afterwards. A market with memory shows volatility
+> clustering for about an hour, and brokers working large orders give order flow long memory and
+> price impact whose shape depends on how long the book remembers. Next: the trading day. See
 > [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
 > roadmap.
 
@@ -39,10 +40,10 @@ noise                     20          0          -1575        -1575
 
 A market maker with a fast connection earns the spread from twenty zero-intelligence traders.
 `run.csv` holds every order, cancel, fill, trade and top-of-book change. The same seed always
-reproduces the same run, byte for byte. [examples/scenarios](examples/scenarios) has four
-scenarios, including one with trend followers and one where informed traders know the asset's
-true value; [docs/scenarios.md](docs/scenarios.md) describes the file format and every agent
-parameter.
+reproduces the same run, byte for byte. [examples/scenarios](examples/scenarios) has ten
+scenarios, from this one to thousand-trader markets with informed traders, memory, or brokers
+working large orders; [docs/scenarios.md](docs/scenarios.md) describes the file format and every
+agent parameter.
 
 ## Results
 
@@ -55,13 +56,19 @@ over four such days and more than a thousand smaller markets ([docs/results.md](
   arrive as moves end, and the price reverses two ticks against them, which costs them 3.3 ticks
   on every lot.
 - **Headcount is not what matters.** The same order flow from 100 or 1,000 noise traders gives the
-  same market. Fat tails and volatility clustering appear only when agents react to prices: here,
-  over about ten seconds, from the trend followers.
+  same market. Fat tails and volatility clustering appear only when agents react to the market.
+- **Liquidity feedback makes volatility cluster.** When noise traders stand back from the book
+  after prices jump, the thinner book makes the next jump bigger: volatility clusters for about
+  an hour, and one-minute returns have fat tails.
+- **Large orders leave two marks.** Brokers working parent orders with a Pareto tail of sizes give
+  the signs of market orders the long memory that theory predicts from that tail. A parent's
+  impact grows almost linearly with its size in a book that forgets in seconds, and bends toward
+  the square root of real markets (an exponent of 0.6) when resting orders last 50 seconds.
 - **Informed traders barely cost the market maker.** Its fills against them lose about 0.9 ticks
   per lot. But by pulling prices back to value they make its fills against noise traders worth
   one to two ticks more, and the noise traders pay for both.
-- **What's missing.** Agents act at constant rates, so nothing makes volatility cluster for hours
-  as it does in real markets. That points to the next agents to build.
+- **What's missing.** Volatility clusters for an hour, not the weeks of real markets, and nothing
+  is calibrated to real order books yet.
 
 ![Mid move after the aggressive orders of noise traders, trend followers and informed traders](docs/images/impact.png)
 
@@ -71,6 +78,7 @@ The analysis is a separate Python package that drives the `crowdbook` command:
 cmake --workflow --preset release
 uv run --project analysis crowdbook-facts
 uv run --project analysis crowdbook-experiments
+uv run --project analysis crowdbook-large-orders
 ```
 
 ## Trade in it yourself

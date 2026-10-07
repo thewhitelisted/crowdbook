@@ -238,6 +238,9 @@ from C++ directly; [scenarios.md](scenarios.md) lists their parameters.
   strategy by the track record of each, choosing by a logit of the difference, and holds the
   position its chosen strategy calls for. Traders like it herd, since they all score the same
   price moves.
+- **Execution agent:** a broker's algorithm working parent orders of a Pareto-distributed size,
+  one at a time, with child market orders: an even pace in time (TWAP), or a share of the market's
+  volume (POV). Each child carries the parent's id, which the event log keeps.
 
 The fundamental value is an Ornstein–Uhlenbeck process (a random walk when its mean reversion is
 zero, the default) stepped with its exact discrete-time formulas from its own random stream, so
@@ -290,29 +293,39 @@ per minute varied by four percent. Having them place their limit orders further 
 have been jumping more than usual made volatility cluster for hours, because it closes a loop
 around volatility itself: jumps thin the book, and a thin book makes the next jump bigger.
 
+**Impact needs someone who does not know and a book that remembers.** Brokers working parents of
+random side moved the price by less than half a tick in a market whose informed traders see the
+true value: they absorbed the flow, as they should absorb anything that carries no information.
+Without them, impact grew almost linearly with a parent's size, because noise traders' orders
+lasting five seconds give the book no memory of where the price has been. Letting those orders
+rest for 50 seconds bent impact toward the square root of real markets.
+
 ## Analysis
 
 `analysis/` is a Python project, managed with [uv](https://docs.astral.sh/uv/), that drives the
 Release build of `crowdbook` through its command line and reads its CSV and JSON output, the same
 interface any user has. Nothing in the C++ build depends on it.
 
-- `log` reads event logs and price samples into [polars](https://pola.rs) data frames, and pairs
-  each execution's maker with its taker.
+- `log` reads event logs and price samples into [polars](https://pola.rs) data frames, pairs
+  each execution's maker with its taker, and puts parent orders back together from their
+  children.
 - `facts` holds the statistics: returns over a horizon, excess kurtosis, autocorrelation, tail
   distributions, volatility at each horizon (the signature plot), the time-weighted spread
-  distribution, the mid's move after aggressive orders by group and horizon, and markouts of
-  each execution for the agent whose resting order it filled.
+  distribution, the mid's move after aggressive orders by group and horizon, markouts of each
+  execution for the agent whose resting order it filled, and the impact of parent orders.
 - `runner` writes a scenario, runs it, and runs many in parallel.
 - `style` gives every chart the same thin marks and recessive axes, with series colors checked as a
   set for color-vision deficiencies.
-- `crowdbook-facts` measures stylized facts of the large example markets, and `crowdbook-experiments`
-  runs the market-maker experiments. Both print their tables as Markdown and save their charts to
-  `docs/images`; [results.md](results.md) reports what they found.
+- `crowdbook-facts` measures stylized facts of the large example markets,
+  `crowdbook-experiments` runs the market-maker experiments, and `crowdbook-large-orders` measures
+  the memory of order signs and the impact of parent orders. Each prints its tables as Markdown
+  and saves its charts to `docs/images`; [results.md](results.md) reports what they found.
 
 ```bash
 cmake --workflow --preset release
 uv run --project analysis crowdbook-facts
 uv run --project analysis crowdbook-experiments
+uv run --project analysis crowdbook-large-orders
 ```
 
 ## Testing
@@ -425,6 +438,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | Adaptive traders | A target position set by the chosen strategy, not an order per decision | Ordering every decision filled their limits within a minute; Brock and Hommes model demand as a position |
 | Post-only | A time in force, rejected if it would trade | Several exchanges model it this way ("good till crossing"), and it needs no new order field |
 | Fee units | Thousandths of a tick-lot, kept apart from cash | Real fees are fractions of a tick; a separate integer keeps accounting exact without shrinking the price range |
+| Parent orders | An optional parent id on a new order, which the exchange ignores and the log keeps | An analysis can rebuild every parent from the log, as FIX's linked order ids allow; agents need nothing new |
+| VWAP | Comes with the trading day, not with TWAP and POV | It follows a forecast of the day's volume curve; until the market has a day, it is TWAP |
 | Live play | A pacer around runUntil plus Simulation::act, on one thread | Wall-clock time only decides when a person's actions happen, so a recording replays exactly |
 | Trading screen | Terminal, with ANSI escape codes and no library | Runs anywhere with a terminal and adds no dependency; a browser screen comes with the gateway |
 | Session files | TOML holding the scenario's text, the seed and every request with its time | A session replays even when its scenario file changes or is gone |
@@ -446,8 +461,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M6 | Depth and order types: the best levels of the book in market data, post-only orders, maker–taker fees | The published depth matches the book after every random request; fees paid add up to fees collected; planted bugs caught | Done |
 | M7 | Playable slice: real time at adjustable speed, an outside participant, a terminal price ladder, sessions recorded for replay | A recorded session, scripted and played through the real screen, replays to a byte-identical log | Done |
 | M8 | Memory in the crowd: news jumps in the true value, noise traders whose pace follows activity and whose limit orders stand back when prices jump, traders who switch between value and trend strategies by their track records | Volatility clustering at one minute that lasts hours, fat one-minute tails, and ablations naming the cause, in [results.md](results.md) | Done |
-| M9 | Large orders worked over time: execution agents slicing parent orders (TWAP, VWAP, percentage of volume) | Long memory in the signs of market orders; square-root impact of parent orders | Next |
-| M10 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |
+| M9 | Large orders worked over time: execution agents slicing parent orders (TWAP and percentage of volume), parent ids in the log | Long memory in the signs of market orders; how the impact of parent orders grows with their size, in [results.md](results.md) | Done |
+| M10 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Next |
 | M11 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
 | M12 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
 | M13 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |

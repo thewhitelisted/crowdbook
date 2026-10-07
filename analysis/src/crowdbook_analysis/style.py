@@ -96,9 +96,11 @@ def line(ax, x, y, slot: int, label: str, *, markers: bool = True, error=None) -
     )
 
 
-def reference(ax, x, y, label: str) -> None:
-    """A thin muted line for a reference curve, such as a normal distribution."""
-    ax.plot(x, y, color=INK_MUTED, linewidth=HAIRLINE * 1.5, label=label)
+def reference(ax, x, y, label: str, *, dashed: bool = False) -> None:
+    """A thin muted line for a reference curve, such as a normal distribution; dashed to tell a
+    second one apart."""
+    ax.plot(x, y, color=INK_MUTED, linewidth=HAIRLINE * 1.5, label=label,
+            linestyle=(0, (4, 3)) if dashed else "-")
 
 
 def stems(ax, x, y, slot: int, label: str, offset: float = 0.0) -> None:
