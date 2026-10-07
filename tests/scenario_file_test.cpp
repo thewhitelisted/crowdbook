@@ -31,6 +31,8 @@ reference_price = 5000
 mean_reversion = 0.5
 volatility = 3.0
 step = "50ms"
+jump_rate = 0.01
+jump_size = 8.0
 
 [exchange]
 depth_levels = 5
@@ -70,6 +72,8 @@ count = 30
     EXPECT_EQ(scenario.fundamental->meanReversion, 0.5);
     EXPECT_EQ(scenario.fundamental->volatility, 3.0);
     EXPECT_EQ(scenario.fundamental->step, 50 * kMillisecond);
+    EXPECT_EQ(scenario.fundamental->jumpRate, 0.01);
+    EXPECT_EQ(scenario.fundamental->jumpSize, 8.0);
     EXPECT_EQ(scenario.exchange.depthLevels, 5U);
     EXPECT_EQ(scenario.exchange.makerFee, -250);
     EXPECT_EQ(scenario.exchange.takerFee, 300);

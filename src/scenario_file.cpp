@@ -115,7 +115,8 @@ private:
 
 FundamentalConfig readFundamental(const Reader& reader, const toml::table& table,
                                   Price referencePrice) {
-    reader.allowOnly(table, {"initial", "mean_reversion", "volatility", "step"},
+    reader.allowOnly(table,
+                     {"initial", "mean_reversion", "volatility", "step", "jump_rate", "jump_size"},
                      "in [fundamental]");
     FundamentalConfig config{.initial = static_cast<double>(referencePrice)};
     if (const auto* node = table.get("initial")) {
@@ -129,6 +130,12 @@ FundamentalConfig readFundamental(const Reader& reader, const toml::table& table
     }
     if (const auto* node = table.get("step")) {
         config.step = reader.duration(*node, "step");
+    }
+    if (const auto* node = table.get("jump_rate")) {
+        config.jumpRate = reader.number(*node, "jump_rate");
+    }
+    if (const auto* node = table.get("jump_size")) {
+        config.jumpSize = reader.number(*node, "jump_size");
     }
     return config;
 }

@@ -65,6 +65,36 @@ TEST(FundamentalTest, MeanReversionHoldsTheValueNearItsMean) {
     EXPECT_NEAR(sumOfSquares / kPaths - mean * mean, 2.0, 0.2);
 }
 
+TEST(FundamentalTest, NewsArrivesAsAPoissonProcessOfNormalJumps) {
+    // No diffusion, so every change is a jump: one a second on average, 5 ticks each.
+    Fundamental fundamental{{.initial = 1'000.0,
+                             .volatility = 0.0,
+                             .step = 100 * kMillisecond,
+                             .jumpRate = 1.0,
+                             .jumpSize = 5.0},
+                            Random{4, 0}};
+    double previous = fundamental.valueAt(0);
+    double sumOfSquares = 0.0;
+    for (Timestamp time = 100 * kMillisecond; time <= 10'000 * kSecond;
+         time += 100 * kMillisecond) {
+        const double value = fundamental.valueAt(time);
+        sumOfSquares += (value - previous) * (value - previous);
+        previous = value;
+    }
+    // 10,000 jumps expected, give or take 100; their sizes average 25 square ticks.
+    EXPECT_NEAR(static_cast<double>(fundamental.jumps()), 10'000.0, 400.0);
+    EXPECT_NEAR(sumOfSquares / static_cast<double>(fundamental.jumps()), 25.0, 1.5);
+}
+
+TEST(FundamentalTest, WithoutNewsThePathIsTheSameAsBefore) {
+    // Turning news off makes no draws for it, so earlier results stay reproducible.
+    Fundamental quiet{{.volatility = 2.0, .step = 10 * kMillisecond}, Random{9, 0}};
+    Fundamental withRateOnly{{.volatility = 2.0, .step = 10 * kMillisecond, .jumpSize = 4.0},
+                             Random{9, 0}};
+    EXPECT_EQ(quiet.valueAt(100 * kSecond), withRateOnly.valueAt(100 * kSecond));
+    EXPECT_EQ(quiet.jumps(), 0);
+}
+
 TEST(FundamentalTest, RejectsReadsBackInTimeAndInvalidConfigs) {
     Fundamental fundamental{{.step = kSecond}, Random{1, 0}};
     static_cast<void>(fundamental.valueAt(5 * kSecond));
@@ -74,6 +104,8 @@ TEST(FundamentalTest, RejectsReadsBackInTimeAndInvalidConfigs) {
     EXPECT_THROW((Fundamental{{.step = 0}, Random{1, 0}}), std::invalid_argument);
     EXPECT_THROW((Fundamental{{.volatility = -1.0}, Random{1, 0}}), std::invalid_argument);
     EXPECT_THROW((Fundamental{{.meanReversion = -1.0}, Random{1, 0}}), std::invalid_argument);
+    EXPECT_THROW((Fundamental{{.jumpRate = -1.0}, Random{1, 0}}), std::invalid_argument);
+    EXPECT_THROW((Fundamental{{.jumpSize = -1.0}, Random{1, 0}}), std::invalid_argument);
 }
 
 } // namespace

@@ -15,7 +15,11 @@ Fundamental::Fundamental(const FundamentalConfig& config, Random random)
         throw std::invalid_argument(
             "the fundamental's volatility and mean reversion must not be negative");
     }
+    if (!(config.jumpRate >= 0.0) || !(config.jumpSize >= 0.0)) {
+        throw std::invalid_argument("the jump rate and jump size must not be negative");
+    }
     const double seconds = static_cast<double>(config.step) / static_cast<double>(kSecond);
+    jumpsPerStep_ = config.jumpRate * seconds;
     const double theta = config.meanReversion;
     if (theta > 0.0) {
         decay_ = std::exp(-theta * seconds);
@@ -36,6 +40,22 @@ double Fundamental::valueAt(Timestamp time) {
     for (; step_ < target; ++step_) {
         value_ = config_.initial + (value_ - config_.initial) * decay_ +
                  shockScale_ * random_.normal(0.0, 1.0);
+        if (jumpsPerStep_ > 0.0) {
+            // The number of jumps in one step is Poisson: walk its distribution to a uniform draw.
+            const double draw = random_.uniform();
+            double probability = std::exp(-jumpsPerStep_);
+            double cumulative = probability;
+            std::int64_t count = 0;
+            while (draw > cumulative && probability > 0.0) {
+                ++count;
+                probability *= jumpsPerStep_ / static_cast<double>(count);
+                cumulative += probability;
+            }
+            for (std::int64_t jump = 0; jump < count; ++jump) {
+                value_ += random_.normal(0.0, config_.jumpSize);
+            }
+            jumps_ += count;
+        }
     }
     return value_;
 }
