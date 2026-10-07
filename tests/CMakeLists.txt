@@ -15,6 +15,7 @@ add_executable(crowdbook_tests
     fundamental_test.cpp
     informed_test.cpp
     ledger_test.cpp
+    live_test.cpp
     market_maker_test.cpp
     momentum_test.cpp
     order_book_differential_test.cpp
@@ -23,6 +24,7 @@ add_executable(crowdbook_tests
     random_test.cpp
     scenario_file_test.cpp
     scenario_test.cpp
+    session_test.cpp
     simulation_determinism_test.cpp
     simulation_test.cpp
     version_test.cpp
