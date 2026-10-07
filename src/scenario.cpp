@@ -102,6 +102,9 @@ RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
     result.trades = counter.trades();
     result.volume = counter.volume();
     result.lastPrice = counter.lastPrice().value_or(scenario.referencePrice);
+    if (environment.fundamental) {
+        result.finalValue = environment.fundamental->valueAt(scenario.duration);
+    }
     for (std::size_t index = 0; index < scenario.groups.size(); ++index) {
         const AccountConfig& start = scenario.groups[index].options.account;
         GroupResult& summary = result.groups[index];

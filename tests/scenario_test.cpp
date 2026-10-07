@@ -68,6 +68,9 @@ TEST(ScenarioTest, InformedTradersSeeTheFundamental) {
 
     const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns());
     EXPECT_NE(result.groups[1].position, 0); // the informed traders did trade
+    ASSERT_TRUE(result.finalValue.has_value());
+    EXPECT_NE(*result.finalValue, 1'000.0); // the value moved during the run
+    EXPECT_FALSE(runScenario(marketWithAMaker(), AgentRegistry::withBuiltIns()).finalValue);
 }
 
 TEST(ScenarioTest, NamesTheGroupAtFault) {

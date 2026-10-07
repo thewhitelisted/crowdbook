@@ -53,6 +53,8 @@ struct RunResult {
     std::uint64_t trades = 0;
     Quantity volume = 0;
     Price lastPrice = 0; // the last trade price, or the reference price if nothing traded
+    // The fundamental value at the end, if the scenario has one, to compare with lastPrice.
+    std::optional<double> finalValue{};
     std::vector<GroupResult> groups{};
 };
 
