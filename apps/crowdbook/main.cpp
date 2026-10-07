@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <format>
 #include <initializer_list>
@@ -66,9 +67,11 @@ std::uint64_t parseSeed(std::string_view text) {
 }
 
 double parseSpeed(std::string_view text) {
-    double speed = 0.0;
-    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), speed);
-    if (error != std::errc{} || end != text.data() + text.size() || !(speed > 0.0)) {
+    // strtod rather than from_chars, whose floating-point form older standard libraries lack.
+    const std::string copy{text};
+    char* end = nullptr;
+    const double speed = std::strtod(copy.c_str(), &end);
+    if (copy.empty() || end != copy.c_str() + copy.size() || !(speed > 0.0)) {
         throw UsageError(std::format("--speed needs a positive number, not '{}'", text));
     }
     return speed;
