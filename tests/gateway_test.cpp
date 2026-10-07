@@ -649,6 +649,79 @@ TEST(GatewayTest, TheLossLimitStopsASeatAndTheReplayAgrees) {
     EXPECT_EQ(result.scores[0].score, *ends[0].score);
 }
 
+// The rows of a CSV event log up to and including `time`.
+std::string rowsUntil(const std::string& log, Timestamp time) {
+    std::istringstream lines{log};
+    std::string kept;
+    std::string line;
+    std::getline(lines, line);
+    kept += line + "\n"; // the header
+    while (std::getline(lines, line)) {
+        if (std::stoll(line.substr(0, line.find(','))) > time) {
+            break;
+        }
+        kept += line + "\n";
+    }
+    return kept;
+}
+
+// A served session rewound to a moment is the same market up to there; its seats are handed back
+// with their open orders, under the ids those orders have inside the market, and the new session
+// replays exactly.
+TEST(GatewayTest, ARewoundSessionServesOnFromTheMoment) {
+    std::ostringstream first;
+    CsvEventLog firstSink{first};
+    Started original{twoSeats(), kScenario, &firstSink};
+    original.alice.send(bid(1, 900, 2), kSecond);
+    original.bob.send(offer(1, 1'100, 3), kSecond);
+    original.alice.send(bid(2, 905, 1), 2 * kSecond);
+    original.gateway.advance(3 * kSecond);
+    original.alice.send(protocol::ClientMessage{CancelOrder{.clientOrderId = 2}}, 3 * kSecond);
+    original.gateway.stop(5 * kSecond);
+    const Session session = original.gateway.session();
+    ASSERT_EQ(session.actions.size(), 4U);
+
+    std::ostringstream second;
+    CsvEventLog secondSink{second};
+    GatewayOptions options;
+    options.rewind = session;
+    options.rewindAt = 2'500 * kMs;
+    Gateway rewound{parseScenario(kScenario), "", AgentRegistry::withBuiltIns(), options,
+                    &secondSink};
+    EXPECT_EQ(rewound.now(), 2'500 * kMs);
+    EXPECT_EQ(rewound.session().actions.size(), 3U); // the cancel at 3s is cut
+    EXPECT_EQ(rewound.session().seats, session.seats);
+    EXPECT_EQ(rowsUntil(second.str(), 2'500 * kMs), rowsUntil(first.str(), 2'500 * kMs));
+
+    Client alice{rewound, 0};
+    alice.hello("alice", 0);
+    const auto welcome = only<protocol::Welcome>(alice.read());
+    ASSERT_EQ(welcome.size(), 1U);
+    ASSERT_EQ(welcome[0].orders.size(), 2U);
+    EXPECT_EQ(welcome[0].time, 2'500 * kMs);
+    const ClientOrderId kept = welcome[0].orders[1].clientOrderId;
+    Client bob{rewound, 0};
+    bob.hello("bob", 0);
+    EXPECT_TRUE(rewound.started());
+    // Alice cancels the other order this time, by the id her welcome gave it.
+    alice.send(protocol::ClientMessage{CancelOrder{.clientOrderId = welcome[0].orders[0]
+                                                                      .clientOrderId}},
+               100 * kMs);
+    rewound.advance(200 * kMs);
+    const auto cancelled = events<OrderCancelled>(alice.read());
+    ASSERT_EQ(cancelled.size(), 1U);
+    EXPECT_EQ(cancelled[0].clientOrderId, welcome[0].orders[0].clientOrderId);
+    alice.send(bid(kept, 1, 1), 300 * kMs); // a live id is still taken
+    EXPECT_EQ(events<OrderRejected>(alice.read()).size(), 1U);
+    rewound.stop(kSecond);
+
+    std::ostringstream replayed;
+    CsvEventLog replaySink{replayed};
+    static_cast<void>(
+        replaySession(rewound.session(), AgentRegistry::withBuiltIns(), &replaySink));
+    EXPECT_EQ(replayed.str(), second.str());
+}
+
 TEST(GatewayTest, OptionsAreChecked) {
     const Scenario scenario = parseScenario(kScenario);
     const AgentRegistry registry = AgentRegistry::withBuiltIns();
@@ -673,6 +746,10 @@ TEST(GatewayTest, OptionsAreChecked) {
     GatewayOptions groupName;
     groupName.seats = {"maker"};
     EXPECT_THROW(build(groupName), ScenarioError);
+    GatewayOptions pastTheEnd;
+    pastTheEnd.rewind = Session{.end = kSecond};
+    pastTheEnd.rewindAt = 2 * kSecond;
+    EXPECT_THROW(build(pastTheEnd), std::invalid_argument);
 }
 
 } // namespace

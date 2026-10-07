@@ -13,8 +13,11 @@ struct PlayOptions {
     std::string scenarioPath{};
     std::optional<std::uint64_t> seed{};
     std::optional<Duration> duration{};
+    // When set, scenarioPath is a session, rewound to this moment and played on from there.
+    std::optional<Timestamp> rewindAt{};
     double speed = 1.0;
     std::optional<std::string> recordPath{}; // where to write the session, for crowdbook replay
+    std::optional<std::string> reportPath{}; // where to write the session report, as JSON
     OutputOptions outputs{};                 // of which play writes only the event log
 };
 

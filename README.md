@@ -15,11 +15,12 @@ or writing a program in any language that trades over the network.
 > [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself, in
 > real time, and replay the session exactly afterwards, and a server lets several people and bots
 > trade in one market over the network, with a Python client for writing bots, in challenges that
-> score them. A market with memory shows volatility clustering for about an hour, and brokers
-> working large orders give order flow long memory and price impact whose shape depends on how long
-> the book remembers. Next: session reports, and what the market would have done without you. See
-> [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
-> roadmap.
+> score them, and a report after each session shows who you traded with, what they knew and what the
+> market would have done without you. A market with memory shows volatility clustering for about an
+> hour, and brokers working large orders give order flow long memory and price impact whose shape
+> depends on how long the book remembers. Next: the engine as a library, with versioned formats and
+> packaging. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
+> approach and the roadmap.
 
 ## Quick start
 
@@ -181,6 +182,36 @@ dropped connection cancels its seat's orders. The server checks every message an
 each connection may send, and it listens only on 127.0.0.1 unless `--listen` says otherwise. The
 recording replays the whole session, every seat's orders included, to the same event log byte for
 byte.
+
+## After the session: what you could not see
+
+`crowdbook report` replays a recorded session and tells each seat what a real market never
+would: who was on the other side of every fill, how far the true value was from the price when
+they traded, and what the market would have done without you, by replaying it without your
+orders.
+
+```bash
+./build/release/apps/crowdbook report examples/sessions/served_demo.toml --json report.json
+```
+
+```
+seat alice: 23 fills, 42 lots
+  traded with      type                fills  bought    sold   their edge   your markout
+  noise            zero_intelligence      19      14      21        -1.05          +0.50
+  informed         informed                3       6       0        +2.76              -
+  bob              participant             1       0       1        -3.65              -
+  pnl at the end +24.2, +33.0 at the true value (tick-lots, net of fees)
+  without you: last price 10003 instead of 10003; you moved the mid +0.15 ticks on average
+```
+
+Alice made her money off the noise traders, and gave almost three ticks a lot to the informed
+traders, who knew the true value when they traded with her. `play` and `serve` write the same
+report at the end with `--report`. And any session can be rewound to a moment and played on
+differently:
+
+```bash
+./build/release/apps/crowdbook play session.toml --at 2m --record retry.toml
+```
 
 ## Challenges
 

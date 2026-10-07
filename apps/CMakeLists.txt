@@ -65,6 +65,15 @@ if(CROWDBOOK_BUILD_TESTS)
         COMMAND crowdbook_cli replay "${PROJECT_SOURCE_DIR}/examples/sessions/served_demo.toml")
     set_tests_properties(cli.replay_served PROPERTIES
         PASS_REGULAR_EXPRESSION "replayed 30s with 46 actions")
+    add_test(NAME cli.report
+        COMMAND crowdbook_cli report "${PROJECT_SOURCE_DIR}/examples/sessions/served_demo.toml"
+            --json "${CMAKE_CURRENT_BINARY_DIR}/report.json")
+    set_tests_properties(cli.report PROPERTIES PASS_REGULAR_EXPRESSION "without you: last price")
+    add_test(NAME cli.rewind_keeps_the_seed
+        COMMAND crowdbook_cli play "${PROJECT_SOURCE_DIR}/examples/sessions/playable_demo.toml"
+            --at 10s --seed 4)
+    set_tests_properties(cli.rewind_keeps_the_seed PROPERTIES
+        PASS_REGULAR_EXPRESSION "--at rewinds a session, which keeps its seed")
     add_test(NAME cli.replay_takes_no_seed
         COMMAND crowdbook_cli replay "${PROJECT_SOURCE_DIR}/examples/sessions/playable_demo.toml"
             --seed 3)

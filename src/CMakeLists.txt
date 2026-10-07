@@ -51,6 +51,7 @@ if(CROWDBOOK_BUILD_SCENARIOS)
     FetchContent_MakeAvailable(tomlplusplus)
 
     add_library(crowdbook_scenario
+        report.cpp
         scenario_file.cpp
         session.cpp)
     add_library(crowdbook::scenario ALIAS crowdbook_scenario)

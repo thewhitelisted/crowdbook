@@ -340,11 +340,41 @@ Session loadSession(const std::filesystem::path& path) {
     return parseSession(text.str(), path.string());
 }
 
-RunResult replaySession(const Session& session, const AgentRegistry& registry, EventSink* sink) {
+RewoundSession rewindSession(const Session& session, Timestamp at,
+                             const AgentRegistry& registry, EventSink* sink) {
+    if (at < 0 || at > session.end) {
+        throw ScenarioError(std::format("the session runs from 0 to {} ns; it cannot be "
+                                        "rewound to {} ns",
+                                        session.end, at));
+    }
+    Scenario scenario = parseScenario(session.scenario, "the session's scenario");
+    scenario.seed = session.seed;
+    RewoundSession rewound{.market = openSession(scenario, registry, sink, session.seats),
+                           .record = {.scenario = session.scenario,
+                                      .seed = session.seed,
+                                      .seats = session.seats}};
+    for (const SessionAction& action : session.actions) {
+        if (action.time > at) {
+            break;
+        }
+        rewound.market.run.runUntil(action.time);
+        static_cast<void>(perform(rewound.market.run.simulation(),
+                                  rewound.market.seats.at(action.seat).agent, action));
+        rewound.record.actions.push_back(action);
+    }
+    rewound.market.run.runUntil(at);
+    return rewound;
+}
+
+RunResult replaySession(const Session& session, const AgentRegistry& registry, EventSink* sink,
+                        const std::vector<std::uint32_t>& without) {
     Scenario scenario = parseScenario(session.scenario, "the session's scenario");
     scenario.seed = session.seed;
     SessionMarket market = openSession(scenario, registry, sink, session.seats);
     for (const SessionAction& action : session.actions) {
+        if (std::ranges::find(without, action.seat) != without.end()) {
+            continue;
+        }
         market.run.runUntil(action.time);
         static_cast<void>(
             perform(market.run.simulation(), market.seats.at(action.seat).agent, action));

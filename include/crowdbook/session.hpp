@@ -73,11 +73,27 @@ void writeSession(std::ostream& out, const Session& session);
 // Reads and parses a session file. Throws ScenarioError if it cannot be read or parsed.
 [[nodiscard]] Session loadSession(const std::filesystem::path& path);
 
+// A session rewound to `at`: its market built with openSession, every action up to and including
+// `at` performed again, and the market run to `at`, ready to be played on from there. The
+// actions performed are in the returned recording, which a session played on from here extends.
+// Throws as replaySession does, and ScenarioError for a moment past the session's end.
+struct RewoundSession {
+    SessionMarket market;
+    Session record;
+};
+[[nodiscard]] RewoundSession rewindSession(const Session& session, Timestamp at,
+                                           const AgentRegistry& registry,
+                                           EventSink* sink = nullptr);
+
 // Replays a session: builds its market with openSession, performs every action at its time and
 // runs to the session's end. Every request and event goes to `sink`, if there is one, so the
 // event log comes out exactly as it did during the session, and the scores are computed again.
-// Throws std::logic_error if the replay diverges from the recording.
+// The actions of the seats listed in `without`, by index, are left out: their participants are
+// still there but send nothing, which replays the market as it would have been without them.
+// Throws std::logic_error if the replay diverges from the recording, which leaving seats out
+// can make it do only through the client order ids of the seats that remain, and never does.
 [[nodiscard]] RunResult replaySession(const Session& session, const AgentRegistry& registry,
-                                      EventSink* sink = nullptr);
+                                      EventSink* sink = nullptr,
+                                      const std::vector<std::uint32_t>& without = {});
 
 } // namespace crowdbook

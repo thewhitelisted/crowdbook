@@ -337,6 +337,35 @@ working a large order, trading the news, and making markets against informed tra
 bots play every one of them in CI, and each session's score from the server must equal the score
 of its replay.
 
+## Session reports
+
+`crowdbook report` reads a session file and tells each seat what a real market never would. It
+works from the recording alone, by replaying it, so anyone holding the file gets the same report;
+`play` and `serve` write one at the end when asked.
+
+- **Who you traded with.** The exchange reports each execution as the maker's fill, then the
+  taker's, then the trade, so a replay pairs every fill of the seat with the agent on the other
+  side, and the scenario's groups name it: noise, the market maker, an informed trader.
+- **What they knew.** For each fill, the true value at that moment, and the mid one, ten and sixty
+  seconds later. Summed by counterparty, this is each group's edge against the seat: how far the
+  price was from the true value in their favour when they traded with you. Informed traders see
+  the value, so their edge is the price of trading with them.
+- **PnL over time.** The seat's position, cash and PnL, at the last trade price and at the true
+  value, every second.
+- **The market without you.** The session replayed without the seat's orders: the same seed and
+  everyone else's orders as they would have been, a market in which the seat never traded. The
+  report compares its prices with the real session's, which measures the seat's impact. The
+  replay keeps the seat's participant, which sends nothing, so every other agent keeps its id and
+  random streams; its event log is byte for byte the log of the scenario run with no participant
+  at all, which a test checks.
+- **The true value, after the fact.** A report builds its own copy of the true value from the
+  scenario's seed. The value draws only from its own random stream, so the copy's path is the one
+  the market had, and reading it at any time changes nothing in the replay.
+
+Rewinding is a recording cut short: `play --from session.toml --at 2m` and the same for `serve`
+replay a session's requests up to that moment, then hand its seats to people and programs again.
+The new recording holds the replayed requests and the new ones, so it replays like any other.
+
 ## Agents and scenarios
 
 Five agent types are built in. Each is a plain class configured by a struct, so it can be used
@@ -531,7 +560,15 @@ uv run --project analysis crowdbook-large-orders
   a stopped seat still trading, a stop that cancels nothing, an end without the score, a
   welcome without the scoring, a scorer that hears nothing, seats it does not know) were each
   caught, three of them only once the tests pinned the exact boundary: a loss equal to the
-  limit, a deeper loss after the stop, and a position held from the start.
+  limit, a deeper loss after the stop, and a position held from the start. Fifteen in reports,
+  replays without a seat and rewinding (each side its own counterparty, the edge from the seat's
+  side, the markout a second on instead of ten, the mid of the change before, markouts past the
+  end, values from another seed, PnL at value taken at the last price, cash moving the wrong
+  way, a market without the seat that keeps it, seats to leave out kept, a rewind that keeps
+  every action or stops short of its moment, rewound orders under no id, rewound actions not
+  recorded, a rewound gateway left at the last action) were each caught, four only after the
+  tests were made to tell them apart: a market whose mid moves between one and ten seconds, a
+  true value that stands still, and a rewind to a moment after the last action.
 - **Session tests** play a scripted session the way a live one runs, in uneven steps with requests
   at chosen nanoseconds, then write it, read it back and replay it: the event log must come out
   byte for byte the same. The real `play` command was also driven through a pseudo-terminal with
@@ -553,6 +590,14 @@ uv run --project analysis crowdbook-large-orders
   loss limit stopping at the trade that reaches it. A gateway test stops a seat whose fees take
   it past its loss limit: its resting order is cancelled, its next order is refused, and the
   replay's event log and score both match the live session's.
+- **Report tests** check a report against hand-built sessions: each fill paired with the right
+  counterparty, markouts and edges to the tick in a market whose mid and value are known, every
+  fill and lot accounted for by the counterparties, the last PnL and the score equal to the
+  session's results, true values equal to an independent copy of the value's path, no impact
+  from a seat that never trades and a positive one from a seat that buys a hundred lots, and the
+  same JSON every time. Replaying a session without its seat gives the log of the scenario run
+  with no participant, byte for byte. A rewound session matches the original up to the moment,
+  its seats get their open orders back under their ids, and what is played on replays exactly.
 - **Client model tests** feed a client only the protocol messages for its seat while it trades,
   modifies and cancels for 200 steps: its ledger and its view of the market must equal the
   server's exactly, before and after the seat is claimed again.
@@ -619,6 +664,9 @@ Choices for later milestones may change once they are implemented; changes are r
 | Scores | Computed by the engine from the exchange's events, live and in replays alike | A score anyone can recompute from the session file is one a competition can trust |
 | Loss limit | Stops new orders and cancels open ones; the seat is still scored at the end | What a risk manager does, deterministic from the events, and no way to escape a loss by being stopped |
 | Large orders | Scored against a paper portfolio filled at the benchmark, plus a penalty per unfinished lot | Implementation shortfall, the standard measure, in one formula; the penalty makes finishing the order matter |
+| Counterfactual | The session replayed without the seat's requests, its participant kept but silent | Every other agent keeps its id and its random streams, so the difference is the seat's doing alone |
+| Reports | Built from the session file by replaying it | A report is as checkable as a score; the live market carries no extra bookkeeping |
+| Rewind | A session file cut at a moment, then played on | Nothing new to save or restore: the recording already determines every state |
 | Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
@@ -653,8 +701,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M10 | Gateway: a network protocol for orders and market data, its messages kept apart from their encoding (JSON lines first); `crowdbook serve`, a market with seats for several people and bots at once; every arrival recorded, so a session with many participants still replays exactly; input treated as untrusted, with size and rate limits; the terminal screen as a client over the network | A bot and the terminal screen trade in one served market, and its recording replays byte for byte; the parser survives randomized malformed input; planted bugs caught | Done |
 | M11 | Python client and example bots: a package installable with pip, using only the standard library; a market maker and a momentum bot as examples | A Python bot trades under the same limits, latency and fees as built-in agents, in CI | Done |
 | M12 | Scoring and challenges: a scoring section in scenarios (PnL, risk-adjusted PnL, slippage against a benchmark, inventory and loss limits), computed by the engine; challenges with briefings (make markets within a risk limit, work a large order, trade the news, find the informed flow) | A score recomputed from the session's replay equals the live one; the example bots play every challenge in CI | Done |
-| M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Next |
-| M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Planned |
+| M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Done |
+| M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Next |
 | M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Planned (hosted product) |
 | M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Planned |
 | M17 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |

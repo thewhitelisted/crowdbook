@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <fstream>
 #include <format>
 #include <initializer_list>
 #include <iostream>
@@ -20,6 +21,7 @@
 
 #include "crowdbook/agent_registry.hpp"
 #include "crowdbook/parameters.hpp"
+#include "crowdbook/report.hpp"
 #include "crowdbook/scenario.hpp"
 #include "crowdbook/scenario_file.hpp"
 #include "crowdbook/session.hpp"
@@ -36,16 +38,20 @@ constexpr std::string_view kUsage =
     "usage: crowdbook run <scenario.toml> [--seed N] [--duration D] [--log FILE]\n"
     "                     [--log-only KIND,KIND...] [--json FILE]\n"
     "                     [--prices FILE] [--depth FILE] [--sample-interval D]\n"
-    "       crowdbook play <scenario.toml> [--seed N] [--duration D] [--speed X]\n"
-    "                      [--record FILE] [--log FILE] [--log-only KIND,KIND...]\n"
-    "       crowdbook serve <scenario.toml> [--seat NAME]... [--listen HOST:PORT]\n"
+    "       crowdbook play <scenario.toml | session.toml --at D> [--seed N]\n"
+    "                      [--duration D] [--speed X]\n"
+    "                      [--record FILE] [--report FILE] [--log FILE]\n"
+    "                      [--log-only KIND,KIND...]\n"
+    "       crowdbook serve <scenario.toml | session.toml --at D> [--seat NAME]...\n"
+    "                       [--listen HOST:PORT]\n"
     "                       [--tokens FILE] [--rate-limit N] [--seed N] [--duration D]\n"
-    "                       [--speed X] [--record FILE] [--log FILE]\n"
+    "                       [--speed X] [--record FILE] [--report FILE] [--log FILE]\n"
     "                       [--log-only KIND,KIND...] [--json FILE]\n"
     "       crowdbook connect <host:port> [--seat NAME] [--token TOKEN]\n"
     "       crowdbook replay <session.toml> [--log FILE] [--log-only KIND,KIND...]\n"
     "                        [--json FILE] [--prices FILE] [--depth FILE]\n"
     "                        [--sample-interval D]\n"
+    "       crowdbook report <session.toml> [--json FILE] [--interval D]\n"
     "       crowdbook agents\n"
     "       crowdbook --version\n";
 
@@ -60,6 +66,9 @@ struct CommandLine {
     std::optional<std::string> tokensPath{};
     std::optional<std::int64_t> rateLimit{};
     std::optional<std::string> token{};
+    std::optional<std::string> reportPath{};
+    std::optional<Duration> interval{};
+    std::optional<Timestamp> at{};
     OutputOptions outputs{};
 };
 
@@ -133,6 +142,12 @@ CommandLine parseCommandLine(std::span<char*> args, std::string_view command,
             line.seats.emplace_back(value());
         } else if (arg == "--listen") {
             line.listen = std::string{value()};
+        } else if (arg == "--report") {
+            line.reportPath = std::string{value()};
+        } else if (arg == "--at") {
+            line.at = parseDuration(value());
+        } else if (arg == "--interval") {
+            line.interval = parseDuration(value());
         } else if (arg == "--token") {
             line.token = std::string{value()};
         } else if (arg == "--tokens") {
@@ -213,35 +228,80 @@ int replay(std::span<char*> args) {
     return 0;
 }
 
+// A rewound session keeps its seed, its seats and the actions it rewinds through.
+void checkRewind(const CommandLine& line) {
+    if (line.at && line.seed) {
+        throw UsageError(
+            "--at rewinds a session, which keeps its seed: --seed cannot change it");
+    }
+    if (line.at && !line.seats.empty()) {
+        throw UsageError(
+            "--at rewinds a session, which keeps its seats: --seat cannot change them");
+    }
+}
+
 int playCommand(std::span<char*> args) {
     const CommandLine line = parseCommandLine(
-        args, "play", {"--seed", "--duration", "--speed", "--record", "--log", "--log-only"});
+        args, "play",
+        {"--at", "--seed", "--duration", "--speed", "--record", "--report", "--log", "--log-only"});
+    checkRewind(line);
     return play({.scenarioPath = line.path,
                  .seed = line.seed,
                  .duration = line.duration,
+                 .rewindAt = line.at,
                  .speed = line.speed.value_or(1.0),
                  .recordPath = line.recordPath,
+                 .reportPath = line.reportPath,
                  .outputs = line.outputs});
 }
 
 int serveCommand(std::span<char*> args) {
     const CommandLine line = parseCommandLine(
         args, "serve",
-        {"--seat", "--listen", "--tokens", "--rate-limit", "--seed", "--duration", "--speed",
-         "--record", "--log", "--log-only", "--json"});
+        {"--at", "--seat", "--listen", "--tokens", "--rate-limit", "--seed", "--duration",
+         "--speed", "--record", "--report", "--log", "--log-only", "--json"});
+    checkRewind(line);
     ServeOptions options{.scenarioPath = line.path,
                          .seed = line.seed,
                          .duration = line.duration,
+                         .rewindAt = line.at,
                          .speed = line.speed.value_or(1.0),
                          .seats = line.seats,
                          .tokensPath = line.tokensPath,
                          .rateLimit = line.rateLimit,
                          .recordPath = line.recordPath,
+                         .reportPath = line.reportPath,
                          .outputs = line.outputs};
     if (line.listen) {
         parseListen(*line.listen, options.host, options.port);
     }
     return serve(options);
+}
+
+int reportCommand(std::span<char*> args) {
+    const CommandLine line = parseCommandLine(args, "report", {"--json", "--interval"});
+    const Session session = loadSession(line.path);
+    std::ofstream json;
+    if (line.outputs.jsonPath) {
+        json.open(*line.outputs.jsonPath);
+        if (!json) {
+            throw std::runtime_error(std::format("cannot write '{}'", *line.outputs.jsonPath));
+        }
+    }
+    const SessionReport report =
+        makeReport(session, AgentRegistry::withBuiltIns(), line.interval.value_or(kSecond));
+    std::cout << std::format("{} (seed {}): {} with {} actions\n", line.path, session.seed,
+                             formatDuration(session.end), session.actions.size());
+    printReport(std::cout, report);
+    if (line.outputs.jsonPath) {
+        writeReportJson(json, report);
+        if (!json.flush()) {
+            throw std::runtime_error(
+                std::format("could not write all of '{}'", *line.outputs.jsonPath));
+        }
+        std::cout << std::format("report written to {}\n", *line.outputs.jsonPath);
+    }
+    return 0;
 }
 
 int connectCommand(std::span<char*> args) {
@@ -277,6 +337,9 @@ int runCommand(std::span<char*> args) {
     }
     if (command == "connect") {
         return connectCommand(args.subspan(1));
+    }
+    if (command == "report") {
+        return reportCommand(args.subspan(1));
     }
     if (command == "agents") {
         std::cout << "agent types:\n";

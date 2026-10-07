@@ -8,7 +8,9 @@
 #include <vector>
 
 #include "crowdbook/event_log.hpp"
+#include "crowdbook/report.hpp"
 #include "crowdbook/scenario.hpp"
+#include "crowdbook/session.hpp"
 #include "crowdbook/types.hpp"
 
 namespace crowdbook {
@@ -60,6 +62,14 @@ private:
 // The results table: each group's position, cash and PnL, with fee columns when the exchange
 // charges fees.
 void printResults(std::ostream& out, const Scenario& scenario, const RunResult& result);
+
+// A session report in brief: for each seat, its score, who it traded with and what they knew,
+// and what the market would have done without it.
+void printReport(std::ostream& out, const SessionReport& report);
+
+// Builds the session's report, prints it in brief and writes it to `file`, opened at `path`.
+// Throws std::runtime_error if the file cannot be written in full.
+void writeReport(std::ofstream& file, const std::string& path, const Session& session);
 
 // A challenge's name and briefing, and how it is scored.
 void printBriefing(std::ostream& out, const Scenario& scenario);

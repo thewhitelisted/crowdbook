@@ -211,6 +211,17 @@ class LiveTest(unittest.TestCase):
                      end.score.paper, end.score.unfinished, end.score.unfinished_lots,
                      end.score.stopped_at))
 
+                # So does the session's report, which also knows who the bot traded with.
+                report = subprocess.run(
+                    [CROWDBOOK, "report", str(directory / "session.toml"), "--json",
+                     str(directory / "report.json")], capture_output=True, text=True)
+                self.assertEqual(report.returncode, 0, report.stderr)
+                (seat,) = json.loads((directory / "report.json").read_text())["seats"]
+                self.assertEqual(seat["score"]["total"], end.score.total)
+                self.assertEqual(sum(party["bought"] + party["sold"]
+                                     for party in seat["counterparties"]),
+                                 sum(fill["quantity"] for fill in seat["fills"]))
+
 
 if __name__ == "__main__":
     unittest.main()

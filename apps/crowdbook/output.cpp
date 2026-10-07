@@ -1,6 +1,9 @@
 #include "output.hpp"
 
+#include "crowdbook/agent_registry.hpp"
+
 #include <format>
+#include <iostream>
 
 namespace crowdbook {
 
@@ -153,6 +156,59 @@ void printBriefing(std::ostream& out, const Scenario& scenario) {
         }
     }
     out << " (all in tick-lots)\n\n";
+}
+
+void printReport(std::ostream& out, const SessionReport& report) {
+    const auto ticks = [](const std::optional<double>& value) {
+        return value ? std::format("{:+.2f}", *value) : std::string{"-"};
+    };
+    for (const SeatReport& seat : report.seats) {
+        Quantity lots = 0;
+        for (const ReportFill& fill : seat.fills) {
+            lots += fill.quantity;
+        }
+        out << std::format("\nseat {}: {} fills, {} lots", seat.seat, seat.fills.size(), lots);
+        if (seat.score) {
+            out << std::format(", score {}", formatPoints(seat.score->total));
+        }
+        out << "\n";
+        if (!seat.counterparties.empty()) {
+            out << std::format("  {:<16} {:<18} {:>6} {:>7} {:>7} {:>12} {:>14}\n", "traded with",
+                               "type", "fills", "bought", "sold", "their edge", "your markout");
+            for (const Counterparty& party : seat.counterparties) {
+                out << std::format("  {:<16} {:<18} {:>6} {:>7} {:>7} {:>12} {:>14}\n",
+                                   party.group, party.type, party.fills, party.bought, party.sold,
+                                   ticks(party.edge), ticks(party.markout));
+            }
+            out << "  their edge: how far the price was from the true value in their favour\n"
+                   "  your markout: the mid ten seconds later against your price\n"
+                   "  both in ticks a lot\n";
+        }
+        if (!seat.pnl.empty()) {
+            const PnlPoint& last = seat.pnl.back();
+            out << std::format("  pnl at the end {:+.1f}", last.pnl);
+            if (last.pnlAtValue) {
+                out << std::format(", {:+.1f} at the true value", *last.pnlAtValue);
+            }
+            out << " (tick-lots, net of fees)\n";
+        }
+        out << std::format("  without you: last price {} instead of {}", seat.lastPriceWithout,
+                           seat.lastPrice);
+        if (seat.impact) {
+            out << std::format("; you moved the mid {:+.2f} ticks on average", *seat.impact);
+        }
+        out << "\n";
+    }
+}
+
+void writeReport(std::ofstream& file, const std::string& path, const Session& session) {
+    const SessionReport report = makeReport(session, AgentRegistry::withBuiltIns());
+    printReport(std::cout, report);
+    writeReportJson(file, report);
+    if (!file.flush()) {
+        throw std::runtime_error(std::format("could not write all of '{}'", path));
+    }
+    std::cout << std::format("report written to {}\n", path);
 }
 
 std::string formatPoints(Points points) {

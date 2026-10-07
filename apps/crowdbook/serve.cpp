@@ -16,6 +16,7 @@
 #include "crowdbook/protocol.hpp"
 #include "crowdbook/scenario_file.hpp"
 #include "crowdbook/server.hpp"
+#include "crowdbook/session.hpp"
 
 namespace crowdbook {
 
@@ -94,8 +95,16 @@ void parseListen(std::string_view text, std::string& host, std::uint16_t& port) 
 }
 
 int serve(const ServeOptions& options) {
-    const std::string text = readFile(options.scenarioPath);
+    // A scenario to start, or with rewindAt a session to rewind.
+    std::optional<Session> from;
+    if (options.rewindAt) {
+        from = loadSession(options.scenarioPath);
+    }
+    const std::string text = from ? from->scenario : readFile(options.scenarioPath);
     Scenario scenario = parseScenario(text, options.scenarioPath);
+    if (from) {
+        scenario.seed = from->seed;
+    }
     if (options.seed) {
         scenario.seed = *options.seed;
     }
@@ -110,6 +119,10 @@ int serve(const ServeOptions& options) {
         gatewayOptions.tokens = readTokens(*options.tokensPath);
     }
     gatewayOptions.speed = options.speed;
+    if (from) {
+        gatewayOptions.rewind = from;
+        gatewayOptions.rewindAt = *options.rewindAt;
+    }
     if (options.rateLimit) {
         gatewayOptions.maxMessagesPerSecond = *options.rateLimit;
     }
@@ -125,6 +138,13 @@ int serve(const ServeOptions& options) {
             throw std::runtime_error(std::format("cannot write '{}'", *options.recordPath));
         }
     }
+    std::ofstream reportFile;
+    if (options.reportPath) {
+        reportFile.open(*options.reportPath);
+        if (!reportFile) {
+            throw std::runtime_error(std::format("cannot write '{}'", *options.reportPath));
+        }
+    }
     Gateway gateway{scenario, text, AgentRegistry::withBuiltIns(), gatewayOptions,
                     outputs.sink()};
 
@@ -136,7 +156,7 @@ int serve(const ServeOptions& options) {
                              "{} (seed {}): serving on {}:{} to seats {}; the clock starts when "
                              "every seat is claimed, and ctrl-c ends the session\n",
                              options.scenarioPath, scenario.seed, options.host, port,
-                             listSeats(gatewayOptions.seats))
+                             listSeats(from ? from->seats : gatewayOptions.seats))
                                    << std::flush;
                      });
     std::signal(SIGINT, SIG_DFL);
@@ -159,6 +179,9 @@ int serve(const ServeOptions& options) {
         }
         std::cout << std::format("session written to {}; crowdbook replay plays it back\n",
                                  *options.recordPath);
+    }
+    if (options.reportPath) {
+        writeReport(reportFile, *options.reportPath, record);
     }
     return 0;
 }

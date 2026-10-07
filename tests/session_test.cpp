@@ -155,6 +155,56 @@ TEST(SessionTest, SeveralSeatsReplayToTheSameLogByteForByte) {
     EXPECT_EQ(result.groups.back().name, "bob");
 }
 
+// The market without a seat is the market where nobody sat there: replaying a session without
+// its seat's orders gives the log of the scenario run with no participant, byte for byte.
+TEST(SessionTest, AReplayWithoutTheSeatIsTheMarketWithoutAParticipant) {
+    const auto [session, live] = playScripted();
+    std::ostringstream without;
+    CsvEventLog withoutSink{without};
+    static_cast<void>(
+        replaySession(session, AgentRegistry::withBuiltIns(), &withoutSink, {0}));
+    Scenario scenario = parseScenario(kScenario);
+    scenario.duration = session.end;
+    std::ostringstream alone;
+    CsvEventLog aloneSink{alone};
+    static_cast<void>(runScenario(scenario, AgentRegistry::withBuiltIns(), &aloneSink));
+    EXPECT_EQ(without.str(), alone.str());
+    EXPECT_NE(without.str(), live); // the seat did change the market
+}
+
+// Rewinding to a moment and playing on with nothing new gives the session's own log up to that
+// moment; playing on differently makes a new session that replays exactly.
+TEST(SessionTest, ARewoundSessionPlaysOnFromTheMoment) {
+    const auto [session, live] = playScripted();
+    std::ostringstream log;
+    CsvEventLog sink{log};
+    RewoundSession rewound =
+        rewindSession(session, 2'500 * kMillisecond, AgentRegistry::withBuiltIns(), &sink);
+    ASSERT_EQ(rewound.record.actions.size(), 3U); // two orders at 1s and the modify at 2s + 17
+    EXPECT_EQ(rewound.market.run.simulation().now(), 2'500 * kMillisecond);
+    // Up to there, the log is the session's.
+    EXPECT_TRUE(live.starts_with(log.str()));
+
+    // Play on: a different order instead of the session's post-only offer at 3s.
+    Simulation& simulation = rewound.market.run.simulation();
+    rewound.market.run.runUntil(3 * kSecond);
+    SessionAction action{.time = 3 * kSecond, .request = marketOrder(0, Side::Buy, 2)};
+    std::get<NewOrder>(action.request).clientOrderId =
+        perform(simulation, rewound.market.seats[0].agent, action);
+    rewound.record.actions.push_back(action);
+    rewound.market.run.runUntil(5 * kSecond);
+    rewound.record.end = 5 * kSecond;
+    EXPECT_NE(log.str(), live.substr(0, log.str().size()));
+
+    std::ostringstream replayed;
+    CsvEventLog replaySink{replayed};
+    static_cast<void>(replaySession(rewound.record, AgentRegistry::withBuiltIns(), &replaySink));
+    EXPECT_EQ(replayed.str(), log.str());
+    EXPECT_THROW(static_cast<void>(rewindSession(session, session.end + 1,
+                                                 AgentRegistry::withBuiltIns())),
+                 ScenarioError);
+}
+
 TEST(SessionTest, SeatsAreCheckedWhenTheMarketOpens) {
     const Scenario scenario = parseScenario(kScenario);
     const AgentRegistry registry = AgentRegistry::withBuiltIns();

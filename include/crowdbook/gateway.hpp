@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -30,6 +31,10 @@ struct GatewayOptions {
     std::int64_t helloTimeout = 5 * kSecond;
     // How often, in wall-clock nanoseconds, a quiet connection is sent the market's time.
     std::int64_t clockInterval = 100 * kMillisecond;
+    // A session to rewind to `rewindAt` and serve on from there. Its seats replace `seats`, and
+    // its orders keep their ids inside the market as the clients' ids.
+    std::optional<Session> rewind{};
+    Timestamp rewindAt = 0;
 };
 
 using ConnectionId = std::uint64_t;

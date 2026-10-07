@@ -29,6 +29,7 @@ add_executable(crowdbook_tests
     parameters_test.cpp
     protocol_test.cpp
     random_test.cpp
+    report_test.cpp
     scenario_file_test.cpp
     scenario_test.cpp
     scoring_test.cpp

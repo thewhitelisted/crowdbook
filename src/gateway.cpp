@@ -75,6 +75,33 @@ struct Gateway::State {
                     relay(i, context.now(), event);
                 });
         }
+        if (options.rewind) {
+            replayUntil(*options.rewind, options.rewindAt);
+        }
+    }
+
+    // Performs the session's actions up to `at` again and runs the market there. The orders keep
+    // the ids they have inside the market as the clients' ids, so a client claiming the seat sees
+    // them in its welcome and can cancel them.
+    void replayUntil(const Session& session, Timestamp at) {
+        for (const SessionAction& action : session.actions) {
+            if (action.time > at) {
+                break;
+            }
+            market.run.runUntil(action.time);
+            SessionAction copy = action;
+            const ClientOrderId id = perform(simulation(), market.seats[action.seat].agent, copy);
+            record.actions.push_back(copy);
+            SeatState& state = seats[action.seat];
+            if (std::holds_alternative<NewOrder>(action.request)) {
+                state.wireToInternal.emplace(id, id);
+                state.internalToWire.emplace(id, id);
+                state.unanswered.emplace(id, 0);
+            } else {
+                ++state.unanswered.at(id);
+            }
+        }
+        market.run.runUntil(at);
     }
 
     State(const State&) = delete;
@@ -496,6 +523,17 @@ struct Gateway::State {
 
 Gateway::Gateway(const Scenario& scenario, std::string scenarioText,
                  const AgentRegistry& registry, GatewayOptions options, EventSink* sink) {
+    if (options.rewind) {
+        const Session& session = *options.rewind;
+        if (options.rewindAt < 0 || options.rewindAt > session.end ||
+            options.rewindAt > scenario.duration) {
+            throw std::invalid_argument(std::format(
+                "a session that ran {} ns cannot be rewound to {} ns", session.end,
+                options.rewindAt));
+        }
+        options.seats = session.seats;
+        scenarioText = session.scenario;
+    }
     if (!(options.speed > 0.0) || !std::isfinite(options.speed)) {
         throw std::invalid_argument("the speed must be positive and finite");
     }

@@ -283,8 +283,20 @@ private:
 } // namespace
 
 int play(const PlayOptions& options) {
-    const std::string text = readFile(options.scenarioPath);
+    // A scenario to start, or with rewindAt a session to rewind.
+    std::optional<Session> from;
+    if (options.rewindAt) {
+        from = loadSession(options.scenarioPath);
+        if (from->seats.size() != 1) {
+            throw std::runtime_error("play takes over a session's only seat; serve a session "
+                                     "with several seats to rewind it");
+        }
+    }
+    const std::string text = from ? from->scenario : readFile(options.scenarioPath);
     Scenario scenario = parseScenario(text, options.scenarioPath);
+    if (from) {
+        scenario.seed = from->seed;
+    }
     if (options.seed) {
         scenario.seed = *options.seed;
     }
@@ -304,8 +316,21 @@ int play(const PlayOptions& options) {
             throw std::runtime_error(std::format("cannot write '{}'", *options.recordPath));
         }
     }
-    SessionMarket market = openSession(scenario, AgentRegistry::withBuiltIns(), outputs.sink());
-    Session record{.scenario = text, .seed = scenario.seed};
+    std::ofstream reportFile;
+    if (options.reportPath) {
+        reportFile.open(*options.reportPath);
+        if (!reportFile) {
+            throw std::runtime_error(std::format("cannot write '{}'", *options.reportPath));
+        }
+    }
+    auto [market, record] = [&]() -> RewoundSession {
+        if (from) {
+            return rewindSession(*from, *options.rewindAt, AgentRegistry::withBuiltIns(),
+                                 outputs.sink());
+        }
+        return {.market = openSession(scenario, AgentRegistry::withBuiltIns(), outputs.sink()),
+                .record = {.scenario = text, .seed = scenario.seed}};
+    }();
     if (scenario.challenge) {
         printBriefing(std::cout, scenario);
         if (::isatty(STDIN_FILENO) != 0) {
@@ -337,6 +362,9 @@ int play(const PlayOptions& options) {
         }
         std::cout << std::format("session written to {}; crowdbook replay plays it back\n",
                                  *options.recordPath);
+    }
+    if (options.reportPath) {
+        writeReport(reportFile, *options.reportPath, record);
     }
     return 0;
 }

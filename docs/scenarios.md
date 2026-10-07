@@ -428,3 +428,36 @@ A recorded session replays with `replay` like one from `play`, every seat's orde
 `connect` is the trading screen of `play` for one seat of a served market, with the same keys
 except that speed and pause belong to the server. It takes `--seat`, `you` unless given, and
 `--token`.
+
+## Reports and rewinding
+
+```bash
+./build/release/apps/crowdbook report session.toml --json report.json
+./build/release/apps/crowdbook play session.toml --at 2m --record retry.toml
+```
+
+`report` replays a session, and again without each seat, and prints for every seat who it traded
+with, those groups' edge against it at the true value, its markout ten seconds after its fills,
+its PnL at the end, and what the market would have done without it. `--json` writes the whole
+report and `--interval` sets how often it samples balances and prices, a second unless given.
+`play` and `serve` take `--report FILE` to write the report when the session ends.
+
+The JSON report has `seed`, `end_ns`, `final_value` and, for each seat in `seats`:
+
+| Field | Meaning |
+|---|---|
+| `seat`, `score` | The seat's name and its score, or `null` without scoring |
+| `counterparties` | One entry per group the seat traded with: `group`, `type`, `fills`, `bought` and `sold` by the seat, `edge` (the group's edge against the seat at the true value, ticks a lot) and `markout_10s` (the seat's markout ten seconds after its fills, ticks a lot) |
+| `fills` | Every fill: `time_ns`, `side`, `price`, `quantity`, `liquidity`, `fee`, the `counterparty` agent with its `group` and `type`, the true `value` at the fill, and the mid `mid_1s`, `mid_10s` and `mid_60s` after it |
+| `pnl` | Every interval: `time_ns`, `position`, `cash`, `fees`, `pnl` net of fees at the last trade price, and `pnl_at_value` at the true value |
+| `without` | The session replayed without the seat: `last_price` and `last_price_without`, `vwap` and `vwap_without`, `impact` (the mid with the seat less the mid without it, on average) and `prices` every interval, with `mid` and `mid_without` |
+
+Values the market could not provide are `null`: the true value without a `[fundamental]`
+section, a mid while one side of the book is empty, a markout past the end of the session.
+
+`play` and `serve` take a session file instead of a scenario when given `--at`: the session is
+rewound to that moment, by replaying its requests up to it, and played or served on from there
+with the same seats. The new recording holds the replayed requests and the new ones. A rewound
+session keeps its seed, so `--seed` and `--seat` cannot be given with `--at`. `play` rewinds
+sessions with one seat; `serve` hands every seat back to whoever claims it, with its open orders
+listed in the welcome under the ids they have inside the market.
