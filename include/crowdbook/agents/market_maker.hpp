@@ -36,8 +36,8 @@ struct Quotes {
 // The Avellaneda–Stoikov quotes for a fair price s and inventory q, in whole ticks:
 //   reservation price  r = s - q * gamma * sigma^2 * tau
 //   half spread        d = gamma * sigma^2 * tau / 2 + ln(1 + gamma / k) / gamma
-// with bid = floor(r - d) and ask = ceil(r + d). A side is left out when filling it would take
-// |q| past maxInventory.
+// with bid = floor(r - d) and ask = ceil(r + d), each kept within 1 to kMaxPrice. A side is left
+// out when filling it would take |q| past maxInventory, and the bid when it is below 1.
 [[nodiscard]] Quotes avellanedaStoikovQuotes(const MarketMakerConfig& config, double fairPrice,
                                              Quantity inventory);
 

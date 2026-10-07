@@ -1,6 +1,7 @@
 #include "crowdbook/agents/momentum.hpp"
 
 #include <cmath>
+#include <format>
 #include <stdexcept>
 
 namespace crowdbook {
@@ -23,9 +24,10 @@ MomentumTrader::MomentumTrader(const MomentumConfig& config, Price referencePric
                                     "0 < fast_half_life < slow_half_life");
     }
     if (!(config.threshold >= 0.0) || config.orderSize < 1 ||
-        config.maxPosition < config.orderSize) {
-        throw std::invalid_argument(
-            "momentum needs threshold >= 0 and 1 <= order_size <= max_position");
+        config.maxPosition < config.orderSize || config.maxPosition > kMaxQuantity) {
+        throw std::invalid_argument(std::format(
+            "momentum needs threshold >= 0 and 1 <= order_size <= max_position <= {}",
+            kMaxQuantity));
     }
     fastWeight_ = weightFor(config.interval, config.fastHalfLife);
     slowWeight_ = weightFor(config.interval, config.slowHalfLife);

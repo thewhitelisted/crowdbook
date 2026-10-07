@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <stdexcept>
 
 namespace crowdbook {
@@ -18,11 +19,11 @@ Quotes avellanedaStoikovQuotes(const MarketMakerConfig& config, double fairPrice
     if (inventory + config.quoteSize <= config.maxInventory) {
         const double bid = std::floor(reservation - halfSpread);
         if (bid >= 1.0) {
-            quotes.bid = static_cast<Price>(bid);
+            quotes.bid = clampPrice(bid);
         }
     }
     if (inventory - config.quoteSize >= -config.maxInventory) {
-        quotes.ask = static_cast<Price>(std::ceil(reservation + halfSpread));
+        quotes.ask = clampPrice(std::ceil(reservation + halfSpread));
     }
     return quotes;
 }
@@ -34,9 +35,10 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice)
         throw std::invalid_argument("market_maker needs risk_aversion > 0, intensity > 0, "
                                     "volatility >= 0 and a horizon that is not negative");
     }
-    if (config.quoteSize < 1 || config.maxInventory < config.quoteSize) {
-        throw std::invalid_argument(
-            "market_maker needs quote_size >= 1 and max_inventory >= quote_size");
+    if (config.quoteSize < 1 || config.maxInventory < config.quoteSize ||
+        config.maxInventory > kMaxQuantity) {
+        throw std::invalid_argument(std::format(
+            "market_maker needs 1 <= quote_size <= max_inventory <= {}", kMaxQuantity));
     }
     if (config.requoteInterval <= 0) {
         throw std::invalid_argument("market_maker requote_interval must be positive");

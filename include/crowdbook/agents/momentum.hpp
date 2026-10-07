@@ -26,7 +26,7 @@ struct MomentumConfig {
 class MomentumTrader final : public Agent {
 public:
     // Throws std::invalid_argument unless 0 < fastHalfLife < slowHalfLife, the interval is
-    // positive, the threshold is not negative and 1 <= orderSize <= maxPosition.
+    // positive, the threshold is not negative and 1 <= orderSize <= maxPosition <= kMaxQuantity.
     MomentumTrader(const MomentumConfig& config, Price referencePrice);
 
     // It samples the market on its own timer, so it reads snapshots instead of the stream.

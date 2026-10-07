@@ -24,23 +24,24 @@ struct AdaptiveConfig {
 };
 
 // A trader that switches between two strategies by how well each has been doing, after Brock and
-// Hommes (1998). Every interval, starting at a random point in the first one, it looks at the
-// price and, with noise, at the true value. The value strategy calls a buy when the value is at
-// least `threshold` above the price and a sell when it is that far below; the trend strategy
-// calls a buy when a fast moving average of the price leads a slow one by `threshold`, and a sell
-// when it trails by as much. Each strategy keeps a track record: the price change after each of
-// its calls, in the call's direction, summed with exponential decay. The trader follows the trend
-// strategy with probability 1 / (1 + exp(-choiceIntensity * (trend record - value record))), and
-// otherwise the value strategy. Its position follows the chosen strategy's call: long
-// maxPosition on a buy, short maxPosition on a sell and flat without a call, which it trades
-// toward at the market, at most orderSize at a time, counting orders in flight. Traders like this
-// one herd: they all see the same price, so their records agree and they tend to switch together,
-// and when they switch they all trade the same way at once.
+// Hommes (1998). Every interval, starting at a random point in the first one, it looks at the price
+// and, with noise, at the true value. The value strategy calls a buy when the value is above the
+// price, by at least `threshold`, and a sell when it is below by as much; the trend strategy calls
+// a buy when a fast moving average of the price leads a slow one, by at least `threshold`, and a
+// sell when it trails by as much. Each strategy keeps a track record: the price change after each
+// of its calls, in the call's direction, summed with exponential decay. The trader follows the
+// trend strategy with probability 1 / (1 + exp(-choiceIntensity * (trend record - value record))),
+// and otherwise the value strategy. Its position follows the chosen strategy's call: long
+// maxPosition on a buy, short maxPosition on a sell and flat without a call, which it trades toward
+// at the market, at most orderSize at a time, counting orders in flight. Traders like this one
+// herd: they all see the same price, so their records agree and they tend to switch together, and
+// when they switch they all trade the same way at once.
 class AdaptiveTrader final : public Agent {
 public:
     // Throws std::invalid_argument without a fundamental, for a non-positive interval or memory,
     // negative noise, choice intensity or threshold, half-lives that do not satisfy
-    // 0 < fastHalfLife < slowHalfLife, or sizes that do not satisfy 1 <= orderSize <= maxPosition.
+    // 0 < fastHalfLife < slowHalfLife, or sizes that do not satisfy
+    // 1 <= orderSize <= maxPosition <= kMaxQuantity.
     AdaptiveTrader(const AdaptiveConfig& config, std::shared_ptr<Fundamental> fundamental,
                    Price referencePrice);
 

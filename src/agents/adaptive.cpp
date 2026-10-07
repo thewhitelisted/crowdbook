@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <stdexcept>
 #include <utility>
 
@@ -32,8 +33,10 @@ AdaptiveTrader::AdaptiveTrader(const AdaptiveConfig& config,
     if (config.fastHalfLife <= 0 || config.slowHalfLife <= config.fastHalfLife) {
         throw std::invalid_argument("adaptive needs 0 < fast_half_life < slow_half_life");
     }
-    if (config.orderSize < 1 || config.maxPosition < config.orderSize) {
-        throw std::invalid_argument("adaptive needs 1 <= order_size <= max_position");
+    if (config.orderSize < 1 || config.maxPosition < config.orderSize ||
+        config.maxPosition > kMaxQuantity) {
+        throw std::invalid_argument(std::format(
+            "adaptive needs 1 <= order_size <= max_position <= {}", kMaxQuantity));
     }
     fastWeight_ = weightFor(config.interval, config.fastHalfLife);
     slowWeight_ = weightFor(config.interval, config.slowHalfLife);
@@ -43,10 +46,10 @@ AdaptiveTrader::AdaptiveTrader(const AdaptiveConfig& config,
 void AdaptiveTrader::onStart(AgentContext& context) { context.wakeWithin(config_.interval); }
 
 int AdaptiveTrader::call(double signal) const noexcept {
-    if (signal >= config_.threshold) {
+    if (signal > 0.0 && signal >= config_.threshold) {
         return 1;
     }
-    return signal <= -config_.threshold ? -1 : 0;
+    return signal < 0.0 && signal <= -config_.threshold ? -1 : 0;
 }
 
 void AdaptiveTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {

@@ -95,6 +95,8 @@ TEST(MomentumTest, RejectsInvalidConfigs) {
     EXPECT_THROW((MomentumTrader{{.threshold = -1.0}, kReference}), std::invalid_argument);
     EXPECT_THROW((MomentumTrader{{.orderSize = 10, .maxPosition = 5}, kReference}),
                  std::invalid_argument);
+    EXPECT_THROW((MomentumTrader{{.maxPosition = kMaxQuantity + 1}, kReference}),
+                 std::invalid_argument);
 }
 
 } // namespace

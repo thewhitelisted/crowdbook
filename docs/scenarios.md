@@ -20,9 +20,10 @@ asset's true value, and groups of agents. Run one with:
 `crowdbook agents` lists the agent types. `crowdbook play` and `crowdbook replay` run a scenario
 with a person trading in it; see [playing and replaying](#playing-and-replaying).
 
-Durations are written as text with a unit: `"250ns"`, `"50us"`, `"1.5ms"`, `"2s"`. Prices are in
-ticks and quantities in lots. Any key crowdbook does not know is an error, so a typo stops the run
-instead of silently using a default.
+Durations are written as text with a unit: `"250ns"`, `"50us"`, `"1.5ms"`, `"2s"`, and are shorter
+than `"1000000000s"`, about 31 years. Numbers must be finite: `nan` and `inf` are errors. Prices are
+in ticks and quantities in lots. Any key crowdbook does not know is an error, so a typo stops the
+run instead of silently using a default.
 
 ## Top level
 
@@ -161,14 +162,15 @@ direction of the trend.
 Switches between a value strategy and a trend strategy by how well each has been doing, after
 Brock and Hommes (1998). Needs a `[fundamental]` section.
 
-Every interval it looks at the price and, with noise, at the true value. The value strategy calls
-a buy when the value is at least `threshold` above the price and a sell when it is that far below;
-the trend strategy calls a buy when a fast moving average of the price leads a slow one by
-`threshold`, and a sell when it trails. Each keeps a track record: the price change after each of
-its calls, in the call's direction, fading with half-life `memory`. The trader follows the trend
-strategy with probability 1 ÷ (1 + e^(−`choice_intensity` × (trend record − value record))), and its
-position follows the chosen strategy's call: long `max_position` on a buy, short on a sell, flat
-without a call. It trades toward that position at the market, `order_size` at a time.
+Every interval it looks at the price and, with noise, at the true value. The value strategy calls a
+buy when the value is above the price, by at least `threshold`, and a sell when it is below by as
+much; the trend strategy calls a buy when a fast moving average of the price leads a slow one, by at
+least `threshold`, and a sell when it trails by as much. Each keeps a track record: the price change
+after each of its calls, in the call's direction, fading with half-life `memory`. The trader follows
+the trend strategy with probability
+1 ÷ (1 + e^(−`choice_intensity` × (trend record − value record))), and its position follows the
+chosen strategy's call: long `max_position` on a buy, short on a sell, flat without a call. It
+trades toward that position at the market, `order_size` at a time.
 
 | Parameter | Default | Meaning |
 |---|---|---|

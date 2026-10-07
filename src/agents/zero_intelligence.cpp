@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <optional>
 #include <stdexcept>
 
@@ -13,8 +14,12 @@ constexpr std::uint64_t kNextOrder = 0; // wakeup tag; client order ids start at
 
 Side randomSide(Random& random) { return random.below(2) == 0 ? Side::Buy : Side::Sell; }
 
+// A random waiting time in nanoseconds: at least one, and at most kMaxDuration, so that a tiny
+// configured rate cannot overflow the conversion or the clock.
 Duration secondsToDuration(double seconds) {
-    return std::max<Duration>(static_cast<Duration>(seconds * static_cast<double>(kSecond)), 1);
+    const double nanoseconds = std::min(seconds * static_cast<double>(kSecond),
+                                        static_cast<double>(kMaxDuration));
+    return std::max<Duration>(static_cast<Duration>(nanoseconds), 1);
 }
 
 } // namespace
@@ -27,11 +32,13 @@ ZeroIntelligenceTrader::ZeroIntelligenceTrader(const ZeroIntelligenceConfig& con
         throw std::invalid_argument("zero_intelligence rates must not be negative, and limit_rate "
                                     "or market_rate must be positive");
     }
-    if (config.maxOffset < 1) {
-        throw std::invalid_argument("zero_intelligence max_offset must be at least 1");
+    if (config.maxOffset < 1 || config.maxOffset > kMaxPrice) {
+        throw std::invalid_argument(
+            std::format("zero_intelligence max_offset must be between 1 and {}", kMaxPrice));
     }
-    if (config.minSize < 1 || config.minSize > config.maxSize) {
-        throw std::invalid_argument("zero_intelligence sizes need 1 <= min_size <= max_size");
+    if (config.minSize < 1 || config.minSize > config.maxSize || config.maxSize > kMaxQuantity) {
+        throw std::invalid_argument(std::format(
+            "zero_intelligence sizes need 1 <= min_size <= max_size <= {}", kMaxQuantity));
     }
     if (!(config.activityResponse >= 0.0) || !(config.volatilityResponse >= 0.0) ||
         config.activityMemory <= 0 || config.activityBaseline < config.activityMemory) {

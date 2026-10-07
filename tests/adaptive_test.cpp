@@ -77,6 +77,20 @@ TEST(AdaptiveTest, FollowsTheValueWhenThePriceKeepsComingBack) {
     EXPECT_EQ(sideOf(sent[0]), Side::Sell); // 6 ticks above the value
 }
 
+TEST(AdaptiveTest, CallsNothingOnAFlatSignalEvenWithoutAThreshold) {
+    AdaptiveConfig config = kSure;
+    config.threshold = 0.0;
+    // The price sits at the value and never moves, so neither strategy has a direction to call.
+    AdaptiveTrader trader{config, fixedValue(100.0), kReference};
+    FakeContext context;
+    for (int i = 0; i < 10; ++i) {
+        EXPECT_TRUE(look(trader, context, (i + 1) * kSecond, 100).empty()) << i;
+    }
+    // A move either way is a signal.
+    const std::vector<Request> sent = look(trader, context, 11 * kSecond, 99);
+    ASSERT_EQ(sent.size(), 1U);
+}
+
 TEST(AdaptiveTest, TrackRecordsFadeWithTheirHalfLife) {
     AdaptiveTrader trader{kSure, fixedValue(100.0), kReference};
     FakeContext context;
@@ -156,7 +170,8 @@ TEST(AdaptiveTest, RequiresAFundamentalAndAValidConfig) {
           invalid([](AdaptiveConfig& c) { c.choiceIntensity = -1.0; }),
           invalid([](AdaptiveConfig& c) { c.slowHalfLife = c.fastHalfLife; }),
           invalid([](AdaptiveConfig& c) { c.orderSize = 0; }),
-          invalid([](AdaptiveConfig& c) { c.maxPosition = 1; })}) {
+          invalid([](AdaptiveConfig& c) { c.maxPosition = 1; }),
+          invalid([](AdaptiveConfig& c) { c.maxPosition = kMaxQuantity + 1; })}) {
         EXPECT_THROW((AdaptiveTrader{config, fixedValue(100.0), kReference}),
                      std::invalid_argument);
     }

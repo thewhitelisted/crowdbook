@@ -42,6 +42,16 @@ TEST(AvellanedaStoikovTest, LeavesOutASideThatWouldBreachTheInventoryLimit) {
     EXPECT_TRUE(avellanedaStoikovQuotes(kConfig, 100.0, -46).bid.has_value());
 }
 
+TEST(AvellanedaStoikovTest, KeepsWildQuotesWithinTheExchangesPrices) {
+    // Risk this high puts the half spread near 2e20 ticks, far past what a price can hold.
+    MarketMakerConfig wild = kConfig;
+    wild.riskAversion = 1e20;
+    EXPECT_EQ(avellanedaStoikovQuotes(wild, 100.0, 0), (Quotes{.ask = kMaxPrice}));
+    EXPECT_EQ(avellanedaStoikovQuotes(wild, 100.0, -10),
+              (Quotes{.bid = kMaxPrice, .ask = kMaxPrice}));
+    EXPECT_EQ(avellanedaStoikovQuotes(wild, 100.0, 10), (Quotes{.ask = 1}));
+}
+
 TEST(MarketMakerTest, QuotesBothSidesOnStartAndRequotesOnATimer) {
     MarketMaker maker{kConfig, kReference};
     FakeContext context;
@@ -191,6 +201,9 @@ TEST(MarketMakerTest, RejectsInvalidConfigs) {
                  std::invalid_argument);
     EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.fairValueWeight = 1.5; }), kReference}),
                  std::invalid_argument);
+    EXPECT_THROW(
+        (MarketMaker{withChange([](auto& c) { c.maxInventory = kMaxQuantity + 1; }), kReference}),
+        std::invalid_argument);
 }
 
 } // namespace

@@ -7,11 +7,19 @@
 
 namespace crowdbook {
 
+namespace {
+
+void checkSpeed(double speed) {
+    if (!(speed > 0.0) || !std::isfinite(speed)) {
+        throw std::invalid_argument("the speed must be positive and finite");
+    }
+}
+
+} // namespace
+
 Pacer::Pacer(std::int64_t wallNow, Timestamp simulatedNow, double speed)
     : wallAnchor_(wallNow), simulatedAnchor_(simulatedNow), speed_(speed) {
-    if (!(speed > 0.0)) {
-        throw std::invalid_argument("the speed must be positive");
-    }
+    checkSpeed(speed);
 }
 
 Timestamp Pacer::simulatedAt(std::int64_t wall) const noexcept {
@@ -22,9 +30,7 @@ Timestamp Pacer::simulatedAt(std::int64_t wall) const noexcept {
 }
 
 void Pacer::setSpeed(double speed, std::int64_t wall) {
-    if (!(speed > 0.0)) {
-        throw std::invalid_argument("the speed must be positive");
-    }
+    checkSpeed(speed);
     simulatedAnchor_ = simulatedAt(wall);
     wallAnchor_ = wall;
     speed_ = speed;

@@ -59,6 +59,9 @@ public:
             return static_cast<double>(value->get());
         }
         if (const auto* value = node.as_floating_point()) {
+            if (!std::isfinite(value->get())) {
+                fail(node, std::format("'{}' must be a finite number", key));
+            }
             return value->get();
         }
         fail(node, std::format("'{}' must be a number", key));
@@ -100,6 +103,9 @@ public:
             return value->get();
         }
         if (const auto* value = node.as_floating_point()) {
+            if (!std::isfinite(value->get())) {
+                fail(node, std::format("agent parameter '{}' must be a finite number", key));
+            }
             return value->get();
         }
         if (const auto* value = node.as_string()) {

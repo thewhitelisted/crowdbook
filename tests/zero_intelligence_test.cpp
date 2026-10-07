@@ -47,6 +47,18 @@ TEST(ZeroIntelligenceTest, WaitsExponentiallyBetweenOrders) {
     EXPECT_NEAR(meanSeconds(context, true), 1.0 / 2.5, 0.4 * 0.05);
 }
 
+TEST(ZeroIntelligenceTest, WaitsNoLongerThanTheLongestDuration) {
+    // Waits drawn at rates this low come to about 1e300 seconds, far past what the clock holds.
+    ZeroIntelligenceTrader trader{
+        {.limitRate = 1e-300, .marketRate = 0.0, .cancelRate = 1e-300}, kReference};
+    FakeContext context;
+    static_cast<void>(run(trader, context, 20));
+    ASSERT_EQ(context.wakeups.size(), 41U); // the first order timer, then a timer and a lifetime
+    for (const auto& [time, tag] : context.wakeups) {
+        EXPECT_EQ(time, kMaxDuration) << tag;
+    }
+}
+
 TEST(ZeroIntelligenceTest, MixesLimitAndMarketOrdersByTheirRates) {
     ZeroIntelligenceTrader trader{{.limitRate = 2.0, .marketRate = 0.5}, kReference};
     FakeContext context;
@@ -221,6 +233,10 @@ TEST(ZeroIntelligenceTest, RejectsInvalidConfigs) {
     EXPECT_THROW((ZeroIntelligenceTrader{{.cancelRate = -0.1}, kReference}),
                  std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.maxOffset = 0}, kReference}), std::invalid_argument);
+    EXPECT_THROW((ZeroIntelligenceTrader{{.maxOffset = kMaxPrice + 1}, kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((ZeroIntelligenceTrader{{.maxSize = kMaxQuantity + 1}, kReference}),
+                 std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.minSize = 5, .maxSize = 4}, kReference}),
                  std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.activityResponse = -0.5}, kReference}),

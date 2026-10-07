@@ -14,8 +14,8 @@
 namespace crowdbook {
 
 // Parses a duration such as "250ns", "50us", "1.5ms" or "2s" into nanoseconds. The number must
-// not be negative and must come to a whole number of nanoseconds. Throws std::invalid_argument
-// otherwise.
+// not be negative, must come to a whole number of nanoseconds and must be shorter than
+// kMaxDuration. Throws std::invalid_argument otherwise.
 [[nodiscard]] Duration parseDuration(std::string_view text);
 
 // Named settings for an agent, read from a scenario file or set in code. Each getter returns the

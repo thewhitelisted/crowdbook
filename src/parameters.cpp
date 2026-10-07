@@ -1,15 +1,12 @@
 #include "crowdbook/parameters.hpp"
 
 #include <format>
-#include <limits>
 #include <stdexcept>
 #include <utility>
 
 namespace crowdbook {
 
 namespace {
-
-constexpr Duration kMaxDuration = std::numeric_limits<Duration>::max();
 
 [[noreturn]] void throwNotADuration(std::string_view text, std::string_view why) {
     throw std::invalid_argument(
@@ -52,7 +49,7 @@ Duration parseDuration(std::string_view text) {
     Duration result = 0;
     for (const char digit : whole) {
         if (result > (kMaxDuration / scale - 1 - (digit - '0')) / 10) {
-            throwNotADuration(text, "it is too long");
+            throwNotADuration(text, "it must be shorter than 1000000000s");
         }
         result = result * 10 + (digit - '0');
     }

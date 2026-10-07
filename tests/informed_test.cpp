@@ -87,6 +87,23 @@ TEST(InformedTest, RequiresAFundamentalAndAValidConfig) {
     EXPECT_THROW((InformedTrader{{.noise = -1.0}, fixedValue(100.0)}), std::invalid_argument);
     EXPECT_THROW((InformedTrader{{.orderSize = 6, .maxPosition = 5}, fixedValue(100.0)}),
                  std::invalid_argument);
+    EXPECT_THROW((InformedTrader{{.maxPosition = kMaxQuantity + 1}, fixedValue(100.0)}),
+                 std::invalid_argument);
+}
+
+TEST(InformedTest, PricesAWildEstimateAtTheExchangesLimits) {
+    // A value beyond any price the exchange takes buys at the highest price it does take.
+    InformedTrader high{kExact, fixedValue(1e15)};
+    FakeContext context;
+    EXPECT_EQ(lookOnce(high, context),
+              (std::vector<Request>{
+                  limitOrder(1, Side::Buy, kMaxPrice, 5, TimeInForce::ImmediateOrCancel)}));
+    // And a value below zero sells at the lowest.
+    InformedTrader low{kExact, fixedValue(-50.0)};
+    FakeContext other;
+    EXPECT_EQ(lookOnce(low, other),
+              (std::vector<Request>{
+                  limitOrder(1, Side::Sell, 1, 5, TimeInForce::ImmediateOrCancel)}));
 }
 
 } // namespace

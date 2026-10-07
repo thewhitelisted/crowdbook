@@ -24,6 +24,15 @@ using AgentId = std::uint32_t;
 // (price × quantity) and every risk sum far inside int64.
 inline constexpr Price kMaxPrice = 1'000'000'000;
 inline constexpr Quantity kMaxQuantity = 1'000'000'000;
+// A price worked out in floating point, already a whole number of ticks, brought within the
+// prices the exchange accepts. Agents use it so that a wild estimate becomes an extreme but valid
+// price instead of overflowing the conversion; NaN becomes 1.
+[[nodiscard]] constexpr Price clampPrice(double ticks) noexcept {
+    if (!(ticks >= 1.0)) {
+        return 1;
+    }
+    return ticks >= static_cast<double>(kMaxPrice) ? kMaxPrice : static_cast<Price>(ticks);
+}
 // The largest fee or rebate per lot, in fee units: 1,000 ticks per lot.
 inline constexpr Fee kMaxFeeRate = 1'000'000;
 
@@ -34,6 +43,9 @@ using Duration = std::int64_t;
 inline constexpr Duration kMicrosecond = 1'000;
 inline constexpr Duration kMillisecond = 1'000'000;
 inline constexpr Duration kSecond = 1'000'000'000;
+// Durations stay shorter than a billion seconds, about 31 years, which is far enough below the
+// clock's limit that adding a few of them to a time cannot overflow it.
+inline constexpr Duration kMaxDuration = 1'000'000'000 * kSecond;
 
 enum class Side : std::uint8_t { Buy, Sell };
 

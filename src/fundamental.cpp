@@ -11,6 +11,12 @@ Fundamental::Fundamental(const FundamentalConfig& config, Random random)
     if (config.step <= 0) {
         throw std::invalid_argument("the fundamental's step must be positive");
     }
+    for (const double setting : {config.initial, config.volatility, config.meanReversion,
+                                 config.jumpRate, config.jumpSize}) {
+        if (!std::isfinite(setting)) {
+            throw std::invalid_argument("the fundamental's settings must be finite numbers");
+        }
+    }
     if (!(config.volatility >= 0.0) || !(config.meanReversion >= 0.0)) {
         throw std::invalid_argument(
             "the fundamental's volatility and mean reversion must not be negative");

@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 
 #include <gtest/gtest.h>
@@ -106,6 +107,15 @@ TEST(FundamentalTest, RejectsReadsBackInTimeAndInvalidConfigs) {
     EXPECT_THROW((Fundamental{{.meanReversion = -1.0}, Random{1, 0}}), std::invalid_argument);
     EXPECT_THROW((Fundamental{{.jumpRate = -1.0}, Random{1, 0}}), std::invalid_argument);
     EXPECT_THROW((Fundamental{{.jumpSize = -1.0}, Random{1, 0}}), std::invalid_argument);
+    constexpr double kInfinity = std::numeric_limits<double>::infinity();
+    constexpr double kNotANumber = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_THROW((Fundamental{{.initial = kNotANumber}, Random{1, 0}}), std::invalid_argument);
+    EXPECT_THROW((Fundamental{{.initial = kInfinity}, Random{1, 0}}), std::invalid_argument);
+    EXPECT_THROW((Fundamental{{.volatility = kInfinity}, Random{1, 0}}), std::invalid_argument);
+    EXPECT_THROW((Fundamental{{.meanReversion = kInfinity}, Random{1, 0}}),
+                 std::invalid_argument);
+    EXPECT_THROW((Fundamental{{.jumpRate = kInfinity}, Random{1, 0}}), std::invalid_argument);
+    EXPECT_THROW((Fundamental{{.jumpSize = kInfinity}, Random{1, 0}}), std::invalid_argument);
 }
 
 } // namespace

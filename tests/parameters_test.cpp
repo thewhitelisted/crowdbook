@@ -18,11 +18,13 @@ TEST(ParseDurationTest, ReadsEveryUnitExactly) {
     EXPECT_EQ(parseDuration("1.25us"), 1'250);
     EXPECT_EQ(parseDuration("0.000000001s"), 1);
     EXPECT_EQ(parseDuration("3.0ns"), 3);
+    EXPECT_EQ(parseDuration("999999999.999999999s"), kMaxDuration - 1);
 }
 
 TEST(ParseDurationTest, RejectsMalformedText) {
     for (const char* text : {"", "5", "ms", "-1ms", "1..5ms", "1.ms", ".5ms", "5 ms", "5min",
-                             "1.5ns", "1.0000005us", "99999999999999999999s"}) {
+                             "1.5ns", "1.0000005us", "99999999999999999999s", "1000000000s",
+                             "1000000000000000000ns"}) {
         EXPECT_THROW(static_cast<void>(parseDuration(text)), std::invalid_argument) << text;
     }
 }

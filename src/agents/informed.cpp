@@ -1,6 +1,7 @@
 #include "crowdbook/agents/informed.hpp"
 
 #include <cmath>
+#include <format>
 #include <stdexcept>
 #include <utility>
 
@@ -17,8 +18,10 @@ InformedTrader::InformedTrader(const InformedConfig& config,
         throw std::invalid_argument(
             "informed needs a positive interval and noise and threshold that are not negative");
     }
-    if (config.orderSize < 1 || config.maxPosition < config.orderSize) {
-        throw std::invalid_argument("informed needs 1 <= order_size <= max_position");
+    if (config.orderSize < 1 || config.maxPosition < config.orderSize ||
+        config.maxPosition > kMaxQuantity) {
+        throw std::invalid_argument(std::format(
+            "informed needs 1 <= order_size <= max_position <= {}", kMaxQuantity));
     }
 }
 
@@ -35,12 +38,12 @@ void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     const auto bid = market_.bestBid();
     if (ask && estimate - static_cast<double>(*ask) >= config_.threshold &&
         ledger.position() + ledger.openQuantity(Side::Buy) + size <= config_.maxPosition) {
-        const auto limit = static_cast<Price>(std::floor(estimate - config_.threshold));
+        const Price limit = clampPrice(std::floor(estimate - config_.threshold));
         context.submitLimit(Side::Buy, limit, size, TimeInForce::ImmediateOrCancel);
     } else if (bid && static_cast<double>(*bid) - estimate >= config_.threshold &&
                ledger.position() - ledger.openQuantity(Side::Sell) - size >=
                    -config_.maxPosition) {
-        const auto limit = static_cast<Price>(std::ceil(estimate + config_.threshold));
+        const Price limit = clampPrice(std::ceil(estimate + config_.threshold));
         context.submitLimit(Side::Sell, limit, size, TimeInForce::ImmediateOrCancel);
     }
     context.wakeAfter(config_.interval);

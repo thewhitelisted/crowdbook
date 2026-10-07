@@ -1,3 +1,4 @@
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -37,7 +38,10 @@ TEST(PacerTest, PausesAndChangesSpeedWithoutJumping) {
     EXPECT_EQ(pacer.simulatedAt(5'150), 700);
     EXPECT_EQ(pacer.speed(), 10.0);
     EXPECT_THROW(pacer.setSpeed(0.0, 6'000), std::invalid_argument);
+    EXPECT_THROW(pacer.setSpeed(std::numeric_limits<double>::infinity(), 6'000),
+                 std::invalid_argument);
     EXPECT_THROW((Pacer{0, 0, -1.0}), std::invalid_argument);
+    EXPECT_THROW((Pacer{0, 0, std::numeric_limits<double>::quiet_NaN()}), std::invalid_argument);
 }
 
 TEST(PerformTest, SendsTheRequestNowAndChecksItAgainstTheRecord) {

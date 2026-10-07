@@ -27,7 +27,8 @@ struct InformedConfig {
 class InformedTrader final : public Agent {
 public:
     // Throws std::invalid_argument without a fundamental, for a non-positive interval, negative
-    // noise or threshold, or sizes that do not satisfy 1 <= orderSize <= maxPosition.
+    // noise or threshold, or sizes that do not satisfy 1 <= orderSize <= maxPosition <=
+    // kMaxQuantity.
     InformedTrader(const InformedConfig& config, std::shared_ptr<Fundamental> fundamental);
 
     // It looks at the book only when it checks the value, so it reads snapshots.

@@ -49,7 +49,8 @@ struct ZeroIntelligenceConfig {
 class ZeroIntelligenceTrader final : public Agent {
 public:
     // Throws std::invalid_argument for a negative rate, limit and market rates that are both zero,
-    // a maxOffset below 1, sizes that do not satisfy 1 <= minSize <= maxSize, a negative activity
+    // a maxOffset outside 1 to kMaxPrice, sizes that do not satisfy
+    // 1 <= minSize <= maxSize <= kMaxQuantity, a negative activity
     // response, or activity windows that are not positive with memory no longer than baseline.
     ZeroIntelligenceTrader(const ZeroIntelligenceConfig& config, Price referencePrice);
 

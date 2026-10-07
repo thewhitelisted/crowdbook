@@ -13,12 +13,12 @@ namespace crowdbook {
 // backwards. Wall times are nanoseconds from any fixed origin.
 class Pacer {
 public:
-    // Throws std::invalid_argument unless the speed is positive.
+    // Throws std::invalid_argument unless the speed is positive and finite.
     Pacer(std::int64_t wallNow, Timestamp simulatedNow, double speed = 1.0);
 
     [[nodiscard]] Timestamp simulatedAt(std::int64_t wall) const noexcept;
     // Both take effect from `wall` on, with simulated time carrying on from where it was then.
-    // setSpeed throws std::invalid_argument unless the speed is positive.
+    // setSpeed throws std::invalid_argument unless the speed is positive and finite.
     void setSpeed(double speed, std::int64_t wall);
     void setPaused(bool paused, std::int64_t wall);
 

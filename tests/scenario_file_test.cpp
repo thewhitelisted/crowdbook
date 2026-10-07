@@ -148,6 +148,11 @@ TEST(ScenarioFileTest, RejectsValuesOfTheWrongKindOrRange) {
          "maker_fee plus taker_fee must not be negative"},
         {"[exchange]\nfee = 1\n" + agent, "unknown key 'fee' in [exchange]"},
         {"[exchange]\ndepth_levels = -1\n" + agent, "'depth_levels' must be between 0 and 1000"},
+        {"[exchange]\nmaker_fee = nan\n" + agent, "'maker_fee' must be a finite number"},
+        {"[fundamental]\nvolatility = inf\n" + agent, "'volatility' must be a finite number"},
+        {"[fundamental]\ninitial = -nan\n" + agent, "'initial' must be a finite number"},
+        {agent + "rate = -inf\n", "agent parameter 'rate' must be a finite number"},
+        {"duration = \"1000000000s\"\n" + agent, "it must be shorter than 1000000000s"},
     };
     for (const auto& [text, expected] : cases) {
         EXPECT_NE(parseError(text).find(expected), std::string::npos)
