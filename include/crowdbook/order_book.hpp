@@ -100,6 +100,7 @@ private:
     Bids bids_;
     Asks asks_;
     // Owns every resting order. Nodes never move once inserted, so level queues can link them.
+    // Only looked up: the levels, not this map, give the order in which orders trade.
     std::unordered_map<OrderId, Node> orders_;
 };
 

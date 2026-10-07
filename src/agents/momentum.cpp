@@ -4,6 +4,8 @@
 #include <format>
 #include <stdexcept>
 
+#include "crowdbook/math.hpp"
+
 namespace crowdbook {
 
 namespace {
@@ -11,7 +13,7 @@ namespace {
 // The weight of each new sample in a moving average that halves an old value's influence every
 // `halfLife`, when sampled every `interval`.
 double weightFor(Duration interval, Duration halfLife) {
-    return 1.0 - std::exp2(-static_cast<double>(interval) / static_cast<double>(halfLife));
+    return 1.0 - math::exp2(-static_cast<double>(interval) / static_cast<double>(halfLife));
 }
 
 } // namespace

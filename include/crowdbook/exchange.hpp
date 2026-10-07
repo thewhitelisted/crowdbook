@@ -129,6 +129,8 @@ private:
 
     ExchangeConfig config_;
     OrderBook book_;
+    // Hash maps, for lookups only: their iteration order differs between standard libraries, so
+    // only audit() walks them, and nothing that changes a run may.
     std::unordered_map<AgentId, AgentState> agents_;
     std::unordered_map<OrderId, LiveOrder> liveOrders_;
     OrderId nextOrderId_ = 1;

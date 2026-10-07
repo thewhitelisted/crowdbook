@@ -13,6 +13,7 @@ add_library(crowdbook
     fundamental.cpp
     ledger.cpp
     live.cpp
+    math.cpp
     messages.cpp
     order_book.cpp
     parameters.cpp

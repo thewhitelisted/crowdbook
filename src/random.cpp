@@ -5,6 +5,8 @@
 #include <limits>
 #include <stdexcept>
 
+#include "crowdbook/math.hpp"
+
 namespace crowdbook {
 
 namespace {
@@ -79,7 +81,7 @@ double Random::exponential(double rate) {
         throw std::invalid_argument("rate must be positive");
     }
     // Inverse transform sampling; 1 - u is in (0, 1], so the logarithm is finite.
-    return -std::log(1.0 - uniform()) / rate;
+    return -math::log(1.0 - uniform()) / rate;
 }
 
 double Random::normal(double mean, double stddev) {
@@ -93,7 +95,7 @@ double Random::normal(double mean, double stddev) {
         const double y = 2.0 * uniform() - 1.0;
         const double s = x * x + y * y;
         if (s > 0.0 && s < 1.0) {
-            return mean + stddev * x * std::sqrt(-2.0 * std::log(s) / s);
+            return mean + stddev * x * std::sqrt(-2.0 * math::log(s) / s);
         }
     }
 }

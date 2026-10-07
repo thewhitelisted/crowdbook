@@ -21,6 +21,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macos-15 runs on arm64 and ubuntu-24.04 on x86-64: the golden test checks that runs
+          # come out byte for byte the same on both.
           - name: macos / apple-clang / dev
             os: macos-15
             preset: dev

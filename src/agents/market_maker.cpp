@@ -5,6 +5,8 @@
 #include <format>
 #include <stdexcept>
 
+#include "crowdbook/math.hpp"
+
 namespace crowdbook {
 
 Quotes avellanedaStoikovQuotes(const MarketMakerConfig& config, double fairPrice,
@@ -13,7 +15,7 @@ Quotes avellanedaStoikovQuotes(const MarketMakerConfig& config, double fairPrice
     const double tau = static_cast<double>(config.horizon) / static_cast<double>(kSecond);
     const double risk = gamma * config.volatility * config.volatility * tau;
     const double reservation = fairPrice - static_cast<double>(inventory) * risk;
-    const double halfSpread = risk / 2.0 + std::log(1.0 + gamma / config.intensity) / gamma;
+    const double halfSpread = risk / 2.0 + math::log(1.0 + gamma / config.intensity) / gamma;
 
     Quotes quotes;
     if (inventory + config.quoteSize <= config.maxInventory) {

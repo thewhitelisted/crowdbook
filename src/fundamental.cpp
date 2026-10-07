@@ -4,6 +4,8 @@
 #include <format>
 #include <stdexcept>
 
+#include "crowdbook/math.hpp"
+
 namespace crowdbook {
 
 Fundamental::Fundamental(const FundamentalConfig& config, Random random)
@@ -28,7 +30,7 @@ Fundamental::Fundamental(const FundamentalConfig& config, Random random)
     jumpsPerStep_ = config.jumpRate * seconds;
     const double theta = config.meanReversion;
     if (theta > 0.0) {
-        decay_ = std::exp(-theta * seconds);
+        decay_ = math::exp(-theta * seconds);
         shockScale_ = config.volatility * std::sqrt((1.0 - decay_ * decay_) / (2.0 * theta));
     } else {
         decay_ = 1.0;
@@ -49,7 +51,7 @@ double Fundamental::valueAt(Timestamp time) {
         if (jumpsPerStep_ > 0.0) {
             // The number of jumps in one step is Poisson: walk its distribution to a uniform draw.
             const double draw = random_.uniform();
-            double probability = std::exp(-jumpsPerStep_);
+            double probability = math::exp(-jumpsPerStep_);
             double cumulative = probability;
             std::int64_t count = 0;
             while (draw > cumulative && probability > 0.0) {

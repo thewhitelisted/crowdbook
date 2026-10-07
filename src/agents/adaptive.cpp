@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "crowdbook/math.hpp"
+
 namespace crowdbook {
 
 namespace {
@@ -13,7 +15,7 @@ namespace {
 // The weight of a new sample in an exponential average sampled every `interval` with the given
 // half-life, or the decay of a sum over one interval when used as 1 - weight.
 double weightFor(Duration interval, Duration halfLife) {
-    return 1.0 - std::exp2(-static_cast<double>(interval) / static_cast<double>(halfLife));
+    return 1.0 - math::exp2(-static_cast<double>(interval) / static_cast<double>(halfLife));
 }
 
 } // namespace
@@ -77,7 +79,7 @@ void AdaptiveTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
 
     const double odds = config_.choiceIntensity * (trendRecord_ - valueRecord_);
     const double draw = random.uniform();
-    followingTrend_ = draw < 1.0 / (1.0 + std::exp(-odds));
+    followingTrend_ = draw < 1.0 / (1.0 + math::exp(-odds));
     const int direction = followingTrend_ ? trendCall : valueCall;
 
     // Trade toward the position the chosen strategy wants, counting orders in flight as filled.

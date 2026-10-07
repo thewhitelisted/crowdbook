@@ -6,6 +6,8 @@
 #include <optional>
 #include <stdexcept>
 
+#include "crowdbook/math.hpp"
+
 namespace crowdbook {
 
 namespace {
@@ -64,7 +66,7 @@ void ZeroIntelligenceTrader::observeMarket(const MarketSnapshot& market, Timesta
     if (lastSeenAt_ >= 0 && now > lastSeenAt_) {
         const double seconds = static_cast<double>(now - lastSeenAt_) / kSecond;
         const auto keep = [seconds](Duration window) {
-            return std::exp(-seconds * kSecond / static_cast<double>(window));
+            return math::exp(-seconds * kSecond / static_cast<double>(window));
         };
         if (config_.activityResponse > 0.0) {
             const double rate = static_cast<double>(market.trades - lastSeenTrades_) / seconds;
@@ -72,7 +74,7 @@ void ZeroIntelligenceTrader::observeMarket(const MarketSnapshot& market, Timesta
             usual_.add(rate, keep(config_.activityBaseline));
             if (recent_.value() > 0.0 && usual_.value() > 0.0) {
                 pace_ = std::clamp(
-                    std::pow(recent_.value() / usual_.value(), config_.activityResponse), 0.1,
+                    math::pow(recent_.value() / usual_.value(), config_.activityResponse), 0.1,
                     10.0);
             }
         }
@@ -82,7 +84,7 @@ void ZeroIntelligenceTrader::observeMarket(const MarketSnapshot& market, Timesta
             usualVariance_.add(move * move / seconds, keep(config_.activityBaseline));
             if (recentVariance_.value() > 0.0 && usualVariance_.value() > 0.0) {
                 // Variances, so half the exponent gives the ratio of volatilities.
-                stretch_ = std::clamp(std::pow(recentVariance_.value() / usualVariance_.value(),
+                stretch_ = std::clamp(math::pow(recentVariance_.value() / usualVariance_.value(),
                                                config_.volatilityResponse / 2.0),
                                       0.25, 4.0);
             }

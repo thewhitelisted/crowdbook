@@ -28,6 +28,15 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(CrowdbookWarnings)
 include(CrowdbookSanitizers)
 
+# A seeded run must come out the same on every platform, so floating-point expressions are
+# evaluated exactly as written, everywhere: Clang fuses a * b + c into one rounding by default, and
+# GCC on x86-64 does not. Set before any target, third-party ones included.
+if(MSVC)
+    add_compile_options(/fp:precise)
+else()
+    add_compile_options(-ffp-contract=off)
+endif()
+
 if(CROWDBOOK_BUILD_TESTS)
     enable_testing()
 endif()

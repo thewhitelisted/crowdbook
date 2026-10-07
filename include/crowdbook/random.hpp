@@ -10,9 +10,9 @@ namespace crowdbook {
 // sequence.
 //
 // The engine (xoshiro256**, seeded through SplitMix64) and every distribution are implemented here
-// instead of taken from <random>, whose distributions are implementation-defined. Integer draws
-// are therefore identical on every platform. Floating-point draws use the same algorithms
-// everywhere but call the platform's log and sqrt, which may differ in the last bit.
+// instead of taken from <random>, whose distributions are implementation-defined, and the
+// floating-point draws use crowdbook::math's logarithm and the correctly rounded square root, so
+// every draw is identical on every platform.
 class Random {
 public:
     Random(std::uint64_t seed, std::uint64_t stream) noexcept;

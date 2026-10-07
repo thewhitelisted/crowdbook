@@ -5,13 +5,15 @@
 #include <format>
 #include <stdexcept>
 
+#include "crowdbook/math.hpp"
+
 namespace crowdbook {
 
 Quantity drawParentSize(Random& random, Quantity minParent, double parentTail,
                         Quantity maxParent) {
     // Inverting the distribution: 1 - uniform() is in (0, 1], so the size is at least minParent.
     const double size = static_cast<double>(minParent) *
-                        std::pow(1.0 - random.uniform(), -1.0 / parentTail);
+                        math::pow(1.0 - random.uniform(), -1.0 / parentTail);
     return size >= static_cast<double>(maxParent) ? maxParent : static_cast<Quantity>(size);
 }
 

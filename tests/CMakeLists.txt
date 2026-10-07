@@ -15,8 +15,10 @@ add_executable(crowdbook_tests
     exchange_random_test.cpp
     exchange_test.cpp
     fundamental_test.cpp
+    golden_test.cpp
     informed_test.cpp
     ledger_test.cpp
+    math_test.cpp
     live_test.cpp
     market_maker_test.cpp
     momentum_test.cpp
@@ -32,6 +34,8 @@ add_executable(crowdbook_tests
     version_test.cpp
     zero_intelligence_test.cpp)
 target_link_libraries(crowdbook_tests PRIVATE crowdbook::scenario GTest::gtest_main)
+# The golden test replays a session from examples/.
+target_compile_definitions(crowdbook_tests PRIVATE CROWDBOOK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 if(TARGET crowdbook_ladder)
     target_sources(crowdbook_tests PRIVATE ladder_test.cpp terminal_codes_test.cpp)
     target_link_libraries(crowdbook_tests PRIVATE crowdbook_ladder)
