@@ -7,8 +7,9 @@ momentum traders, noise traders — each sending orders to a simulated exchange.
 price impact and volatility are not assumed; they emerge from how the agents interact. Writing
 your own agent means writing one C++ class and adding it to a scenario.
 
-> **Status:** early development. Milestone M0 (build, tests, CI) is in place; the order book is
-> next. See [docs/design.md](docs/design.md) for the architecture and roadmap.
+> **Status:** early development. The build, CI and the order book with its matching engine are
+> done; the exchange is next. See [docs/design.md](docs/design.md) for the architecture, the
+> testing approach and the roadmap.
 
 ## Building
 
@@ -23,8 +24,19 @@ Each workflow preset configures, builds and runs the test suite, with output in 
 | Preset    | Build                                                      |
 |-----------|------------------------------------------------------------|
 | `dev`     | Debug                                                      |
-| `release` | Release                                                    |
+| `release` | Release, including the benchmarks                          |
 | `asan`    | Debug with AddressSanitizer and UndefinedBehaviorSanitizer |
+
+## Performance
+
+The matching engine handles about 15 million operations per second (roughly 65 ns each) on a
+mixed stream of passive orders, cancels, crossing orders and market orders, measured on an Apple
+M5 with a Release build. To reproduce:
+
+```bash
+cmake --workflow --preset release
+./build/release/bench/crowdbook_bench
+```
 
 ## License
 
