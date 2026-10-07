@@ -1,4 +1,6 @@
 add_library(crowdbook
+    order_book.cpp
+    types.cpp
     version.cpp)
 add_library(crowdbook::crowdbook ALIAS crowdbook)
 
