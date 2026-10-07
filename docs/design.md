@@ -37,6 +37,7 @@ exchanges, real-time execution, and a GUI.
   are planned.
 - **Scenarios** — a TOML file choosing the agent population and parameters, so experiments run
   without recompiling. Agents register under a name, so user-defined agents work in scenarios too.
+  See [Agents and scenarios](#agents-and-scenarios) and [scenarios.md](scenarios.md).
 - **Event log** — every request the exchange receives and every event it produces, written as CSV
   and analysed in Python (`analysis/`).
 
@@ -143,6 +144,43 @@ One trap for agent authors: C++ leaves the evaluation order of function argument
 `context.modify(id, random.uniformInt(...), random.uniformInt(...))` may consume the random stream
 in a different order on another compiler. Draw into local variables first.
 
+## Agents and scenarios
+
+Four agent types are built in. Each is a plain class configured by a struct, so it can be used
+from C++ directly; [scenarios.md](scenarios.md) lists their parameters.
+
+- **Zero-intelligence trader** (Farmer, Patelli and Zovko, 2005): limit orders, market orders and
+  cancellations at Poisson times, on random sides, with limit prices drawn inside the opposite
+  best quote.
+- **Market maker** (Avellaneda and Stoikov, 2008): one bid and one ask around a reservation price
+  that leans against inventory, requoted on a timer and after every fill. Its fair price is a
+  running average of trade prices rather than the mid, because the mid is often its own quotes.
+- **Momentum trader:** market orders in the direction of a fast moving average's lead over a slow
+  one, within a position limit that counts orders in flight.
+- **Informed trader:** observes the fundamental value with noise and trades with
+  immediate-or-cancel orders priced to keep its edge, so it never sweeps the book past its
+  estimate.
+
+The fundamental value is an Ornstein–Uhlenbeck process (a random walk without mean reversion)
+stepped with its exact discrete-time formulas from its own random stream, so its path does not
+depend on who reads it or when.
+
+A scenario names agent groups with shared settings. `AgentRegistry` maps type names to factories
+that read a `Parameters` object; after a factory runs, any parameter it did not read is an error,
+so a misspelled key cannot silently fall back to a default. `runScenario` builds the market from
+a `Scenario` struct and reports trades, volume, the last price, the fundamental's final value and
+each group's position, cash and PnL. Scenario files are only one way to fill in that struct: the
+TOML reader lives in its own library, so the core library stays free of dependencies.
+
+Running the examples taught one thing worth keeping. In Avellaneda–Stoikov the mid price is
+exogenous, but here the zero-intelligence traders anchor on the best quotes, which are often the
+market maker's own. The market maker's inventory skew, γσ²τ per lot, therefore moves the market,
+and with the paper's parameters, rescaled to ticks, the skew was large enough to drag prices
+against its own inventory: it lost money even against pure noise, and more the wider it quoted.
+With a skew of about 0.05 ticks per lot it earns the spread. The defaults are set for that regime,
+and measuring how this self-impact depends on the skew and on how much liquidity others provide is
+one of the first experiments.
+
 ## Testing
 
 - **Unit tests** spell out each matching rule with a small hand-checked scenario.
@@ -173,6 +211,15 @@ in a different order on another compiler. Draw into local variables first.
   half a simulated second: about 4,000 requests, 1,200 trades and 11,000 log rows. Two runs with
   the same seed must produce byte-identical CSV logs and a different seed a different log. Once
   every message has landed, each agent's ledger must match the exchange exactly.
+- **Agent tests** run each built-in agent against `FakeContext`, a stand-in for the simulation
+  that records what the agent sends and lets the test play the exchange. They check decisions
+  exactly: Avellaneda–Stoikov quotes against hand-computed values, prices relative to the book,
+  position limits including orders in flight, and the mix and timing of random actions.
+- **Scenario tests** run small markets and check that the groups' cash, positions and PnL sum to
+  zero and that the same scenario gives the same result. Scenario file tests check that every
+  setting is read and that syntax errors, unknown keys and bad values are reported with their line.
+- **Example tests:** CTest runs every scenario in `examples/scenarios` and the custom agent
+  example, so none of them can quietly break.
 - **Mutation check:** before each randomized suite was committed, deliberately planted bugs were
   each caught. Six in the order book: an off-by-one limit check, LIFO instead of FIFO, no
   self-trade prevention, market orders resting, size increases keeping priority, stale level
@@ -211,6 +258,9 @@ Choices for later milestones may change once they are implemented; changes are r
 | Agent state | A ledger built from the agent's own requests and events, not a view of the exchange | Agents act on what they could know, including orders in flight and cancels that race fills |
 | Output | Full event log rather than summaries | Microstructure analysis needs every order, cancel and trade, not end-of-run PnL |
 | Log format | One CSV, a row per request or event, unused columns empty | Loads into Python in one call, and runs can be compared byte for byte |
+| Scenario format | TOML, read by toml++ in a separate library | Comments can document an experiment's choices; the core library keeps no dependencies |
+| Unknown parameters | An error, not ignored | A typo would otherwise run the experiment with a default nobody chose |
+| Market maker's fair price | A running average of trade prices | The mid is often its own quotes; skewing around them made prices run away |
 
 ## Milestones
 
@@ -220,9 +270,9 @@ Choices for later milestones may change once they are implemented; changes are r
 | M1 | Order book, matching and self-trade prevention | Differential tests against a reference book; benchmarks | Done |
 | M2 | Exchange: validation, order ids, ownership, accounting, risk limits | Conservation of cash and shares; agents' event ledgers match the exchange | Done |
 | M3 | Kernel, latency, random streams, agent API, ledger, CSV event log | Same seed gives a byte-identical event log; ledgers match the exchange | Done |
-| M4 | Built-in agents (zero-intelligence, Avellaneda–Stoikov market maker, momentum, informed), TOML scenarios, `crowdbook` CLI | Example runs | Next |
-| M5 | Stylized facts and a first experiment: market-maker PnL vs informed flow and latency | Plots in the README | |
-| Later | Rule-based agents, fees, multiple instruments, live viewer | | |
+| M4 | Built-in agents (zero-intelligence, Avellaneda–Stoikov market maker, momentum, informed), fundamental value, TOML scenarios, `crowdbook` CLI | Agent tests against a fake context; every example runs in CI | Done |
+| M5 | Stylized facts and first experiments: market-maker self-impact and PnL against informed flow and latency | Plots in the README | Next |
+| Later | Rule-based agents, post-only orders, depth snapshots, fees, multiple instruments, live viewer | | |
 
 ## Code conventions
 
