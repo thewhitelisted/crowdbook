@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "crowdbook/agents/adaptive.hpp"
 #include "crowdbook/agents/informed.hpp"
 #include "crowdbook/agents/market_maker.hpp"
 #include "crowdbook/agents/momentum.hpp"
@@ -58,6 +59,24 @@ std::unique_ptr<Agent> makeMarketMaker(const Parameters& parameters,
         environment.referencePrice);
 }
 
+std::unique_ptr<Agent> makeAdaptive(const Parameters& parameters,
+                                    const Environment& environment) {
+    const AdaptiveConfig defaults;
+    return std::make_unique<AdaptiveTrader>(
+        AdaptiveConfig{
+            .interval = parameters.duration("interval", defaults.interval),
+            .noise = parameters.number("noise", defaults.noise),
+            .fastHalfLife = parameters.duration("fast_half_life", defaults.fastHalfLife),
+            .slowHalfLife = parameters.duration("slow_half_life", defaults.slowHalfLife),
+            .memory = parameters.duration("memory", defaults.memory),
+            .choiceIntensity = parameters.number("choice_intensity", defaults.choiceIntensity),
+            .threshold = parameters.number("threshold", defaults.threshold),
+            .orderSize = parameters.integer("order_size", defaults.orderSize),
+            .maxPosition = parameters.integer("max_position", defaults.maxPosition),
+        },
+        environment.fundamental, environment.referencePrice);
+}
+
 std::unique_ptr<Agent> makeMomentum(const Parameters& parameters,
                                     const Environment& environment) {
     const MomentumConfig defaults;
@@ -92,6 +111,7 @@ std::unique_ptr<Agent> makeInformed(const Parameters& parameters,
 AgentRegistry AgentRegistry::withBuiltIns() {
     AgentRegistry registry;
     registry.add("zero_intelligence", makeZeroIntelligence);
+    registry.add("adaptive", makeAdaptive);
     registry.add("market_maker", makeMarketMaker);
     registry.add("momentum", makeMomentum);
     registry.add("informed", makeInformed);
