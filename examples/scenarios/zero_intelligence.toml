@@ -1,0 +1,21 @@
+# Thirty zero-intelligence traders and nobody else: the order flow model of Farmer, Patelli and
+# Zovko (2005). Nobody has a strategy, yet the book keeps a realistic spread and depth.
+#
+#   crowdbook run examples/scenarios/zero_intelligence.toml --log zero_intelligence.csv
+
+seed = 1
+duration = "60s"
+reference_price = 10000   # ticks; where everyone anchors before the first quotes
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 30
+limit_rate = 2.0    # limit orders per second, per trader
+market_rate = 0.5   # market orders per second
+cancel_rate = 1.5   # cancellations of its own orders per second
+max_offset = 10     # limit prices go 1 to 10 ticks inside the opposite best quote
+min_size = 1
+max_size = 10
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 1000, max_order_quantity = 10 }
