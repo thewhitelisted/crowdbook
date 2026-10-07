@@ -7,10 +7,12 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "crowdbook/agent_registry.hpp"
 #include "crowdbook/event_log.hpp"
@@ -24,6 +26,7 @@ namespace {
 
 constexpr std::string_view kUsage =
     "usage: crowdbook run <scenario.toml> [--seed N] [--duration D] [--log FILE]\n"
+    "                     [--log-only KIND,KIND...] [--json FILE]\n"
     "       crowdbook agents\n"
     "       crowdbook --version\n";
 
@@ -38,7 +41,17 @@ struct RunOptions {
     std::optional<std::uint64_t> seed{};
     std::optional<Duration> duration{};
     std::optional<std::string> logPath{};
+    std::vector<std::string> logKinds{}; // empty logs every kind
+    std::optional<std::string> jsonPath{};
 };
+
+std::vector<std::string> splitList(std::string_view text) {
+    std::vector<std::string> items;
+    for (const auto item : std::views::split(text, ',')) {
+        items.emplace_back(item.begin(), item.end());
+    }
+    return items;
+}
 
 std::uint64_t parseSeed(std::string_view text) {
     std::uint64_t seed = 0;
@@ -65,6 +78,10 @@ RunOptions parseRunOptions(std::span<char*> args) {
             options.duration = parseDuration(value());
         } else if (arg == "--log") {
             options.logPath = std::string{value()};
+        } else if (arg == "--log-only") {
+            options.logKinds = splitList(value());
+        } else if (arg == "--json") {
+            options.jsonPath = std::string{value()};
         } else if (arg.starts_with("--")) {
             throw UsageError(std::format("unknown option {}", arg));
         } else if (options.scenarioPath.empty()) {
@@ -76,7 +93,18 @@ RunOptions parseRunOptions(std::span<char*> args) {
     if (options.scenarioPath.empty()) {
         throw UsageError("run needs a scenario file");
     }
+    if (!options.logKinds.empty() && !options.logPath) {
+        throw UsageError("--log-only needs --log");
+    }
     return options;
+}
+
+std::ofstream openForWriting(const std::string& path) {
+    std::ofstream file{path};
+    if (!file) {
+        throw std::runtime_error(std::format("cannot write '{}'", path));
+    }
+    return file;
 }
 
 std::string formatDuration(Duration duration) {
@@ -105,11 +133,8 @@ int run(std::span<char*> args) {
     std::ofstream logFile;
     std::optional<CsvEventLog> log;
     if (options.logPath) {
-        logFile.open(*options.logPath);
-        if (!logFile) {
-            throw std::runtime_error(std::format("cannot write '{}'", *options.logPath));
-        }
-        log.emplace(logFile);
+        logFile = openForWriting(*options.logPath);
+        log.emplace(logFile, options.logKinds);
     }
 
     const auto started = std::chrono::steady_clock::now();
@@ -134,6 +159,11 @@ int run(std::span<char*> args) {
     std::cout << "\ncash and pnl are in tick-lots; pnl values positions at the last price\n";
     if (options.logPath) {
         std::cout << std::format("event log written to {}\n", *options.logPath);
+    }
+    if (options.jsonPath) {
+        std::ofstream json = openForWriting(*options.jsonPath);
+        writeResultJson(json, scenario, result);
+        std::cout << std::format("results written to {}\n", *options.jsonPath);
     }
     return 0;
 }

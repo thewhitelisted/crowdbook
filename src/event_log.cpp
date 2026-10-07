@@ -1,7 +1,11 @@
 #include "crowdbook/event_log.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
+#include <format>
 #include <optional>
+#include <stdexcept>
 #include <string_view>
 
 #include "overloaded.hpp"
@@ -74,9 +78,25 @@ void describeOrder(Row& row, OrderType type, TimeInForce timeInForce, Price pric
 
 } // namespace
 
-CsvEventLog::CsvEventLog(std::ostream& out) : out_(out) {
+CsvEventLog::CsvEventLog(std::ostream& out, const std::vector<std::string>& kinds) : out_(out) {
+    constexpr std::array<std::string_view, 10> kKinds = {
+        "new",      "cancel",    "modify", "accepted", "rejected",
+        "modified", "cancelled", "filled", "trade",    "top_of_book"};
+    for (const std::string& kind : kinds) {
+        if (std::ranges::find(kKinds, kind) == kKinds.end()) {
+            throw std::invalid_argument(std::format(
+                "unknown log row kind '{}'; the kinds are new, cancel, modify, accepted, "
+                "rejected, modified, cancelled, filled, trade and top_of_book",
+                kind));
+        }
+        kinds_.insert(kind);
+    }
     out_ << "time,kind,agent,client_order_id,order_id,side,type,time_in_force,price,quantity,"
             "leaves,liquidity,request,reason,bid_price,bid_quantity,ask_price,ask_quantity\n";
+}
+
+bool CsvEventLog::keeps(std::string_view kind) const {
+    return kinds_.empty() || kinds_.contains(kind);
 }
 
 void CsvEventLog::onRequest(Timestamp time, AgentId agent, const Request& request) {
@@ -93,7 +113,9 @@ void CsvEventLog::onRequest(Timestamp time, AgentId agent, const Request& reques
     } else {
         row.kind = "cancel";
     }
-    write(out_, row);
+    if (keeps(row.kind)) {
+        write(out_, row);
+    }
 }
 
 void CsvEventLog::onEvent(Timestamp time, const Event& event) {
@@ -169,7 +191,9 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
             },
         },
         event);
-    write(out_, row);
+    if (keeps(row.kind)) {
+        write(out_, row);
+    }
 }
 
 } // namespace crowdbook

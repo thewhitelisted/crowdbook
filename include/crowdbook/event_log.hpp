@@ -1,6 +1,11 @@
 #pragma once
 
+#include <functional>
 #include <ostream>
+#include <set>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "crowdbook/messages.hpp"
 #include "crowdbook/types.hpp"
@@ -27,13 +32,18 @@ public:
 // rejected, modified, filled, cancelled, trade and top_of_book.
 class CsvEventLog final : public EventSink {
 public:
-    explicit CsvEventLog(std::ostream& out);
+    // Writes every row, or only rows of the given kinds when `kinds` is not empty. Throws
+    // std::invalid_argument for a kind that does not exist.
+    explicit CsvEventLog(std::ostream& out, const std::vector<std::string>& kinds = {});
 
     void onRequest(Timestamp time, AgentId agent, const Request& request) override;
     void onEvent(Timestamp time, const Event& event) override;
 
 private:
+    [[nodiscard]] bool keeps(std::string_view kind) const;
+
     std::ostream& out_;
+    std::set<std::string, std::less<>> kinds_; // empty keeps every kind
 };
 
 } // namespace crowdbook

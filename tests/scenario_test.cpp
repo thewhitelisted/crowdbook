@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -47,6 +48,56 @@ TEST(ScenarioTest, RunsAMarketWhereMoneyIsConserved) {
     EXPECT_EQ(cash, 0);
     EXPECT_EQ(position, 0);
     EXPECT_EQ(pnl, 0);
+}
+
+TEST(ScenarioTest, CountsEachGroupsVolumeAndStartingBalances) {
+    Scenario scenario = marketWithAMaker();
+    scenario.groups[1].options.account.initialCash = 1'000;
+    scenario.groups[1].options.account.initialPosition = 4;
+    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns());
+
+    // Every lot traded has a buyer and a seller.
+    Quantity traded = 0;
+    for (const GroupResult& summary : result.groups) {
+        traded += summary.traded;
+    }
+    EXPECT_EQ(traded, 2 * result.volume);
+    EXPECT_GT(result.groups[0].traded, 0);
+    EXPECT_EQ(result.groups[1].initialCash, 15 * 1'000);
+    EXPECT_EQ(result.groups[1].initialPosition, 15 * 4);
+    EXPECT_EQ(result.groups[1].pnl,
+              (result.groups[1].cash - 15'000) +
+                  (result.groups[1].position - 60) * result.lastPrice);
+}
+
+TEST(ScenarioTest, WritesResultsAsJson) {
+    Scenario scenario{.seed = 3, .duration = 2 * kSecond, .referencePrice = 500};
+    RunResult result{.trades = 4, .volume = 9, .lastPrice = 501, .finalValue = 499.5};
+    result.groups.push_back(GroupResult{.name = "a \"quoted\" name",
+                                        .type = "market_maker",
+                                        .agents = {1, 2},
+                                        .traded = 9,
+                                        .initialCash = 10,
+                                        .initialPosition = -1,
+                                        .cash = 20,
+                                        .position = 3,
+                                        .pnl = 2014});
+    std::ostringstream out;
+    writeResultJson(out, scenario, result);
+    EXPECT_EQ(out.str(), "{\n"
+                         "  \"seed\": 3,\n"
+                         "  \"duration_ns\": 2000000000,\n"
+                         "  \"reference_price\": 500,\n"
+                         "  \"trades\": 4,\n"
+                         "  \"volume\": 9,\n"
+                         "  \"last_price\": 501,\n"
+                         "  \"final_value\": 499.5,\n"
+                         "  \"groups\": [\n"
+                         "    {\"name\": \"a \\\"quoted\\\" name\", \"type\": \"market_maker\", "
+                         "\"agents\": 2, \"traded\": 9, \"initial_cash\": 10, "
+                         "\"initial_position\": -1, \"cash\": 20, \"position\": 3, \"pnl\": 2014}\n"
+                         "  ]\n"
+                         "}\n");
 }
 
 TEST(ScenarioTest, SameScenarioGivesTheSameResult) {

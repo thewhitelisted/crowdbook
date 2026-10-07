@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <initializer_list>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -91,6 +92,29 @@ TEST(CsvEventLogTest, WritesAHeaderAndOneRowPerRequestOrEvent) {
         row({"250", "rejected", "1", "8", "", "", "", "", "", "", "", "", "modify",
              "unknown order id"});
     EXPECT_EQ(out.str(), expected);
+}
+
+TEST(CsvEventLogTest, KeepsOnlyTheRequestedKinds) {
+    std::ostringstream out;
+    CsvEventLog log{out, {"trade", "top_of_book"}};
+    log.onRequest(150, 2,
+                  NewOrder{.clientOrderId = 1,
+                           .side = Side::Sell,
+                           .type = OrderType::Market,
+                           .quantity = 2});
+    log.onEvent(150, Trade{.price = 99, .quantity = 2, .aggressorSide = Side::Sell});
+    log.onEvent(150, OrderCancelled{.agent = 2, .clientOrderId = 1, .orderId = 4, .quantity = 1});
+    log.onEvent(150, TopOfBook{});
+
+    const std::string text = out.str();
+    EXPECT_EQ(text.substr(text.find('\n') + 1),
+              row({"150", "trade", "", "", "", "sell", "", "", "99", "2"}) +
+                  row({"150", "top_of_book"}));
+}
+
+TEST(CsvEventLogTest, RejectsUnknownKinds) {
+    std::ostringstream out;
+    EXPECT_THROW((CsvEventLog{out, {"trades"}}), std::invalid_argument);
 }
 
 } // namespace

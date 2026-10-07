@@ -12,7 +12,17 @@ if(CROWDBOOK_BUILD_TESTS)
     set_tests_properties(cli.agents PROPERTIES PASS_REGULAR_EXPRESSION "market_maker")
     add_test(NAME cli.no_command COMMAND crowdbook_cli)
     add_test(NAME cli.missing_scenario COMMAND crowdbook_cli run no-such-scenario.toml)
-    set_tests_properties(cli.no_command cli.missing_scenario PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME cli.unknown_log_kind
+        COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/market_maker.toml"
+            --duration 1s --log "${CMAKE_CURRENT_BINARY_DIR}/unused.csv" --log-only trades)
+    set_tests_properties(cli.no_command cli.missing_scenario cli.unknown_log_kind
+        PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME cli.json_and_filtered_log
+        COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/market_maker.toml"
+            --duration 1s --json "${CMAKE_CURRENT_BINARY_DIR}/result.json"
+            --log "${CMAKE_CURRENT_BINARY_DIR}/trades.csv" --log-only trade,top_of_book)
+    set_tests_properties(cli.json_and_filtered_log PROPERTIES
+        PASS_REGULAR_EXPRESSION "results written to")
 
     # Every example scenario has to keep working: run each one briefly, with an event log.
     file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")

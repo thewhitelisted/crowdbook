@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <ostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -39,12 +40,16 @@ struct Scenario {
     std::vector<AgentGroup> groups{};
 };
 
+// Totals over the agents of one group.
 struct GroupResult {
     std::string name{};
     std::string type{};
     std::vector<AgentId> agents{};
-    Cash cash = 0;         // summed over the group
-    Quantity position = 0; // summed over the group
+    Quantity traded = 0; // lots bought and sold
+    Cash initialCash = 0;
+    Quantity initialPosition = 0;
+    Cash cash = 0;
+    Quantity position = 0;
     // Change in cash plus change in position valued at the last price, in tick-lots.
     Cash pnl = 0;
 };
@@ -63,5 +68,8 @@ struct RunResult {
 // naming the agent group at fault.
 [[nodiscard]] RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
                                     EventSink* sink = nullptr);
+
+// Writes a run's settings and results as one JSON object, for analysis scripts.
+void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResult& result);
 
 } // namespace crowdbook
