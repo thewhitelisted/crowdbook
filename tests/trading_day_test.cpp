@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdint>
 #include <sstream>
 #include <string>
@@ -256,6 +257,82 @@ TEST(TradingDayTest, ScenarioFilesDescribeTheDay) {
               std::string::npos);
     EXPECT_NE(error("[trading_day]\nlunch = \"1h\"\n" + agent).find("unknown key 'lunch'"),
               std::string::npos);
+}
+
+} // namespace
+} // namespace crowdbook
+
+#include "crowdbook/exchange.hpp"
+#include "exchange_test_support.hpp"
+
+namespace crowdbook {
+namespace {
+
+using test::limitOrder;
+using test::marketOrder;
+
+// An exchange with three traders, a reference price of 100 and a halt band of 5.
+struct DayExchange {
+    DayExchange() {
+        for (const AgentId agent : {1U, 2U, 3U}) {
+            exchange.addAgent(agent);
+        }
+    }
+
+    std::vector<Event> send(AgentId agent, const Request& request) {
+        std::vector<Event> events;
+        exchange.handle(agent, request, events);
+        return events;
+    }
+
+    std::vector<Event> phase(Phase next) {
+        std::vector<Event> events;
+        exchange.setPhase(next, events);
+        return events;
+    }
+
+    Exchange exchange{{.referencePrice = 100, .haltBand = 5, .haltDuration = kSecond}};
+};
+
+bool halted(const std::vector<Event>& events) {
+    return std::ranges::any_of(events, [](const Event& event) {
+        const auto* phase = std::get_if<PhaseChanged>(&event);
+        return phase != nullptr && phase->phase == Phase::HaltAuction;
+    });
+}
+
+TEST(TradingDayExchangeTest, AnAuctionAnnouncesWhereItStandsAtOnce) {
+    DayExchange day;
+    const std::vector<Event> events = day.phase(Phase::OpeningAuction);
+    // Nothing would trade in an empty book, and it says so.
+    ASSERT_FALSE(events.empty());
+    EXPECT_EQ(std::get<PhaseChanged>(events.front()).phase, Phase::OpeningAuction);
+    EXPECT_EQ(events.back(), Event{Indicative{}});
+}
+
+TEST(TradingDayExchangeTest, HaltsAreMeasuredFromTheLastAuctionsPrice) {
+    DayExchange day;
+    day.phase(Phase::OpeningAuction);
+    day.send(1, limitOrder(1, Side::Buy, 120, 5));
+    day.send(2, limitOrder(1, Side::Sell, 120, 5));
+    const std::vector<Event> open = day.phase(Phase::Continuous);
+    EXPECT_EQ(std::get<PhaseChanged>(*std::ranges::find_if(open, [](const Event& event) {
+                  return std::holds_alternative<PhaseChanged>(event);
+              })).price,
+              120);
+    EXPECT_EQ(day.exchange.reference(), 120);
+
+    // 125 is within five ticks of the open at 120, though twenty-five from the reference price.
+    day.send(1, limitOrder(2, Side::Sell, 125, 1));
+    EXPECT_FALSE(halted(day.send(2, limitOrder(2, Side::Buy, 125, 1))));
+    EXPECT_EQ(day.exchange.phase(), Phase::Continuous);
+    // 126 is not.
+    day.send(1, limitOrder(3, Side::Sell, 126, 1));
+    EXPECT_TRUE(halted(day.send(2, marketOrder(3, Side::Buy, 1))));
+    EXPECT_EQ(day.exchange.phase(), Phase::HaltAuction);
+    // And the halt's auction takes no market orders.
+    const std::vector<Event> refused = day.send(3, marketOrder(1, Side::Buy, 1));
+    EXPECT_EQ(std::get<OrderRejected>(refused.front()).reason, RejectReason::AuctionOrderType);
 }
 
 } // namespace
