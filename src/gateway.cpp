@@ -76,6 +76,7 @@ struct Gateway::State {
     std::map<ConnectionId, Connection> connections;
     ConnectionId nextConnection = 1;
     std::optional<Pacer> pacer;
+    bool paused = false; // asked for before the clock started, too
     bool finished = false;
     std::int64_t wall = 0; // the latest wall-clock time the caller has given
 
@@ -387,6 +388,7 @@ struct Gateway::State {
                 return s.connection.has_value();
             })) {
             pacer.emplace(wallNow, simulation().now(), options.speed);
+            pacer->setPaused(paused, wallNow);
             for (auto& [other, open] : connections) {
                 if (open.seat) {
                     send(open, protocol::Start{.time = simulation().now()}, wallNow);
@@ -662,6 +664,31 @@ void Gateway::stop(std::int64_t wallNow) {
     if (!state_->finished) {
         state_->finish(wallNow);
     }
+}
+
+void Gateway::setSpeed(double speed, std::int64_t wallNow) {
+    if (!(speed > 0.0) || !std::isfinite(speed)) {
+        throw std::invalid_argument("the speed must be positive and finite");
+    }
+    state_->options.speed = speed;
+    if (state_->pacer) {
+        state_->pacer->setSpeed(speed, wallNow);
+    }
+}
+
+void Gateway::setPaused(bool paused, std::int64_t wallNow) {
+    state_->paused = paused;
+    if (state_->pacer) {
+        state_->pacer->setPaused(paused, wallNow);
+    }
+}
+
+double Gateway::speed() const noexcept {
+    return state_->options.speed;
+}
+
+bool Gateway::paused() const noexcept {
+    return state_->paused;
 }
 
 std::string_view Gateway::pendingOutput(ConnectionId id) const {

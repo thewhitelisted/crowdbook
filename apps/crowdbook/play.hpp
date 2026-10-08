@@ -1,24 +1,12 @@
 #pragma once
 
-#include <cstdint>
-#include <optional>
-#include <string>
-
-#include "crowdbook/types.hpp"
-#include "output.hpp"
+#include "live_session.hpp"
 
 namespace crowdbook {
 
 struct PlayOptions {
-    std::string scenarioPath{};
-    std::optional<std::uint64_t> seed{};
-    std::optional<Duration> duration{};
-    // When set, scenarioPath is a session, rewound to this moment and played on from there.
-    std::optional<Timestamp> rewindAt{};
+    LiveOptions live{}; // the path is a scenario, or with rewindAt a session with one seat
     double speed = 1.0;
-    std::optional<std::string> recordPath{}; // where to write the session, for crowdbook replay
-    std::optional<std::string> reportPath{}; // where to write the session report, as JSON
-    OutputOptions outputs{};                 // of which play writes only the event log
 };
 
 // Runs the scenario in real time on a trading screen in the terminal, with the person at the

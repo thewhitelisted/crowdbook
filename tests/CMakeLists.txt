@@ -48,7 +48,8 @@ target_include_directories(crowdbook_tests PRIVATE "${PROJECT_SOURCE_DIR}/src")
 # The golden test replays a session from examples/.
 target_compile_definitions(crowdbook_tests PRIVATE CROWDBOOK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 if(TARGET crowdbook_ladder)
-    target_sources(crowdbook_tests PRIVATE ladder_test.cpp remote_test.cpp terminal_codes_test.cpp)
+    target_sources(crowdbook_tests PRIVATE ladder_test.cpp remote_test.cpp terminal_codes_test.cpp
+        trading_screen_test.cpp)
     target_link_libraries(crowdbook_tests PRIVATE crowdbook_ladder)
 endif()
 crowdbook_set_warnings(crowdbook_tests)

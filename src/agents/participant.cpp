@@ -2,8 +2,6 @@
 
 namespace crowdbook {
 
-Participant::Participant(std::size_t tapeLength) : tapeLength_(tapeLength) {}
-
 void Participant::onAccepted(AgentContext& context, const OrderAccepted& event) {
     relay(context, event);
 }
@@ -26,10 +24,6 @@ void Participant::onCancelled(AgentContext& context, const OrderCancelled& event
 }
 
 void Participant::onTrade(AgentContext& context, const Trade& trade) {
-    tape_.push_front({.time = context.now(), .trade = trade});
-    if (tape_.size() > tapeLength_) {
-        tape_.pop_back();
-    }
     relay(context, trade);
 }
 

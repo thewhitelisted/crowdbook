@@ -71,26 +71,13 @@ TEST(PerformTest, SendsTheRequestNowAndChecksItAgainstTheRecord) {
                  std::logic_error);
 }
 
-TEST(ParticipantTest, KeepsTheLatestTradesAndRejection) {
+TEST(ParticipantTest, KeepsTheLatestRejection) {
     Simulation simulation{1};
-    auto& participant = add<Participant>(simulation, {}, 2);
-    auto& seller = add<RecordingAgent>(simulation, {});
-    seller.startHook = [](AgentContext& context) {
-        for (const Price price : {101, 102, 103}) {
-            context.submitLimit(Side::Sell, price, 1);
-        }
-    };
+    auto& participant = add<Participant>(simulation, {});
     simulation.runUntil(10);
-    for (int i = 0; i < 3; ++i) {
-        simulation.act(1, [](AgentContext& context) { context.submitMarket(Side::Buy, 1); });
-        simulation.runUntil(20 + 10 * i);
-    }
     simulation.act(1, [](AgentContext& context) { context.submitLimit(Side::Buy, 0, 1); });
     simulation.runUntil(100);
 
-    ASSERT_EQ(participant.tape().size(), 2U);
-    EXPECT_EQ(participant.tape()[0].trade.price, 103); // newest first
-    EXPECT_EQ(participant.tape()[1].trade.price, 102);
     ASSERT_TRUE(participant.lastRejection().has_value());
     EXPECT_EQ(participant.lastRejection()->reason, RejectReason::InvalidPrice);
 }

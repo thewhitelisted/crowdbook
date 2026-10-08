@@ -385,7 +385,7 @@ the seat, or `null`.
 
 `play` runs the scenario in real time on a trading screen in the terminal, with you as the
 scenario's participant, until the scenario's duration or until you quit. It takes `--seed`,
-`--duration`, `--log` and `--log-only` like `run`, and:
+`--duration`, `--log`, `--log-only` and `--json` like `run`, and:
 
 | Option | Meaning |
 |---|---|

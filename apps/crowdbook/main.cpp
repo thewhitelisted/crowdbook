@@ -41,7 +41,7 @@ constexpr std::string_view kUsage =
     "       crowdbook play <scenario.toml | session.toml --at D> [--seed N]\n"
     "                      [--duration D] [--speed X]\n"
     "                      [--record FILE] [--report FILE] [--log FILE]\n"
-    "                      [--log-only KIND,KIND...]\n"
+    "                      [--log-only KIND,KIND...] [--json FILE]\n"
     "       crowdbook serve <scenario.toml | session.toml --at D> [--seat NAME]...\n"
     "                       [--listen HOST:PORT]\n"
     "                       [--tokens FILE] [--rate-limit N] [--seed N] [--duration D]\n"
@@ -244,19 +244,23 @@ void checkRewind(const CommandLine& line) {
     }
 }
 
+LiveOptions liveOptions(const CommandLine& line) {
+    return {.path = line.path,
+            .seed = line.seed,
+            .duration = line.duration,
+            .rewindAt = line.at,
+            .recordPath = line.recordPath,
+            .reportPath = line.reportPath,
+            .outputs = line.outputs};
+}
+
 int playCommand(std::span<char*> args) {
     const CommandLine line = parseCommandLine(
         args, "play",
-        {"--at", "--seed", "--duration", "--speed", "--record", "--report", "--log", "--log-only"});
+        {"--at", "--seed", "--duration", "--speed", "--record", "--report", "--log", "--log-only",
+         "--json"});
     checkRewind(line);
-    return play({.scenarioPath = line.path,
-                 .seed = line.seed,
-                 .duration = line.duration,
-                 .rewindAt = line.at,
-                 .speed = line.speed.value_or(1.0),
-                 .recordPath = line.recordPath,
-                 .reportPath = line.reportPath,
-                 .outputs = line.outputs});
+    return play({.live = liveOptions(line), .speed = line.speed.value_or(1.0)});
 }
 
 int serveCommand(std::span<char*> args) {
@@ -265,17 +269,11 @@ int serveCommand(std::span<char*> args) {
         {"--at", "--seat", "--listen", "--tokens", "--rate-limit", "--seed", "--duration",
          "--speed", "--record", "--report", "--log", "--log-only", "--json"});
     checkRewind(line);
-    ServeOptions options{.scenarioPath = line.path,
-                         .seed = line.seed,
-                         .duration = line.duration,
-                         .rewindAt = line.at,
+    ServeOptions options{.live = liveOptions(line),
                          .speed = line.speed.value_or(1.0),
                          .seats = line.seats,
                          .tokensPath = line.tokensPath,
-                         .rateLimit = line.rateLimit,
-                         .recordPath = line.recordPath,
-                         .reportPath = line.reportPath,
-                         .outputs = line.outputs};
+                         .rateLimit = line.rateLimit};
     if (line.listen) {
         parseListen(*line.listen, options.host, options.port);
     }

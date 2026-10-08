@@ -75,6 +75,14 @@ public:
     // Ends the session now, as if its time were up.
     void stop(std::int64_t wallNow);
 
+    // For whoever runs the gateway: how fast the market's clock runs against the wall clock, and
+    // pausing it. Both take effect from `wallNow`, with the market's time carrying on from where
+    // it was. setSpeed throws std::invalid_argument unless the speed is positive and finite.
+    void setSpeed(double speed, std::int64_t wallNow);
+    void setPaused(bool paused, std::int64_t wallNow);
+    [[nodiscard]] double speed() const noexcept;
+    [[nodiscard]] bool paused() const noexcept;
+
     // What is waiting to be sent on a connection, and how much of it was sent.
     [[nodiscard]] std::string_view pendingOutput(ConnectionId connection) const;
     void consumeOutput(ConnectionId connection, std::size_t bytes);

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "crowdbook/agents/participant.hpp"
+#include "remote.hpp"
 #include "crowdbook/ledger.hpp"
 #include "crowdbook/messages.hpp"
 #include "crowdbook/types.hpp"

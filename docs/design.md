@@ -283,9 +283,14 @@ in a different order on another compiler. Draw into local variables first.
 person trades through a `Participant` agent, added last, with the scenario's `[participant]`
 account and latency, and their orders take the same path as every other agent's.
 
+- **One way in:** `play` is a gateway with one client in the same process, exactly as `serve`
+  with one seat, minus the socket. Its trading screen sends protocol messages and draws what comes
+  back, the same screen `crowdbook connect` runs over the network, so the person at the keyboard
+  sees only what a client would, and there is one path for orders, stop-outs and the end.
 - **Pacing:** `Pacer` maps a steady wall clock to simulated time at an adjustable speed, stands
-  still while paused, and never goes backwards. Each frame, about thirty a second, the session
-  runs the market up to the paced time, draws the screen, and reads a key.
+  still while paused, and never goes backwards. Each frame, about thirty a second, the gateway
+  runs the market up to the paced time, the screen draws, and a key is read. Whoever runs the
+  gateway can change its speed and pause it.
 - **Acting from outside:** `Simulation::act` runs code with an agent's context at the current
   time, as if one of its callbacks were running. A key press becomes one call, at the moment the
   market has been run to. Everything stays on one thread, so there are no locks.
@@ -365,8 +370,8 @@ the server's messages leniently, ignoring fields it does not know, so that a new
 fields without breaking older clients; the server, which must not trust its input, is strict.
 
 `crowdbook connect` is the terminal trading screen as a client of a served market. It keeps the
-seat's ledger from its own requests and events, and the market from the public messages, and draws
-the same ladder as `crowdbook play`.
+seat's ledger from its own requests and events, and the market from the public messages, and is
+the same screen as `crowdbook play`, without the speed and pause keys.
 
 ## Scoring and challenges
 

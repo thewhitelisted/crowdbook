@@ -6,13 +6,20 @@
 #include <string>
 #include <vector>
 
-#include "crowdbook/agents/participant.hpp"
 #include "crowdbook/ledger.hpp"
 #include "crowdbook/messages.hpp"
 #include "crowdbook/protocol.hpp"
 #include "crowdbook/types.hpp"
 
 namespace crowdbook {
+
+// A trade on the tape, with the market's time when it reached the seat.
+struct TapeEntry {
+    Timestamp time = 0;
+    Trade trade{};
+
+    friend bool operator==(const TapeEntry&, const TapeEntry&) = default;
+};
 
 // A served market as one client sees it, built only from what the server sends: the seat's own
 // orders and balances, kept the way an agent's ledger is, and the public market. Orders are

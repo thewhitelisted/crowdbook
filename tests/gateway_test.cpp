@@ -539,6 +539,35 @@ TEST(GatewayTest, AQuietMarketStillTellsTheTime) {
     EXPECT_EQ(clocks[0].time, 100 * kMs);
 }
 
+// Whoever runs the gateway can pause its clock and change its speed; the market's time carries
+// on from where it was. A pause asked for before the clock starts holds once it does.
+TEST(GatewayTest, TheClockCanBePausedAndSpedUp) {
+    Gateway gateway{parseScenario(kQuietScenario), std::string{kQuietScenario},
+                    AgentRegistry::withBuiltIns(), twoSeats()};
+    gateway.setPaused(true, 0);
+    EXPECT_THROW(gateway.setSpeed(-1.0, 0), std::invalid_argument);
+    Client alice{gateway, 0};
+    Client bob{gateway, 0};
+    alice.hello("alice", 0);
+    bob.hello("bob", kSecond);
+    ASSERT_TRUE(gateway.started());
+    gateway.advance(3 * kSecond);
+    EXPECT_EQ(gateway.now(), 0);
+
+    gateway.setPaused(false, 3 * kSecond);
+    gateway.advance(4 * kSecond);
+    EXPECT_EQ(gateway.now(), kSecond);
+    gateway.setSpeed(2.5, 4 * kSecond);
+    EXPECT_EQ(gateway.speed(), 2.5);
+    gateway.advance(6 * kSecond);
+    EXPECT_EQ(gateway.now(), 6 * kSecond);
+    gateway.setPaused(true, 6 * kSecond);
+    EXPECT_TRUE(gateway.paused());
+    gateway.advance(9 * kSecond);
+    EXPECT_EQ(gateway.now(), 6 * kSecond);
+    EXPECT_THROW(gateway.setSpeed(0.0, 9 * kSecond), std::invalid_argument);
+}
+
 TEST(GatewayTest, TheEndReportsTheSeatsResults) {
     Started market;
     market.alice.send(NewOrder{.clientOrderId = 1,
