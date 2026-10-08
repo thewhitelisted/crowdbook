@@ -1,11 +1,14 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "crowdbook/detail/id_map.hpp"
 #include "crowdbook/messages.hpp"
 #include "crowdbook/order_book.hpp"
 #include "crowdbook/types.hpp"
@@ -111,7 +114,7 @@ private:
     struct AgentState {
         AccountConfig config{};
         Account account{};
-        std::unordered_map<ClientOrderId, OrderId> liveOrders{};
+        detail::IdMap<ClientOrderId, OrderId> liveOrders{};
     };
 
     struct LiveOrder {
@@ -160,11 +163,14 @@ private:
     // Hash maps, for lookups only: their iteration order differs between standard libraries, so
     // only audit() walks them, and nothing that changes a run may.
     std::unordered_map<AgentId, AgentState> agents_;
-    std::unordered_map<OrderId, LiveOrder> liveOrders_;
+    detail::IdMap<OrderId, LiveOrder> liveOrders_;
     OrderId nextOrderId_ = 1;
     TopOfBook publishedTop_;
     BookDepth publishedDepth_;
-    BookDepth currentDepth_; // reused for every request
+    std::vector<LevelSummary> currentBids_; // reused for every request
+    std::vector<LevelSummary> currentAsks_;
+    // The book's change counts for each side when its depth was last looked at.
+    std::array<std::uint64_t, 2> depthSeen_{};
     Fee feesCollected_ = 0;
     std::vector<Fill> fills_; // reused for every request
     Phase phase_ = Phase::Continuous;

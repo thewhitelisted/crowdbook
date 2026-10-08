@@ -3,6 +3,8 @@
 #include <format>
 #include <string>
 
+#include "text.hpp"
+
 namespace crowdbook {
 
 std::string_view toString(Side side) noexcept {
@@ -66,16 +68,26 @@ std::string_view toString(CancelReason reason) noexcept {
 }
 
 std::string formatFee(Fee fee) {
-    const Fee magnitude = fee < 0 ? -fee : fee;
-    std::string text = std::format("{}{}", fee < 0 ? "-" : "", magnitude / kFeeUnitsPerTickLot);
-    if (const Fee fraction = magnitude % kFeeUnitsPerTickLot; fraction != 0) {
-        std::string digits = std::format("{:03}", fraction);
-        while (digits.back() == '0') {
-            digits.pop_back();
-        }
-        text += '.' + digits;
-    }
+    std::string text;
+    text::appendFee(text, fee);
     return text;
+}
+
+void text::appendFee(std::string& out, Fee fee) {
+    const Fee magnitude = fee < 0 ? -fee : fee;
+    if (fee < 0) {
+        out += '-';
+    }
+    appendInteger(out, magnitude / kFeeUnitsPerTickLot);
+    if (Fee fraction = magnitude % kFeeUnitsPerTickLot; fraction != 0) {
+        // Three decimals, the units per tick-lot, without trailing zeros.
+        static_assert(kFeeUnitsPerTickLot == 1'000);
+        out += '.';
+        for (Fee unit = 100; fraction != 0; unit /= 10) {
+            out += static_cast<char>('0' + fraction / unit);
+            fraction %= unit;
+        }
+    }
 }
 
 std::string_view toString(RejectReason reason) noexcept {

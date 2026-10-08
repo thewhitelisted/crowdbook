@@ -1,12 +1,16 @@
 #include "crowdbook/report.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
+#include <exception>
 #include <format>
 #include <functional>
 #include <iterator>
 #include <map>
+#include <mutex>
 #include <stdexcept>
+#include <thread>
 #include <unordered_map>
 #include <variant>
 
@@ -129,6 +133,45 @@ std::optional<double> vwapOf(const std::vector<TradePrint>& trades) {
     return static_cast<double>(value) / static_cast<double>(volume);
 }
 
+// What the report needs of the market without one seat.
+struct Without {
+    std::vector<std::optional<double>> mids{}; // at each moment of the grid
+    Price lastPrice = 0;
+    std::optional<double> vwap{};
+};
+
+// Runs jobs 0 to count - 1 on up to `threads` threads, this one among them. Rethrows an
+// exception one of the jobs threw, once every job is done.
+template <typename Job>
+void runAll(std::size_t count, unsigned threads, const Job& job) {
+    std::atomic<std::size_t> next{0};
+    std::mutex failing;
+    std::exception_ptr failure;
+    const auto work = [&] {
+        for (std::size_t i = next++; i < count; i = next++) {
+            try {
+                job(i);
+            } catch (...) {
+                const std::scoped_lock lock{failing};
+                if (!failure) {
+                    failure = std::current_exception();
+                }
+            }
+        }
+    };
+    std::vector<std::thread> helpers;
+    for (std::size_t t = 1; t < std::min<std::size_t>(threads, count); ++t) {
+        helpers.emplace_back(work);
+    }
+    work();
+    for (std::thread& helper : helpers) {
+        helper.join();
+    }
+    if (failure) {
+        std::rethrow_exception(failure);
+    }
+}
+
 double sign(Side side) {
     return side == Side::Buy ? 1.0 : -1.0;
 }
@@ -151,9 +194,12 @@ std::string text(std::string_view value) {
 } // namespace
 
 SessionReport makeReport(const Session& session, const AgentRegistry& registry,
-                         Duration interval) {
+                         Duration interval, unsigned threads) {
     if (interval <= 0) {
         throw std::invalid_argument("the report's interval must be positive");
+    }
+    if (threads == 0) {
+        throw std::invalid_argument("a report needs at least one thread");
     }
     const Scenario scenario = sessionScenario(session);
     const AccountConfig& account = scenario.participant.account;
@@ -168,7 +214,32 @@ SessionReport makeReport(const Session& session, const AgentRegistry& registry,
         recorder.watch(firstSeat + static_cast<AgentId>(i), account.initialCash,
                        account.initialPosition);
     }
-    const RunResult result = replaySession(session, registry, &recorder);
+    // Every moment the report shows balances and prices at.
+    std::vector<Timestamp> grid;
+    for (Timestamp time = 0; time < session.end; time += interval) {
+        grid.push_back(time);
+    }
+    grid.push_back(session.end);
+
+    // The session, then the market without each seat in turn: replays independent of each other,
+    // run side by side. Each replay without a seat keeps only what the report shows of it.
+    RunResult result;
+    std::vector<Without> withouts(session.seats.size());
+    runAll(session.seats.size() + 1, threads, [&](std::size_t job) {
+        if (job == 0) {
+            result = replaySession(session, registry, &recorder);
+            return;
+        }
+        const auto seat = static_cast<std::uint32_t>(job - 1);
+        Recorder without;
+        static_cast<void>(replaySession(session, registry, &without, {seat}));
+        Without& summary = withouts[seat];
+        for (const Timestamp time : grid) {
+            summary.mids.push_back(midAt(without.mids(), time));
+        }
+        summary.lastPrice = lastPriceAt(without.trades(), session.end, scenario.referencePrice);
+        summary.vwap = vwapOf(without.trades());
+    });
     std::unordered_map<AgentId, const GroupResult*> groupOf;
     for (const GroupResult& group : result.groups) {
         for (const AgentId agent : group.agents) {
@@ -177,11 +248,6 @@ SessionReport makeReport(const Session& session, const AgentRegistry& registry,
     }
 
     // Every moment the true value is wanted, read in order from a copy of the value's path.
-    std::vector<Timestamp> grid;
-    for (Timestamp time = 0; time < session.end; time += interval) {
-        grid.push_back(time);
-    }
-    grid.push_back(session.end);
     std::map<Timestamp, double> values;
     if (scenario.fundamental) {
         for (std::size_t i = 0; i < session.seats.size(); ++i) {
@@ -280,14 +346,14 @@ SessionReport makeReport(const Session& session, const AgentRegistry& registry,
         }
 
         // The market without the seat.
-        Recorder without;
-        static_cast<void>(replaySession(session, registry, &without, {index}));
+        const Without& without = withouts[index];
         double impact = 0.0;
         std::int64_t compared = 0;
-        for (const Timestamp time : grid) {
+        for (std::size_t g = 0; g < grid.size(); ++g) {
+            const Timestamp time = grid[g];
             PricePoint point{.time = time,
                              .mid = midAt(recorder.mids(), time),
-                             .midWithout = midAt(without.mids(), time)};
+                             .midWithout = without.mids[g]};
             if (point.mid && point.midWithout) {
                 impact += *point.mid - *point.midWithout;
                 ++compared;
@@ -298,10 +364,9 @@ SessionReport makeReport(const Session& session, const AgentRegistry& registry,
             seat.impact = impact / static_cast<double>(compared);
         }
         seat.lastPrice = lastPriceAt(recorder.trades(), session.end, scenario.referencePrice);
-        seat.lastPriceWithout =
-            lastPriceAt(without.trades(), session.end, scenario.referencePrice);
+        seat.lastPriceWithout = without.lastPrice;
         seat.vwap = vwapOf(recorder.trades());
-        seat.vwapWithout = vwapOf(without.trades());
+        seat.vwapWithout = without.vwap;
         report.seats.push_back(std::move(seat));
     }
     return report;

@@ -76,7 +76,7 @@ inline void PrintTo(const Indicative& event, std::ostream* os) {
 }
 
 inline void PrintTo(const BookDepth& depth, std::ostream* os) {
-    const auto printSide = [os](const std::vector<LevelSummary>& levels) {
+    const auto printSide = [os](const Levels& levels) {
         *os << "[";
         for (std::size_t i = 0; i < levels.size(); ++i) {
             *os << (i == 0 ? "" : " ") << levels[i].quantity << " @ " << levels[i].price;

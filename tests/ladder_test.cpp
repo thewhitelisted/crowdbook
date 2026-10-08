@@ -25,9 +25,8 @@ struct Fixture {
         screen.market.bid = LevelSummary{.price = 99, .quantity = 7};
         screen.market.ask = LevelSummary{.price = 101, .quantity = 3};
         screen.market.lastTrade = 101;
-        screen.market.bids.push_back({.price = 99, .quantity = 7});
-        screen.market.bids.push_back({.price = 98, .quantity = 12});
-        screen.market.asks.push_back({.price = 101, .quantity = 3});
+        screen.market.bids = {{.price = 99, .quantity = 7}, {.price = 98, .quantity = 12}};
+        screen.market.asks = {{.price = 101, .quantity = 3}};
         screen.ledger = &ledger;
         screen.tape.push_back({.time = 1, .trade = {.price = 101, .quantity = 2}});
         screen.referencePrice = 100;
@@ -148,8 +147,8 @@ TEST(LadderTest, ShowsWhereTheDayIsAndWhereAnAuctionStands) {
 
 TEST(LadderTest, ShowsTheBestPricesWithoutADepthFeed) {
     Fixture fixture;
-    fixture.screen.market.bids.clear();
-    fixture.screen.market.asks.clear();
+    fixture.screen.market.bids = {};
+    fixture.screen.market.asks = {};
     const std::vector<std::string> lines = ladder::render(fixture.screen);
     EXPECT_EQ(rowFor(lines, 99)->bids, "7");
     EXPECT_EQ(rowFor(lines, 98)->bids, ""); // the second level is not published

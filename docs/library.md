@@ -39,9 +39,9 @@ package in CI.
 | Replay, leave seats out, or rewind | `replaySession`, `rewindSession` | `session.hpp` |
 | Serve a market over your own transport | `Gateway`: pass in bytes and the wall clock, take out bytes; it never touches a socket | `gateway.hpp` |
 | Serve it over TCP | `serve`, around a `Gateway` | `server.hpp` |
-| Speak the protocol as a client | `protocol::encode`, `protocol::decodeServer` | `protocol.hpp` |
+| Speak the protocol as a client | `protocol::encode` or `encodeTo`, `protocol::decodeServer` | `protocol.hpp` |
 | Score sessions | `Scorer`, an `EventSink`; sessions of scenarios with scoring do it for you | `scoring.hpp` |
-| Report on a session | `makeReport`, `writeReportJson` | `report.hpp` |
+| Report on a session | `makeReport`, on as many threads as you give it; `writeReportJson` | `report.hpp` |
 | Record what happens | `CsvEventLog`, `PriceSampler`, `DepthSampler`, or your own `EventSink` | `event_log.hpp` |
 
 A hosted service would hold one `Gateway` per market, feed it the bytes its own connections
@@ -75,11 +75,11 @@ Apple M5 at:
 
 | | Times real time |
 |---|---:|
-| The market alone | 20,000 to 28,000 |
-| Served through the gateway to one client reading every message | 4,600 to 5,800 |
+| The market alone | 29,000 to 43,000 |
+| Served through the gateway to one client reading every message | 19,000 to 27,000 |
 
 So one core keeps up with thousands of such markets in computation; encoding market data for
-clients costs about four fifths of it. A served market also spends a system call or two per
+clients costs about two fifths of it. A served market also spends a system call or two per
 connection per millisecond in its socket loop, which these figures leave out. To measure:
 
 ```bash

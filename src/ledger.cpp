@@ -1,5 +1,6 @@
 #include "crowdbook/ledger.hpp"
 
+#include <algorithm>
 #include <format>
 #include <stdexcept>
 
@@ -10,22 +11,20 @@ Ledger::Ledger(Cash cash, Quantity position, Fee fees) noexcept
 
 void Ledger::recordRequest(const Request& request) {
     if (const auto* newOrder = std::get_if<NewOrder>(&request)) {
-        const bool inserted = orders_
-                                  .try_emplace(newOrder->clientOrderId,
-                                               OwnOrder{.clientOrderId = newOrder->clientOrderId,
-                                                        .side = newOrder->side,
-                                                        .type = newOrder->type,
-                                                        .price = newOrder->price,
-                                                        .leaves = newOrder->quantity})
-                                  .second;
-        if (!inserted) {
+        const auto at = position(newOrder->clientOrderId);
+        if (at != orders_.end() && at->first == newOrder->clientOrderId) {
             throw std::logic_error(
                 std::format("client order id {} is already in use", newOrder->clientOrderId));
         }
+        orders_.emplace(at, newOrder->clientOrderId,
+                        OwnOrder{.clientOrderId = newOrder->clientOrderId,
+                                 .side = newOrder->side,
+                                 .type = newOrder->type,
+                                 .price = newOrder->price,
+                                 .leaves = newOrder->quantity});
     } else if (const auto* cancel = std::get_if<CancelOrder>(&request)) {
-        const auto open = orders_.find(cancel->clientOrderId);
-        if (open != orders_.end()) {
-            open->second.cancelRequested = true;
+        if (OwnOrder* open = lookup(cancel->clientOrderId)) {
+            open->cancelRequested = true;
         }
     }
     // A modify changes nothing until the exchange confirms it.
@@ -42,9 +41,8 @@ void Ledger::apply(const Event& event) {
         } else if (rejected->request == RequestKind::Cancel) {
             // The cancel failed. An order that is still open may yet fill; one that is gone
             // finished while the cancel was on its way.
-            const auto order = orders_.find(rejected->clientOrderId);
-            if (order != orders_.end()) {
-                order->second.cancelRequested = false;
+            if (OwnOrder* order = lookup(rejected->clientOrderId)) {
+                order->cancelRequested = false;
             }
         }
         // A rejected modify leaves the order as it was.
@@ -65,7 +63,7 @@ void Ledger::apply(const Event& event) {
         fees_ += filled->fee;
         order.leaves = filled->leavesQuantity;
         if (order.leaves == 0) {
-            orders_.erase(filled->clientOrderId);
+            forget(filled->clientOrderId);
         }
     } else if (const auto* cancelled = std::get_if<OrderCancelled>(&event)) {
         forget(cancelled->clientOrderId);
@@ -73,34 +71,48 @@ void Ledger::apply(const Event& event) {
 }
 
 const OwnOrder* Ledger::find(ClientOrderId clientOrderId) const {
-    const auto order = orders_.find(clientOrderId);
-    return order == orders_.end() ? nullptr : &order->second;
+    return const_cast<Ledger*>(this)->lookup(clientOrderId);
 }
 
 Quantity Ledger::openQuantity(Side side) const noexcept {
     Quantity total = 0;
-    for (const auto& entry : orders_) {
-        if (entry.second.side == side) {
-            total += entry.second.leaves;
+    for (const auto& [id, order] : orders_) {
+        if (order.side == side) {
+            total += order.leaves;
         }
     }
     return total;
 }
 
+std::vector<Ledger::Entry>::iterator Ledger::position(ClientOrderId clientOrderId) {
+    // The newest order is the likeliest to be asked about, and to be followed by a new one.
+    if (orders_.empty() || orders_.back().first < clientOrderId) {
+        return orders_.end();
+    }
+    return std::ranges::lower_bound(orders_, clientOrderId, {}, &Entry::first);
+}
+
+OwnOrder* Ledger::lookup(ClientOrderId clientOrderId) {
+    const auto at = position(clientOrderId);
+    return at != orders_.end() && at->first == clientOrderId ? &at->second : nullptr;
+}
+
 OwnOrder& Ledger::known(ClientOrderId clientOrderId) {
-    const auto order = orders_.find(clientOrderId);
-    if (order == orders_.end()) {
+    OwnOrder* order = lookup(clientOrderId);
+    if (order == nullptr) {
         throw std::logic_error(std::format(
             "event for client order id {}, which is not open or in flight", clientOrderId));
     }
-    return order->second;
+    return *order;
 }
 
 void Ledger::forget(ClientOrderId clientOrderId) {
-    if (orders_.erase(clientOrderId) == 0) {
+    const auto at = position(clientOrderId);
+    if (at == orders_.end() || at->first != clientOrderId) {
         throw std::logic_error(std::format(
             "event for client order id {}, which is not open or in flight", clientOrderId));
     }
+    orders_.erase(at);
 }
 
 } // namespace crowdbook

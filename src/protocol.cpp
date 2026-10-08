@@ -1,6 +1,8 @@
 #include "crowdbook/protocol.hpp"
 
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <format>
 #include <limits>
 #include <optional>
@@ -8,6 +10,7 @@
 
 #include "json.hpp"
 #include "overloaded.hpp"
+#include "text.hpp"
 
 namespace crowdbook::protocol {
 
@@ -78,7 +81,7 @@ public:
 
     ObjectWriter& field(std::string_view key, std::int64_t value) {
         key_(key);
-        out_ += std::format("{}", value);
+        text::appendInteger(out_, value);
         return *this;
     }
     ObjectWriter& field(std::string_view key, std::uint64_t value) {
@@ -105,18 +108,29 @@ public:
     void close() { out_ += '}'; }
 
 private:
+    // Keys are this file's own constants, none of which needs escaping.
     void key_(std::string_view key) {
         if (!first_) {
             out_ += ',';
         }
         first_ = false;
-        json::appendString(out_, key);
-        out_ += ':';
+        out_ += '"';
+        out_ += key;
+        out_ += "\":";
     }
 
     std::string& out_;
     bool first_ = true;
 };
+
+// A whole number, or null.
+void writeOptional(std::string& out, const std::optional<std::int64_t>& value) {
+    if (value) {
+        text::appendInteger(out, *value);
+    } else {
+        out += "null";
+    }
+}
 
 void writeLevel(std::string& out, const LevelSummary& level) {
     ObjectWriter{out}
@@ -126,15 +140,41 @@ void writeLevel(std::string& out, const LevelSummary& level) {
         .close();
 }
 
-void writeLevels(std::string& out, const std::vector<LevelSummary>& levels) {
-    out += '[';
-    for (std::size_t i = 0; i < levels.size(); ++i) {
-        if (i > 0) {
-            out += ',';
-        }
-        writeLevel(out, levels[i]);
-    }
-    out += ']';
+// The levels as writeLevel writes each, in an array. Depth messages are most of what a server
+// sends, so this writes straight into the string's storage rather than a character at a time.
+void writeLevels(std::string& out, std::span<const LevelSummary> levels) {
+    constexpr std::string_view kPrice = R"({"price":)";
+    constexpr std::string_view kQuantity = R"(,"quantity":)";
+    constexpr std::string_view kOrders = R"(,"orders":)";
+    // Each number takes at most 20 characters.
+    constexpr std::size_t kLevelBound =
+        kPrice.size() + kQuantity.size() + kOrders.size() + 3 * 20 + 2;
+    const std::size_t start = out.size();
+    out.resize_and_overwrite(start + 2 + levels.size() * kLevelBound,
+                             [&](char* data, std::size_t /*size*/) {
+                                 char* at = data + start;
+                                 const auto put = [&at](std::string_view text) {
+                                     at = std::ranges::copy(text, at).out;
+                                 };
+                                 const auto number = [&at](auto value) {
+                                     at = std::to_chars(at, at + 20, value).ptr;
+                                 };
+                                 *at++ = '[';
+                                 for (std::size_t i = 0; i < levels.size(); ++i) {
+                                     if (i > 0) {
+                                         *at++ = ',';
+                                     }
+                                     put(kPrice);
+                                     number(levels[i].price);
+                                     put(kQuantity);
+                                     number(levels[i].quantity);
+                                     put(kOrders);
+                                     number(static_cast<std::int64_t>(levels[i].orderCount));
+                                     *at++ = '}';
+                                 }
+                                 *at++ = ']';
+                                 return static_cast<std::size_t>(at - data);
+                             });
 }
 
 void writeSide(std::string& out, const std::optional<LevelSummary>& level) {
@@ -204,8 +244,7 @@ void writeScore(std::string& out, const std::optional<Score>& score) {
         .field("paper", score->paper)
         .field("unfinished", score->unfinished)
         .field("unfinished_lots", score->unfinishedLots);
-    std::string& stopped = writer.open("stopped_at");
-    stopped += score->stoppedAt ? std::format("{}", *score->stoppedAt) : "null";
+    writeOptional(writer.open("stopped_at"), score->stoppedAt);
     writer.close();
 }
 
@@ -269,13 +308,12 @@ void writeEvent(ObjectWriter& writer, Timestamp time, const Event& event) {
             },
             [&](const PhaseChanged& e) {
                 head("phase").field("phase", nameOf(e.phase, kPhases));
-                std::string& price = writer.open("price");
-                price += e.price ? std::format("{}", *e.price) : "null";
+                writeOptional(writer.open("price"), e.price);
             },
             [&](const Indicative& e) {
                 head("indicative");
-                std::string& price = writer.open("price");
-                price += e.uncross ? std::format("{}", e.uncross->price) : "null";
+                writeOptional(writer.open("price"),
+                              e.uncross ? std::optional{e.uncross->price} : std::nullopt);
                 writer.field("volume", e.uncross ? e.uncross->volume : 0)
                     .field("imbalance", e.uncross ? e.uncross->imbalance : 0);
             },
@@ -286,8 +324,8 @@ void writeEvent(ObjectWriter& writer, Timestamp time, const Event& event) {
             },
             [&](const BookDepth& e) {
                 head("depth");
-                writeLevels(writer.open("bids"), e.bids);
-                writeLevels(writer.open("asks"), e.asks);
+                writeLevels(writer.open("bids"), e.bids.span());
+                writeLevels(writer.open("asks"), e.asks.span());
             },
         },
         event);
@@ -672,6 +710,17 @@ std::string wireName(RejectReason reason) {
 
 std::string encode(const ClientMessage& message) {
     std::string out;
+    encodeTo(out, message);
+    return out;
+}
+
+std::string encode(const ServerMessage& message) {
+    std::string out;
+    encodeTo(out, message);
+    return out;
+}
+
+void encodeTo(std::string& out, const ClientMessage& message) {
     ObjectWriter writer{out};
     std::visit(detail::Overloaded{
                    [&](const Hello& m) {
@@ -709,11 +758,9 @@ std::string encode(const ClientMessage& message) {
                message);
     writer.close();
     out += '\n';
-    return out;
 }
 
-std::string encode(const ServerMessage& message) {
-    std::string out;
+void encodeTo(std::string& out, const ServerMessage& message) {
     ObjectWriter writer{out};
     std::visit(detail::Overloaded{
                    [&](const Welcome& m) {
@@ -776,7 +823,6 @@ std::string encode(const ServerMessage& message) {
                message);
     out += '}';
     out += '\n';
-    return out;
 }
 
 ClientMessage decodeClient(std::string_view line) {

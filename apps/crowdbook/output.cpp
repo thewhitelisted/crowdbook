@@ -2,8 +2,10 @@
 
 #include "crowdbook/agent_registry.hpp"
 
+#include <algorithm>
 #include <format>
 #include <iostream>
+#include <thread>
 
 namespace crowdbook {
 
@@ -15,6 +17,17 @@ std::ofstream openForWriting(const std::string& path) {
         throw std::runtime_error(std::format("cannot write '{}'", path));
     }
     return file;
+}
+
+// The event log writes a row per event, so it gets a large buffer and few system calls. The
+// buffer has to be in place before the file is opened.
+void openLog(std::ofstream& file, std::vector<char>& buffer, const std::string& path) {
+    buffer.resize(std::size_t{1} << 20);
+    file.rdbuf()->pubsetbuf(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    file.open(path);
+    if (!file) {
+        throw std::runtime_error(std::format("cannot write '{}'", path));
+    }
 }
 
 // Throws if anything written to the file at `path`, if there is one, failed to reach it, as on a
@@ -29,7 +42,7 @@ void checkWritten(std::ofstream& file, const std::optional<std::string>& path) {
 
 Outputs::Outputs(const OutputOptions& options, const Scenario& scenario) : options_(options) {
     if (options.logPath) {
-        logFile_ = openForWriting(*options.logPath);
+        openLog(logFile_, logBuffer_, *options.logPath);
         sinks_.add(log_.emplace(logFile_, options.logKinds));
     }
     if (options.pricesPath) {
@@ -201,8 +214,11 @@ void printReport(std::ostream& out, const SessionReport& report) {
     }
 }
 
+unsigned everyCore() { return std::max(1U, std::thread::hardware_concurrency()); }
+
 void writeReport(std::ofstream& file, const std::string& path, const Session& session) {
-    const SessionReport report = makeReport(session, AgentRegistry::withBuiltIns());
+    const SessionReport report =
+        makeReport(session, AgentRegistry::withBuiltIns(), kSecond, everyCore());
     printReport(std::cout, report);
     writeReportJson(file, report);
     if (!file.flush()) {

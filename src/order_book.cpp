@@ -47,13 +47,13 @@ OrderResult OrderBook::submit(const OrderRequest& request, std::vector<Fill>& fi
                 .cancelReason = CancelReason::ImmediateOrCancel};
     }
 
-    Node& node = orders_
-                     .try_emplace(request.id, Node{.id = request.id,
-                                                   .owner = request.owner,
-                                                   .side = request.side,
-                                                   .price = request.price,
-                                                   .remaining = remaining})
-                     .first->second;
+    Node& node = newNode();
+    node = Node{.id = request.id,
+                .owner = request.owner,
+                .side = request.side,
+                .price = request.price,
+                .remaining = remaining};
+    orders_.tryEmplace(request.id, &node);
     if (request.side == Side::Buy) {
         rest(bids_, node);
     } else {
@@ -64,17 +64,18 @@ OrderResult OrderBook::submit(const OrderRequest& request, std::vector<Fill>& fi
 
 OrderResult OrderBook::modify(OrderId id, Price price, Quantity quantity,
                               std::vector<Fill>& fills) {
-    const auto it = orders_.find(id);
-    if (it == orders_.end()) {
+    Node* const* found = orders_.find(id);
+    if (found == nullptr) {
         return rejected(RejectReason::UnknownOrderId);
     }
     if (quantity <= 0) {
         return rejected(RejectReason::NonPositiveQuantity);
     }
 
-    Node& node = it->second;
+    Node& node = **found;
     if (price == node.price && quantity <= node.remaining) {
         node.level->quantity -= node.remaining - quantity;
+        changed(node.side);
         node.remaining = quantity;
         return {.status = OrderStatus::Resting, .remaining = quantity};
     }
@@ -92,12 +93,13 @@ OrderResult OrderBook::modify(OrderId id, Price price, Quantity quantity,
 }
 
 std::optional<RestingOrder> OrderBook::cancel(OrderId id) {
-    const auto it = orders_.find(id);
-    if (it == orders_.end()) {
+    Node* const* found = orders_.find(id);
+    if (found == nullptr) {
         return std::nullopt;
     }
-    const RestingOrder cancelled = toRestingOrder(it->second);
-    erase(it->second);
+    Node& node = **found;
+    const RestingOrder cancelled = toRestingOrder(node);
+    erase(node);
     return cancelled;
 }
 
@@ -116,6 +118,7 @@ void OrderBook::erase(Node& node) {
         }
     }
     orders_.erase(id);
+    freeNodes_.push_back(&node);
 }
 
 std::optional<Uncross> OrderBook::indicative(Price reference) const {
@@ -188,6 +191,8 @@ std::optional<Uncross> OrderBook::uncross(Price reference, std::vector<Fill>& fi
         taker.remaining -= quantity;
         maker.level->quantity -= quantity;
         taker.level->quantity -= quantity;
+        changed(Side::Buy);
+        changed(Side::Sell);
         fills.push_back({.makerOrderId = maker.id,
                          .takerOrderId = taker.id,
                          .makerOwner = maker.owner,
@@ -207,11 +212,11 @@ std::optional<Uncross> OrderBook::uncross(Price reference, std::vector<Fill>& fi
 }
 
 std::optional<RestingOrder> OrderBook::find(OrderId id) const {
-    const auto it = orders_.find(id);
-    if (it == orders_.end()) {
+    Node* const* found = orders_.find(id);
+    if (found == nullptr) {
         return std::nullopt;
     }
-    return toRestingOrder(it->second);
+    return toRestingOrder(**found);
 }
 
 std::optional<Price> OrderBook::bestBid() const noexcept {
@@ -288,8 +293,8 @@ std::optional<std::string> OrderBook::audit() const {
                 if (++count > orders_.size()) {
                     return std::format("level {} queue does not terminate", price);
                 }
-                const auto indexed = orders_.find(node->id);
-                if (indexed == orders_.end() || &indexed->second != node) {
+                Node* const* indexed = orders_.find(node->id);
+                if (indexed == nullptr || *indexed != node) {
                     return std::format("order {} is queued but not indexed", node->id);
                 }
                 if (node->prev != previous) {
@@ -351,6 +356,7 @@ OrderBook::MatchOutcome OrderBook::match(Levels& levels, const OrderRequest& tak
             const Quantity quantity = std::min(taker.quantity - outcome.filled, maker.remaining);
             maker.remaining -= quantity;
             level.quantity -= quantity;
+            changed(maker.side);
             outcome.filled += quantity;
             fills.push_back({.makerOrderId = maker.id,
                              .takerOrderId = taker.id,
@@ -362,9 +368,9 @@ OrderBook::MatchOutcome OrderBook::match(Levels& levels, const OrderRequest& tak
                              .makerRemaining = maker.remaining});
 
             if (maker.remaining == 0) {
-                const OrderId filledId = maker.id;
                 unlink(maker);
-                orders_.erase(filledId);
+                orders_.erase(maker.id);
+                freeNodes_.push_back(&maker);
             }
         }
 
@@ -389,6 +395,7 @@ void OrderBook::rest(Levels& levels, Node& node) {
     }
     level.tail = &node;
     level.quantity += node.remaining;
+    changed(node.side);
     ++level.orderCount;
 }
 
@@ -406,9 +413,19 @@ void OrderBook::unlink(Node& node) {
     }
     level.quantity -= node.remaining;
     --level.orderCount;
+    changed(node.side);
     node.level = nullptr;
     node.prev = nullptr;
     node.next = nullptr;
+}
+
+OrderBook::Node& OrderBook::newNode() {
+    if (freeNodes_.empty()) {
+        return nodes_.emplace_back();
+    }
+    Node& node = *freeNodes_.back();
+    freeNodes_.pop_back();
+    return node;
 }
 
 RestingOrder OrderBook::toRestingOrder(const Node& node) noexcept {

@@ -470,6 +470,8 @@ TEST(FeeTest, FormatsFeesExactlyInTickLots) {
     EXPECT_EQ(formatFee(-250), "-0.25");
     EXPECT_EQ(formatFee(7), "0.007");
     EXPECT_EQ(formatFee(-12'000), "-12");
+    EXPECT_EQ(formatFee(1'234), "1.234");
+    EXPECT_EQ(formatFee(-1'010), "-1.01");
 }
 
 TEST(ExchangeSetupTest, RejectsDuplicateAgentsAndInvalidLimits) {

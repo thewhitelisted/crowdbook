@@ -304,31 +304,38 @@ build depends on it.
 
 ## Performance
 
-Measured on an Apple M5 with a Release build:
+Measured on one core of an Apple M5 with a Release build:
 
-- The matching engine handles about 30 million operations per second (roughly 33 ns each) on a
+- The matching engine handles about 42 million operations per second (roughly 24 ns each) on a
   mixed stream of passive orders, cancels, crossing orders and market orders.
 - A simulated day of the 1,041-agent mixed market in
-  [large_market.toml](examples/scenarios/large_market.toml), 17 million trades, takes 41 seconds
-  on one core: about 2,100 times faster than real time.
+  [large_market.toml](examples/scenarios/large_market.toml), 17 million trades, takes 32 seconds:
+  about 2,700 times faster than real time.
+- The markets of the example challenges run 29,000 to 43,000 times faster than real time, and
+  19,000 to 27,000 times when served through the gateway to a client that reads every message.
+- The event log writes about 280 MB a second, and the server encodes a ten-level depth update in
+  about 120 ns.
 - Whole markets of zero-intelligence traders, each acting about four times a second, simulate
   this many seconds per second of wall-clock time:
 
   | Traders | Every update pushed to every trader | Traders read the market on demand |
   |---:|---:|---:|
-  | 100 | 1,076 | 9,641 |
-  | 1,000 | 10.1 | 608 |
-  | 10,000 | — | 44 |
+  | 100 | 1,051 | 11,665 |
+  | 1,000 | 9.6 | 805 |
+  | 10,000 | — | 54 |
 
   Pushing every trade and quote change to every trader costs N² as the crowd grows, so agents
   that only look at the market when they act read it on demand instead. Market makers, which
   react to every trade, still get the full stream.
 
-To reproduce:
+Speed is guarded: tests count the heap allocations per request on the hot paths and fail CI if
+they grow, and `tools/bench_check.py` compares every benchmark with a recorded baseline. To
+reproduce:
 
 ```bash
 cmake --workflow --preset release
 ./build/release/bench/crowdbook_bench
+python3 tools/bench_check.py
 ```
 
 ## License

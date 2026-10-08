@@ -90,10 +90,12 @@ struct SessionReport {
 };
 
 // Replays a session, and again without each seat, and reports on every seat, with balances and
-// prices every `interval`. Throws ScenarioError and std::logic_error as replaySession does, and
-// std::invalid_argument unless the interval is positive.
+// prices every `interval`. The replays are independent, so up to `threads` of them run at once,
+// and the report is the same however many do; with more than one, the registry's factories are
+// called from several threads at a time. Throws ScenarioError and std::logic_error as
+// replaySession does, and std::invalid_argument unless the interval and threads are positive.
 [[nodiscard]] SessionReport makeReport(const Session& session, const AgentRegistry& registry,
-                                       Duration interval = kSecond);
+                                       Duration interval = kSecond, unsigned threads = 1);
 
 // Writes the report as one JSON object; docs/scenarios.md describes it.
 void writeReportJson(std::ostream& out, const SessionReport& report);

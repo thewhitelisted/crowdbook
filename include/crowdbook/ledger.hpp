@@ -1,6 +1,8 @@
 #pragma once
 
-#include <map>
+#include <span>
+#include <utility>
+#include <vector>
 
 #include "crowdbook/messages.hpp"
 #include "crowdbook/types.hpp"
@@ -39,8 +41,8 @@ public:
     [[nodiscard]] Quantity position() const noexcept { return position_; }
     // Fees paid, net of rebates, in fee units.
     [[nodiscard]] Fee fees() const noexcept { return fees_; }
-    // Orders that are open or in flight, by client order id.
-    [[nodiscard]] const std::map<ClientOrderId, OwnOrder>& orders() const noexcept {
+    // Orders that are open or in flight, in order of client order id.
+    [[nodiscard]] std::span<const std::pair<ClientOrderId, OwnOrder>> orders() const noexcept {
         return orders_;
     }
     // The order with this client order id, or nullptr if it is not open or in flight.
@@ -49,13 +51,20 @@ public:
     [[nodiscard]] Quantity openQuantity(Side side) const noexcept;
 
 private:
+    using Entry = std::pair<ClientOrderId, OwnOrder>;
+
+    // Where the order is, or would go, among orders_.
+    [[nodiscard]] std::vector<Entry>::iterator position(ClientOrderId clientOrderId);
+    [[nodiscard]] OwnOrder* lookup(ClientOrderId clientOrderId);
     OwnOrder& known(ClientOrderId clientOrderId);
     void forget(ClientOrderId clientOrderId);
 
     Cash cash_ = 0;
     Quantity position_ = 0;
     Fee fees_ = 0;
-    std::map<ClientOrderId, OwnOrder> orders_;
+    // Sorted by client order id. An agent has few orders open, and their ids mostly rise, so a
+    // new one usually goes at the end: no allocation per order, and lookups stay in cache.
+    std::vector<Entry> orders_;
 };
 
 } // namespace crowdbook

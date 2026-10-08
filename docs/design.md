@@ -108,9 +108,9 @@ Rules:
 - Self-trade prevention: when an incoming order reaches a resting order from the same owner, the
   incoming order's remaining quantity is cancelled. Orders ahead of that resting order still trade.
 
-On an Apple M5 (Release build, `crowdbook_bench`) the book handles about 15 million operations per
-second on a mixed stream of passive orders, cancels, crossing orders and market orders — roughly
-65 ns per operation.
+On an Apple M5 (Release build, `crowdbook_bench`) the book handles about 30 million operations per
+second on a mixed stream of passive orders, cancels, crossing orders and market orders, roughly
+33 ns per operation.
 
 ## Exchange
 
@@ -725,6 +725,39 @@ uv run --project analysis crowdbook-large-orders
 - **Sanitizers:** the `asan` preset runs everything under AddressSanitizer and
   UndefinedBehaviorSanitizer, locally and in CI.
 
+## Performance
+
+Speed is part of the product: markets per core decide what a hosted competition costs, how many
+seeds a study can afford and how fast a learning agent trains. Every feature is measured, and two
+kinds of guard keep it fast.
+
+- **The hot path:** everything done per request or per event.
+  - Nothing goes to the heap once a run is warm, apart from depth updates. Resting orders live in
+    pooled book nodes, per-order lookups go through flat id maps (open addressing in one array),
+    an agent's ledger is a sorted vector, and buffers such as the exchange's events and fills, the
+    log's row and a connection's output keep their memory.
+  - Market data is shared, not copied. A depth update's levels (`Levels`) are allocated once, and
+    every event, delivery and snapshot that holds them shares them. A side of the book the last
+    request did not touch is not looked at again.
+  - Text is written with `std::to_chars` into reused buffers, not with iostreams or
+    `std::format`. The event log writes each row in one call, and the protocol encodes straight
+    into a connection's buffer.
+  - Independent work runs side by side when that cannot change the result: a report's replays use
+    every core and give the same report on any number of them.
+  - Determinism comes first. No optimization may change a seeded run, and the golden tests pin
+    event logs byte for byte.
+- **Allocation tests** (`tests/allocation_test.cpp`) count heap allocations per request over
+  five minutes of steady trading: in a market with a depth feed, in the thousand-agent market,
+  with the event log, and while serving a seat. Each fails above a ceiling a little over today's
+  count, which is about one allocation per request with a depth feed (the shared levels) and 0.04
+  without. Unlike timings, the counts do not depend on the machine, so CI enforces them.
+- **Benchmarks** (`bench/`) cover every feature: the book, whole markets by size, the challenges
+  alone and served, the event log, the protocol's encoding and decoding, a trading day, reports on
+  one thread and on four, and a large market. `tools/bench_check.py` runs them five times,
+  compares the medians with `bench/baseline.json`, recorded on the development machine, and fails
+  if anything is more than 10% slower. `--update` records a new baseline when a change is meant to
+  move it.
+
 ## Decisions
 
 Choices for later milestones may change once they are implemented; changes are recorded here.
@@ -779,6 +812,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | Prediction markets | One YES book priced 1 to 99, resolving to 0 or 100; no separate NO book | A YES bid is a NO offer: one book trades the same way, without the machinery of complementary shares |
 | A prediction's true value | The probability that a hidden walk with news ends above zero | A fair price by construction, which converges as resolution nears, so prices can be checked for calibration |
 | Calibration data | Free for commercial use: Polymarket's trades from its public blockchain first | Data a product built on crowdbook can use; exchange feeds' terms limit them to personal or research use |
+| Depth in memory | Immutable levels shared by every copy of an update | Copying the levels into every event, delivery and snapshot took a quarter of a market's time and most of its allocations |
+| Performance guards | Allocation counts in CI, timings against a baseline on one machine | Counts are the same on any machine and catch most slowdowns; timings catch the rest but only mean something where the baseline was recorded |
 | Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
@@ -850,3 +885,5 @@ follows (M16, M18) is then measured on the markets people actually use.
 - Random draws go into local variables before they are passed as arguments, because argument
   evaluation order is unspecified.
 - Formatting is defined in `.clang-format`.
+- Code on the hot path follows the rules under [Performance](#performance). A new feature gets a
+  benchmark, and the allocation tests and `tools/bench_check.py` must pass before it is merged.

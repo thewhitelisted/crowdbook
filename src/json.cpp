@@ -1,5 +1,6 @@
 #include "json.hpp"
 
+#include <algorithm>
 #include <format>
 #include <limits>
 #include <utility>
@@ -265,6 +266,15 @@ Value parse(std::string_view text) {
 
 void appendString(std::string& out, std::string_view text) {
     out += '"';
+    // Most strings need no escaping and go in whole.
+    if (std::ranges::none_of(text, [](char c) {
+            const auto byte = static_cast<unsigned char>(c);
+            return byte < 0x20 || byte >= 0x80 || c == '"' || c == '\\';
+        })) {
+        out += text;
+        out += '"';
+        return;
+    }
     for (const char c : text) {
         const auto byte = static_cast<unsigned char>(c);
         switch (c) {

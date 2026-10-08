@@ -1,15 +1,17 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <limits>
 #include <map>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
+#include "crowdbook/detail/id_map.hpp"
 #include "crowdbook/types.hpp"
 
 namespace crowdbook {
@@ -75,6 +77,11 @@ public:
     // The same, into `levels`, which is cleared first, so a caller can reuse one buffer.
     void depth(Side side, std::size_t maxLevels, std::vector<LevelSummary>& levels) const;
     [[nodiscard]] std::size_t orderCount() const noexcept;
+    // Counts every change to one side's levels: a caller that remembers it can tell whether the
+    // side has changed since, without looking at the levels.
+    [[nodiscard]] std::uint64_t changes(Side side) const noexcept {
+        return changes_[side == Side::Buy ? 0 : 1];
+    }
 
     // Checks the book's internal structure and describes the first problem found, or returns
     // nullopt if it is consistent. A crossed book is a problem only while matching is on. Walks
@@ -123,13 +130,21 @@ private:
 
     void erase(Node& node);
 
+    // A node for a new resting order, reusing one whose order has left the book.
+    Node& newNode();
+    void changed(Side side) noexcept { ++changes_[side == Side::Buy ? 0 : 1]; }
+
     Bids bids_;
     Asks asks_;
     bool matching_ = true;
     std::uint64_t nextSequence_ = 0;
-    // Owns every resting order. Nodes never move once inserted, so level queues can link them.
+    std::array<std::uint64_t, 2> changes_{}; // bids, asks
+    // Owns every resting order's node. Nodes never move, so level queues can link them, and the
+    // nodes of orders that have left are reused, so a busy book stops allocating.
+    std::deque<Node> nodes_;
+    std::vector<Node*> freeNodes_;
     // Only looked up: the levels, not this map, give the order in which orders trade.
-    std::unordered_map<OrderId, Node> orders_;
+    detail::IdMap<OrderId, Node*> orders_;
 };
 
 } // namespace crowdbook

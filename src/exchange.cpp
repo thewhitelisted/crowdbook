@@ -1,7 +1,9 @@
 #include "crowdbook/exchange.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <format>
+#include <tuple>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -270,11 +272,11 @@ std::optional<OrderId> Exchange::liveOrderId(AgentId agent, ClientOrderId client
     if (state == agents_.end()) {
         return std::nullopt;
     }
-    const auto live = state->second.liveOrders.find(clientOrderId);
-    if (live == state->second.liveOrders.end()) {
+    const OrderId* live = state->second.liveOrders.find(clientOrderId);
+    if (live == nullptr) {
         return std::nullopt;
     }
-    return live->second;
+    return *live;
 }
 
 TopOfBook Exchange::topOfBook() const {
@@ -295,14 +297,17 @@ std::optional<std::string> Exchange::audit() const {
     for (const auto& [agent, state] : agents_) {
         Quantity openBuy = 0;
         Quantity openSell = 0;
-        for (const auto& [clientOrderId, id] : state.liveOrders) {
-            const auto live = liveOrders_.find(id);
-            if (live == liveOrders_.end() || live->second.agent != agent ||
-                live->second.clientOrderId != clientOrderId) {
+        std::vector<std::pair<ClientOrderId, OrderId>> ids;
+        state.liveOrders.forEach([&ids](ClientOrderId clientOrderId, OrderId id) {
+            ids.emplace_back(clientOrderId, id);
+        });
+        for (const auto& [clientOrderId, id] : ids) {
+            const LiveOrder* live = liveOrders_.find(id);
+            if (live == nullptr || live->agent != agent || live->clientOrderId != clientOrderId) {
                 return std::format("agent {} order {} is not indexed", agent, clientOrderId);
             }
             const std::optional<RestingOrder> resting = book_.find(id);
-            if (!resting || resting->owner != agent || resting->side != live->second.side) {
+            if (!resting || resting->owner != agent || resting->side != live->side) {
                 return std::format("agent {} order {} does not match the book", agent,
                                    clientOrderId);
             }
@@ -417,8 +422,8 @@ void Exchange::submit(AgentId agent, AgentState& state, const NewOrder& order,
 
 void Exchange::cancel(AgentId agent, AgentState& state, const CancelOrder& request,
                       std::vector<Event>& events) {
-    const auto live = state.liveOrders.find(request.clientOrderId);
-    if (live == state.liveOrders.end()) {
+    const OrderId* live = state.liveOrders.find(request.clientOrderId);
+    if (live == nullptr) {
         events.push_back(OrderRejected{.agent = agent,
                                        .clientOrderId = request.clientOrderId,
                                        .request = RequestKind::Cancel,
@@ -426,13 +431,13 @@ void Exchange::cancel(AgentId agent, AgentState& state, const CancelOrder& reque
         return;
     }
 
-    const OrderId id = live->second;
+    const OrderId id = *live;
     const std::optional<RestingOrder> cancelled = book_.cancel(id);
     if (!cancelled) {
         throw std::logic_error(std::format("live order {} is missing from the book", id));
     }
     openQuantity(state.account, cancelled->side) -= cancelled->remaining;
-    state.liveOrders.erase(live);
+    state.liveOrders.erase(request.clientOrderId);
     liveOrders_.erase(id);
     events.push_back(OrderCancelled{.agent = agent,
                                     .clientOrderId = request.clientOrderId,
@@ -452,8 +457,8 @@ void Exchange::modify(AgentId agent, AgentState& state, const ModifyOrder& reque
     if (phase_ == Phase::Closed) {
         return reject(RejectReason::MarketClosed);
     }
-    const auto live = state.liveOrders.find(request.clientOrderId);
-    if (live == state.liveOrders.end()) {
+    const OrderId* live = state.liveOrders.find(request.clientOrderId);
+    if (live == nullptr) {
         return reject(RejectReason::UnknownOrderId);
     }
     if (request.quantity <= 0) {
@@ -466,7 +471,7 @@ void Exchange::modify(AgentId agent, AgentState& state, const ModifyOrder& reque
         return reject(RejectReason::InvalidPrice);
     }
 
-    const OrderId id = live->second;
+    const OrderId id = *live;
     const std::optional<RestingOrder> current = book_.find(id);
     if (!current) {
         throw std::logic_error(std::format("live order {} is missing from the book", id));
@@ -558,11 +563,11 @@ void Exchange::finish(const IncomingOrder& incoming, AgentState& state, const Or
     const Quantity restingAfter = result.status == OrderStatus::Resting ? result.remaining : 0;
     openQuantity(state.account, incoming.side) += restingAfter - incoming.restingBefore;
     if (restingAfter > 0) {
-        state.liveOrders.insert_or_assign(incoming.clientOrderId, incoming.id);
-        liveOrders_.insert_or_assign(incoming.id, LiveOrder{.agent = incoming.agent,
-                                                            .clientOrderId = incoming.clientOrderId,
-                                                            .side = incoming.side,
-                                                            .postOnly = incoming.postOnly});
+        state.liveOrders.insertOrAssign(incoming.clientOrderId, incoming.id);
+        liveOrders_.insertOrAssign(incoming.id, LiveOrder{.agent = incoming.agent,
+                                                          .clientOrderId = incoming.clientOrderId,
+                                                          .side = incoming.side,
+                                                          .postOnly = incoming.postOnly});
     } else {
         state.liveOrders.erase(incoming.clientOrderId);
         liveOrders_.erase(incoming.id);
@@ -581,10 +586,23 @@ void Exchange::publishDepth(std::vector<Event>& events) {
     if (config_.depthLevels == 0) {
         return;
     }
-    book_.depth(Side::Buy, config_.depthLevels, currentDepth_.bids);
-    book_.depth(Side::Sell, config_.depthLevels, currentDepth_.asks);
-    if (currentDepth_ != publishedDepth_) {
-        publishedDepth_ = currentDepth_;
+    // A side that has not changed keeps sharing the levels already published; one whose levels
+    // the book has not touched since is not even looked at.
+    bool changed = false;
+    for (const auto& [side, current, published, seen] :
+         {std::tuple{Side::Buy, &currentBids_, &publishedDepth_.bids, &depthSeen_[0]},
+          std::tuple{Side::Sell, &currentAsks_, &publishedDepth_.asks, &depthSeen_[1]}}) {
+        if (book_.changes(side) == *seen) {
+            continue;
+        }
+        *seen = book_.changes(side);
+        book_.depth(side, config_.depthLevels, *current);
+        if (!std::ranges::equal(*current, published->span())) {
+            *published = Levels{std::span<const LevelSummary>{*current}};
+            changed = true;
+        }
+    }
+    if (changed) {
         events.emplace_back(publishedDepth_);
     }
 }

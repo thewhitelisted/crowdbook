@@ -18,6 +18,7 @@ add_executable(crowdbook_tests
     fundamental_test.cpp
     gateway_test.cpp
     golden_test.cpp
+    id_map_test.cpp
     informed_test.cpp
     json_test.cpp
     ledger_test.cpp
@@ -56,3 +57,15 @@ crowdbook_set_warnings(crowdbook_tests)
 
 include(GoogleTest)
 gtest_discover_tests(crowdbook_tests)
+
+# Counts heap allocations on the hot paths. It replaces the global operator new, so it is a
+# program of its own, and the sanitizers, which replace it too, go without it.
+if(NOT CROWDBOOK_SANITIZE)
+    add_executable(crowdbook_allocation_tests allocation_test.cpp)
+    target_link_libraries(crowdbook_allocation_tests PRIVATE
+        crowdbook::gateway crowdbook::scenario crowdbook::protocol GTest::gtest_main)
+    target_compile_definitions(crowdbook_allocation_tests PRIVATE
+        CROWDBOOK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+    crowdbook_set_warnings(crowdbook_allocation_tests)
+    gtest_discover_tests(crowdbook_allocation_tests)
+endif()

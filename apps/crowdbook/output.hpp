@@ -49,6 +49,7 @@ public:
 
 private:
     OutputOptions options_;
+    std::vector<char> logBuffer_; // declared before the file, so it outlives it
     std::ofstream logFile_;
     std::ofstream pricesFile_;
     std::ofstream depthFile_;
@@ -66,6 +67,9 @@ void printResults(std::ostream& out, const Scenario& scenario, const RunResult& 
 // A session report in brief: for each seat, its score, who it traded with and what they knew,
 // and what the market would have done without it.
 void printReport(std::ostream& out, const SessionReport& report);
+
+// How many threads work that can be spread out, such as a report's replays, should use.
+[[nodiscard]] unsigned everyCore();
 
 // Builds the session's report, prints it in brief and writes it to `file`, opened at `path`.
 // Throws std::runtime_error if the file cannot be written in full.

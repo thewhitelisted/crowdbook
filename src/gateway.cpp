@@ -144,7 +144,7 @@ struct Gateway::State {
         if (connection.closing || connection.dropped) {
             return;
         }
-        connection.output += protocol::encode(message);
+        protocol::encodeTo(connection.output, message);
         connection.lastSentAt = wallNow;
         if (connection.pending() > options.maxPendingOutput) {
             // Too far behind to catch up: nothing more is sent, and the connection is closed.

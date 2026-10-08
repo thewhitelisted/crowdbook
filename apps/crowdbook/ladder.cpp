@@ -36,7 +36,7 @@ double markPrice(const Screen& screen) {
 
 // Quantity at each price on one side: the book's levels as published, or just the best one when
 // there is no depth feed.
-std::map<Price, Quantity> bookSide(const std::vector<LevelSummary>& levels,
+std::map<Price, Quantity> bookSide(const Levels& levels,
                                    const std::optional<LevelSummary>& best) {
     std::map<Price, Quantity> side;
     for (const LevelSummary& level : levels) {

@@ -242,17 +242,23 @@ TEST(ReportTest, ASeatThatTradesMovesTheMarket) {
     EXPECT_GT(*seat.impact, 0.0); // buying a hundred lots pushes the price up
 }
 
+// The same every time, and on any number of threads, which run the replays side by side.
 TEST(ReportTest, TheJsonIsTheSameEveryTime) {
     const Session session =
-        record(kBusy, {"you"},
+        record(kBusy, {"ana", "bo", "cy"},
                {{.time = kSecond, .request = marketOrder(0, Side::Buy, 5)}}, 10 * kSecond);
     std::ostringstream first;
     std::ostringstream second;
+    std::ostringstream threaded;
     writeReportJson(first, makeReport(session, AgentRegistry::withBuiltIns()));
     writeReportJson(second, makeReport(session, AgentRegistry::withBuiltIns()));
+    writeReportJson(threaded, makeReport(session, AgentRegistry::withBuiltIns(), kSecond, 3));
     EXPECT_EQ(first.str(), second.str());
+    EXPECT_EQ(first.str(), threaded.str());
     EXPECT_NE(first.str().find("\"group\": \""), std::string::npos);
     EXPECT_THROW(static_cast<void>(makeReport(session, AgentRegistry::withBuiltIns(), 0)),
+                 std::invalid_argument);
+    EXPECT_THROW(static_cast<void>(makeReport(session, AgentRegistry::withBuiltIns(), kSecond, 0)),
                  std::invalid_argument);
 }
 

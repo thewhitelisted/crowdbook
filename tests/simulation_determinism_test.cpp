@@ -3,6 +3,7 @@
 #include <format>
 #include <iterator>
 #include <map>
+#include <span>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -56,7 +57,7 @@ private:
 
     void act(AgentContext& context) {
         Random& random = context.random();
-        const std::map<ClientOrderId, OwnOrder>& orders = context.ledger().orders();
+        const auto orders = context.ledger().orders();
         const std::uint64_t roll = random.below(100);
         if (roll < 25 && !orders.empty()) {
             const ClientOrderId target = pick(random, orders);
@@ -82,10 +83,9 @@ private:
         return random.below(2) == 0 ? Side::Buy : Side::Sell;
     }
 
-    static ClientOrderId pick(Random& random, const std::map<ClientOrderId, OwnOrder>& orders) {
-        auto order = orders.begin();
-        std::advance(order, static_cast<std::ptrdiff_t>(random.below(orders.size())));
-        return order->first;
+    static ClientOrderId pick(Random& random,
+                              std::span<const std::pair<ClientOrderId, OwnOrder>> orders) {
+        return orders[random.below(orders.size())].first;
     }
 
     Duration meanWait_;

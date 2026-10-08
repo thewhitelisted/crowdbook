@@ -1,9 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <ostream>
-#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -41,10 +41,9 @@ public:
     void onEvent(Timestamp time, const Event& event) override;
 
 private:
-    [[nodiscard]] bool keeps(std::string_view kind) const;
-
     std::ostream& out_;
-    std::set<std::string, std::less<>> kinds_; // empty keeps every kind
+    std::uint32_t keptKinds_ = ~std::uint32_t{0}; // a bit per kind of row
+    std::string line_;                            // reused for every row
 };
 
 // Writes one row every `interval` from time 0 to the end of the run, each showing the market

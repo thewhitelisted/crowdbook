@@ -133,6 +133,9 @@ using ServerMessage = std::variant<Welcome, Start, Clock, MarketMessage, End, Er
 // Each encodes one message as a line of JSON, ending in '\n'.
 [[nodiscard]] std::string encode(const ClientMessage& message);
 [[nodiscard]] std::string encode(const ServerMessage& message);
+// The same, appended to `out`, so that a server can write straight into a connection's buffer.
+void encodeTo(std::string& out, const ClientMessage& message);
+void encodeTo(std::string& out, const ServerMessage& message);
 
 // Each decodes one line, with or without its '\n'. Throws ProtocolError for anything that is not
 // a well-formed message of its direction, including unknown or repeated fields, values of the

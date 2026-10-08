@@ -7,19 +7,42 @@
 #include <optional>
 #include <stdexcept>
 #include <string_view>
-#include <vector>
 #include <string>
+#include <vector>
 
 #include "overloaded.hpp"
+#include "text.hpp"
 
 namespace crowdbook {
 
 namespace {
 
+// The kinds of row, in the order of kKindNames.
+enum class Kind : std::uint8_t {
+    New,
+    Cancel,
+    Modify,
+    Accepted,
+    Rejected,
+    Modified,
+    Cancelled,
+    Filled,
+    Trade,
+    TopOfBook,
+    Phase,
+    Indicative,
+};
+
+constexpr std::array<std::string_view, 12> kKindNames = {
+    "new",       "cancel", "modify", "accepted",    "rejected", "modified",
+    "cancelled", "filled", "trade",  "top_of_book", "phase",    "indicative"};
+
+std::uint32_t bitOf(Kind kind) { return std::uint32_t{1} << static_cast<unsigned>(kind); }
+
 // One CSV row; fields left empty are written as empty columns.
 struct Row {
     Timestamp time = 0;
-    std::string_view kind{};
+    Kind kind = Kind::New;
     std::optional<std::uint64_t> agent{};
     std::optional<std::uint64_t> clientOrderId{};
     std::optional<std::uint64_t> orderId{};
@@ -41,39 +64,46 @@ struct Row {
 };
 
 template <typename T>
-void writeField(std::ostream& out, const std::optional<T>& value) {
-    out << ',';
+void appendField(std::string& line, const std::optional<T>& value) {
+    line += ',';
     if (value) {
-        out << *value;
+        text::appendInteger(line, *value);
     }
 }
 
-void writeField(std::ostream& out, std::string_view value) { out << ',' << value; }
+void appendField(std::string& line, std::string_view value) {
+    line += ',';
+    line += value;
+}
 
-void write(std::ostream& out, const Row& row) {
-    out << row.time << ',' << row.kind;
-    writeField(out, row.agent);
-    writeField(out, row.clientOrderId);
-    writeField(out, row.orderId);
-    writeField(out, row.side);
-    writeField(out, row.type);
-    writeField(out, row.timeInForce);
-    writeField(out, row.price);
-    writeField(out, row.quantity);
-    writeField(out, row.leaves);
-    writeField(out, row.liquidity);
-    out << ',';
+// Writes the row in one call, through `line`, whose capacity carries over from row to row.
+void write(std::ostream& out, std::string& line, const Row& row) {
+    line.clear();
+    text::appendInteger(line, row.time);
+    appendField(line, kKindNames[static_cast<std::size_t>(row.kind)]);
+    appendField(line, row.agent);
+    appendField(line, row.clientOrderId);
+    appendField(line, row.orderId);
+    appendField(line, row.side);
+    appendField(line, row.type);
+    appendField(line, row.timeInForce);
+    appendField(line, row.price);
+    appendField(line, row.quantity);
+    appendField(line, row.leaves);
+    appendField(line, row.liquidity);
+    line += ',';
     if (row.fee) {
-        out << formatFee(*row.fee);
+        text::appendFee(line, *row.fee);
     }
-    writeField(out, row.request);
-    writeField(out, row.reason);
-    writeField(out, row.bidPrice);
-    writeField(out, row.bidQuantity);
-    writeField(out, row.askPrice);
-    writeField(out, row.askQuantity);
-    writeField(out, row.parent);
-    out << '\n';
+    appendField(line, row.request);
+    appendField(line, row.reason);
+    appendField(line, row.bidPrice);
+    appendField(line, row.bidQuantity);
+    appendField(line, row.askPrice);
+    appendField(line, row.askQuantity);
+    appendField(line, row.parent);
+    line += '\n';
+    out.write(line.data(), static_cast<std::streamsize>(line.size()));
 }
 
 // Fills in the order type, and for limit orders the time in force and price.
@@ -88,32 +118,29 @@ void describeOrder(Row& row, OrderType type, TimeInForce timeInForce, Price pric
 } // namespace
 
 CsvEventLog::CsvEventLog(std::ostream& out, const std::vector<std::string>& kinds) : out_(out) {
-    constexpr std::array<std::string_view, 12> kKinds = {
-        "new",      "cancel",    "modify", "accepted", "rejected",    "modified",
-        "cancelled", "filled",   "trade",  "top_of_book", "phase",    "indicative"};
+    if (!kinds.empty()) {
+        keptKinds_ = 0;
+    }
     for (const std::string& kind : kinds) {
-        if (std::ranges::find(kKinds, kind) == kKinds.end()) {
+        const auto* found = std::ranges::find(kKindNames, kind);
+        if (found == kKindNames.end()) {
             throw std::invalid_argument(std::format(
                 "unknown log row kind '{}'; the kinds are new, cancel, modify, accepted, "
                 "rejected, modified, cancelled, filled, trade, top_of_book, phase and "
                 "indicative",
                 kind));
         }
-        kinds_.insert(kind);
+        keptKinds_ |= bitOf(static_cast<Kind>(found - kKindNames.begin()));
     }
     out_ << "time,kind,agent,client_order_id,order_id,side,type,time_in_force,price,quantity,"
             "leaves,liquidity,fee,request,reason,bid_price,bid_quantity,ask_price,ask_quantity,"
             "parent\n";
 }
 
-bool CsvEventLog::keeps(std::string_view kind) const {
-    return kinds_.empty() || kinds_.contains(kind);
-}
-
 void CsvEventLog::onRequest(Timestamp time, AgentId agent, const Request& request) {
     Row row{.time = time, .agent = agent, .clientOrderId = clientOrderIdOf(request)};
     if (const auto* order = std::get_if<NewOrder>(&request)) {
-        row.kind = "new";
+        row.kind = Kind::New;
         row.side = toString(order->side);
         describeOrder(row, order->type, order->timeInForce, order->price);
         row.quantity = order->quantity;
@@ -121,14 +148,14 @@ void CsvEventLog::onRequest(Timestamp time, AgentId agent, const Request& reques
             row.parent = order->parent;
         }
     } else if (const auto* modify = std::get_if<ModifyOrder>(&request)) {
-        row.kind = "modify";
+        row.kind = Kind::Modify;
         row.price = modify->price;
         row.quantity = modify->quantity;
     } else {
-        row.kind = "cancel";
+        row.kind = Kind::Cancel;
     }
-    if (keeps(row.kind)) {
-        write(out_, row);
+    if ((keptKinds_ & bitOf(row.kind)) != 0) {
+        write(out_, line_, row);
     }
 }
 
@@ -140,7 +167,7 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
         detail::Overloaded{
             [time](const OrderAccepted& accepted) {
                 Row result{.time = time,
-                           .kind = "accepted",
+                           .kind = Kind::Accepted,
                            .agent = accepted.agent,
                            .clientOrderId = accepted.clientOrderId,
                            .orderId = accepted.orderId,
@@ -151,7 +178,7 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
             },
             [time](const OrderRejected& rejected) {
                 return Row{.time = time,
-                           .kind = "rejected",
+                           .kind = Kind::Rejected,
                            .agent = rejected.agent,
                            .clientOrderId = rejected.clientOrderId,
                            .request = toString(rejected.request),
@@ -159,7 +186,7 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
             },
             [time](const OrderModified& modified) {
                 return Row{.time = time,
-                           .kind = "modified",
+                           .kind = Kind::Modified,
                            .agent = modified.agent,
                            .clientOrderId = modified.clientOrderId,
                            .orderId = modified.orderId,
@@ -168,7 +195,7 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
             },
             [time](const OrderFilled& filled) {
                 return Row{.time = time,
-                           .kind = "filled",
+                           .kind = Kind::Filled,
                            .agent = filled.agent,
                            .clientOrderId = filled.clientOrderId,
                            .orderId = filled.orderId,
@@ -181,7 +208,7 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
             },
             [time](const OrderCancelled& cancelled) {
                 return Row{.time = time,
-                           .kind = "cancelled",
+                           .kind = Kind::Cancelled,
                            .agent = cancelled.agent,
                            .clientOrderId = cancelled.clientOrderId,
                            .orderId = cancelled.orderId,
@@ -190,7 +217,7 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
             },
             [time](const Trade& trade) {
                 return Row{.time = time,
-                           .kind = "trade",
+                           .kind = Kind::Trade,
                            .side = toString(trade.aggressorSide),
                            .price = trade.price,
                            .quantity = trade.quantity,
@@ -198,12 +225,12 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
             },
             [time](const PhaseChanged& phase) {
                 return Row{.time = time,
-                           .kind = "phase",
+                           .kind = Kind::Phase,
                            .price = phase.price,
                            .reason = toString(phase.phase)};
             },
             [time](const Indicative& indicative) {
-                Row result{.time = time, .kind = "indicative"};
+                Row result{.time = time, .kind = Kind::Indicative};
                 if (indicative.uncross) {
                     result.price = indicative.uncross->price;
                     result.quantity = indicative.uncross->volume;
@@ -212,7 +239,7 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
                 return result;
             },
             [time](const TopOfBook& top) {
-                Row result{.time = time, .kind = "top_of_book"};
+                Row result{.time = time, .kind = Kind::TopOfBook};
                 if (top.bid) {
                     result.bidPrice = top.bid->price;
                     result.bidQuantity = top.bid->quantity;
@@ -226,8 +253,8 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
             [time](const BookDepth& /*depth*/) { return Row{.time = time}; }, // returned above
         },
         event);
-    if (keeps(row.kind)) {
-        write(out_, row);
+    if ((keptKinds_ & bitOf(row.kind)) != 0) {
+        write(out_, line_, row);
     }
 }
 
@@ -306,7 +333,7 @@ void DepthSampler::update(const Event& event) {
 
 void DepthSampler::writeRow(Timestamp time) {
     out_ << time;
-    for (const std::vector<LevelSummary>* side : {&depth_.bids, &depth_.asks}) {
+    for (const Levels* side : {&depth_.bids, &depth_.asks}) {
         for (std::size_t level = 0; level < levels_; ++level) {
             if (level < side->size()) {
                 out_ << ',' << (*side)[level].price << ',' << (*side)[level].quantity;

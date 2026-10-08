@@ -291,7 +291,8 @@ int reportCommand(std::span<char*> args) {
         }
     }
     const SessionReport report =
-        makeReport(session, AgentRegistry::withBuiltIns(), line.interval.value_or(kSecond));
+        makeReport(session, AgentRegistry::withBuiltIns(), line.interval.value_or(kSecond),
+                   everyCore());
     std::cout << std::format("{} (seed {}): {} with {} actions\n", line.path, session.seed,
                              formatDuration(session.end), session.actions.size());
     printReport(std::cout, report);

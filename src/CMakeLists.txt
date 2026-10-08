@@ -58,8 +58,10 @@ if(CROWDBOOK_BUILD_SCENARIOS)
     add_library(crowdbook::scenario ALIAS crowdbook_scenario)
     # toml++ is header-only and compiled into this library, so the installed package does not
     # depend on it.
+    # Reports run their replays on several threads.
+    find_package(Threads REQUIRED)
     target_link_libraries(crowdbook_scenario
-        PUBLIC crowdbook::crowdbook
+        PUBLIC crowdbook::crowdbook Threads::Threads
         PRIVATE crowdbook::protocol $<BUILD_INTERFACE:tomlplusplus::tomlplusplus>)
     crowdbook_set_warnings(crowdbook_scenario)
 

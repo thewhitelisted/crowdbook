@@ -1,8 +1,14 @@
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <initializer_list>
+#include <memory>
 #include <optional>
+#include <span>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -151,11 +157,55 @@ struct TopOfBook {
     friend bool operator==(const TopOfBook&, const TopOfBook&) = default;
 };
 
+// Price levels on one side of the book, best first. They never change once made, and copies
+// share them: one depth update reaches every event, delivery and snapshot that holds it for the
+// cost of a reference count, however deep the feed. Compares by the levels it holds.
+class Levels {
+public:
+    using value_type = LevelSummary;
+    using const_iterator = const LevelSummary*;
+    using iterator = const_iterator;
+
+    Levels() = default;
+    // Implicit, so that a vector or a braced list of levels can stand for them.
+    Levels(std::span<const LevelSummary> levels) // NOLINT(google-explicit-constructor)
+        : size_(levels.size()) {
+        if (!levels.empty()) {
+            // One allocation holds the count and the levels.
+            auto shared = std::make_shared_for_overwrite<LevelSummary[]>(levels.size());
+            std::ranges::copy(levels, shared.get());
+            levels_ = std::move(shared);
+        }
+    }
+    Levels(const std::vector<LevelSummary>& levels) // NOLINT(google-explicit-constructor)
+        : Levels(std::span<const LevelSummary>{levels}) {}
+    Levels(std::initializer_list<LevelSummary> levels)
+        : Levels(std::span<const LevelSummary>{levels.begin(), levels.size()}) {}
+
+    [[nodiscard]] std::span<const LevelSummary> span() const noexcept {
+        return {levels_.get(), size_};
+    }
+    [[nodiscard]] const_iterator begin() const noexcept { return levels_.get(); }
+    [[nodiscard]] const_iterator end() const noexcept { return levels_.get() + size_; }
+    [[nodiscard]] std::size_t size() const noexcept { return size_; }
+    [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
+    [[nodiscard]] const LevelSummary& operator[](std::size_t i) const { return span()[i]; }
+    [[nodiscard]] const LevelSummary& front() const { return span().front(); }
+
+    friend bool operator==(const Levels& a, const Levels& b) noexcept {
+        return a.levels_ == b.levels_ || std::ranges::equal(a.span(), b.span());
+    }
+
+private:
+    std::shared_ptr<const LevelSummary[]> levels_;
+    std::size_t size_ = 0;
+};
+
 // The best price levels on each side, best first, as deep as the exchange's depth feed goes.
 // Published only by an exchange configured with a depth feed.
 struct BookDepth {
-    std::vector<LevelSummary> bids{};
-    std::vector<LevelSummary> asks{};
+    Levels bids{};
+    Levels asks{};
 
     friend bool operator==(const BookDepth&, const BookDepth&) = default;
 };
@@ -167,8 +217,8 @@ struct MarketSnapshot {
     std::optional<LevelSummary> bid{};
     std::optional<LevelSummary> ask{};
     std::optional<Price> lastTrade{};
-    std::vector<LevelSummary> bids{}; // best first; empty without a depth feed
-    std::vector<LevelSummary> asks{};
+    Levels bids{}; // best first; empty without a depth feed
+    Levels asks{};
     std::uint64_t trades = 0; // trades published since the start of the run
     Quantity volume = 0;      // and the lots they traded
     Phase phase = Phase::Continuous;
