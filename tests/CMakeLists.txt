@@ -12,9 +12,9 @@ add_executable(crowdbook_tests
     agent_registry_test.cpp
     auction_test.cpp
     event_log_test.cpp
-    execution_test.cpp
     exchange_random_test.cpp
     exchange_test.cpp
+    execution_test.cpp
     fundamental_test.cpp
     gateway_test.cpp
     golden_test.cpp
@@ -22,9 +22,9 @@ add_executable(crowdbook_tests
     informed_test.cpp
     json_test.cpp
     ledger_test.cpp
-    math_test.cpp
     live_test.cpp
     market_maker_test.cpp
+    math_test.cpp
     momentum_test.cpp
     order_book_differential_test.cpp
     order_book_test.cpp
@@ -32,14 +32,15 @@ add_executable(crowdbook_tests
     protocol_test.cpp
     random_test.cpp
     report_test.cpp
+    ring_test.cpp
     scenario_file_test.cpp
     scenario_test.cpp
     scoring_test.cpp
     server_test.cpp
     session_test.cpp
-    trading_day_test.cpp
     simulation_determinism_test.cpp
     simulation_test.cpp
+    trading_day_test.cpp
     version_test.cpp
     zero_intelligence_test.cpp)
 target_link_libraries(crowdbook_tests PRIVATE

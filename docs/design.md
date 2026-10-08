@@ -735,7 +735,9 @@ kinds of guard keep it fast.
   - Nothing goes to the heap once a run is warm, apart from depth updates. Resting orders live in
     pooled book nodes, per-order lookups go through flat id maps (open addressing in one array),
     an agent's ledger is a sorted vector, and buffers such as the exchange's events and fills, the
-    log's row and a connection's output keep their memory.
+    log's row and a connection's output keep their memory. Queues that turn over with every event
+    are rings that reuse their slots, never `std::deque`, whose blocks are 512 bytes in libstdc++:
+    a deque of the kernel's public states allocated on every other market change on Linux.
   - Market data is shared, not copied. A depth update's levels (`Levels`) are allocated once, and
     every event, delivery and snapshot that holds them shares them. A side of the book the last
     request did not touch is not looked at again.

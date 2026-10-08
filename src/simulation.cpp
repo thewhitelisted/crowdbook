@@ -266,21 +266,30 @@ void Simulation::recordPublicState() {
     if (!history_.empty() && history_.back().time == now_) {
         history_.back().market = published_;
     } else {
-        history_.push_back(PublicState{.time = now_, .market = published_});
+        history_.pushBack(PublicState{.time = now_, .market = published_});
     }
     // Every agent looks at least as recent as now - longestDelay_, so only the last state from
     // before that moment and everything after it can still be needed.
     const Timestamp oldestNeeded = now_ - longestDelay_;
     while (history_.size() >= 2 && history_[1].time <= oldestNeeded) {
-        history_.pop_front();
+        history_.popFront();
     }
 }
 
 MarketSnapshot Simulation::visibleMarket(AgentId id) const {
     const Timestamp seenAt = now_ - slots_.at(id - 1).latency.fromExchange;
-    const auto after =
-        std::ranges::upper_bound(history_, seenAt, std::less<>{}, &PublicState::time);
-    return after == history_.begin() ? MarketSnapshot{} : std::prev(after)->market;
+    // The last state from no later than seenAt, by binary search.
+    std::size_t low = 0;
+    std::size_t high = history_.size();
+    while (low < high) {
+        const std::size_t middle = low + (high - low) / 2;
+        if (history_[middle].time <= seenAt) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return low == 0 ? MarketSnapshot{} : history_[low - 1].market;
 }
 
 void Simulation::process(const Delivery& delivery) {

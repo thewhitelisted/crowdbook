@@ -109,7 +109,7 @@ double allocationsPerRequest(const std::string& scenarioPath, EventSink* extra =
 TEST(AllocationTest, AMarketWithADepthFeed) {
     const double perRequest = allocationsPerRequest("/examples/challenges/market_making.toml");
     RecordProperty("allocations_per_request", std::to_string(perRequest));
-    EXPECT_LT(perRequest, 1.25);
+    EXPECT_LT(perRequest, 1.25) << "allocations per request: " << perRequest;
 }
 
 // A crowd of a thousand agents and no depth feed: orders, the book's nodes, the ledgers and the
@@ -117,7 +117,7 @@ TEST(AllocationTest, AMarketWithADepthFeed) {
 TEST(AllocationTest, ALargeMarket) {
     const double perRequest = allocationsPerRequest("/examples/scenarios/large_market.toml");
     RecordProperty("allocations_per_request", std::to_string(perRequest));
-    EXPECT_LT(perRequest, 0.1);
+    EXPECT_LT(perRequest, 0.1) << "allocations per request: " << perRequest;
 }
 
 // The event log adds nothing: each row is built in a buffer that is reused.
@@ -127,7 +127,8 @@ TEST(AllocationTest, TheEventLogAllocatesNothingPerRow) {
     CsvEventLog log{out};
     const double withLog = allocationsPerRequest("/examples/challenges/market_making.toml", &log);
     const double without = allocationsPerRequest("/examples/challenges/market_making.toml");
-    EXPECT_LT(withLog - without, 0.01);
+    EXPECT_LT(withLog - without, 0.01)
+        << "allocations per request: " << withLog << " with the log, " << without << " without";
 }
 
 // Serving a seat adds next to nothing: each message is encoded straight into the connection's
@@ -153,7 +154,8 @@ TEST(AllocationTest, ServingASeat) {
                           static_cast<double>(counter.requests - requestsBefore);
     const double unserved = allocationsPerRequest("/examples/challenges/market_making.toml");
     RecordProperty("allocations_per_request", std::to_string(served));
-    EXPECT_LT(served - unserved, 0.05);
+    EXPECT_LT(served - unserved, 0.05)
+        << "allocations per request: " << served << " served, " << unserved << " not";
 }
 
 } // namespace

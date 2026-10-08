@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "crowdbook/agent.hpp"
+#include "crowdbook/detail/ring.hpp"
 #include "crowdbook/event_log.hpp"
 #include "crowdbook/exchange.hpp"
 #include "crowdbook/ledger.hpp"
@@ -166,7 +167,7 @@ private:
     MarketSnapshot published_;      // the exchange's public state now
     // Public states some agent could still be shown, oldest first. Nobody looks further back than
     // the largest fromExchange latency, so older states are dropped and the history stays short.
-    std::deque<PublicState> history_;
+    detail::Ring<PublicState> history_;
     Duration longestDelay_ = 0;
 };
 
