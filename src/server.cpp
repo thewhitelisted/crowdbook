@@ -112,7 +112,8 @@ public:
     // it the new tag and stops watching it for room to write.
     void watch(int fd, std::uint64_t tag, bool already = false) {
 #if defined(__linux__)
-        epoll_event event{.events = EPOLLIN | EPOLLRDHUP, .data = {.u64 = tag}};
+        epoll_event event{.events = static_cast<std::uint32_t>(EPOLLIN | EPOLLRDHUP),
+                          .data = {.u64 = tag}};
         check(::epoll_ctl(fd_.fd(), already ? EPOLL_CTL_MOD : EPOLL_CTL_ADD, fd, &event));
 #else
         std::array<struct kevent, 2> changes{};
@@ -129,9 +130,9 @@ public:
     // Starts or stops watching the socket for room to write.
     void watchWritable(int fd, std::uint64_t tag, bool watching) {
 #if defined(__linux__)
-        epoll_event event{
-            .events = static_cast<std::uint32_t>(EPOLLIN | EPOLLRDHUP | (watching ? EPOLLOUT : 0)),
-            .data = {.u64 = tag}};
+        const std::uint32_t writeMask = watching ? static_cast<std::uint32_t>(EPOLLOUT) : 0U;
+        epoll_event event{.events = static_cast<std::uint32_t>(EPOLLIN | EPOLLRDHUP) | writeMask,
+                          .data = {.u64 = tag}};
         check(::epoll_ctl(fd_.fd(), EPOLL_CTL_MOD, fd, &event));
 #else
         struct kevent change {};
@@ -171,10 +172,12 @@ public:
         for (int i = 0; i < count; ++i) {
             const auto& event = events_[static_cast<std::size_t>(i)];
 #if defined(__linux__)
-            ready_.push_back(
-                {.tag = event.data.u64,
-                 .readable = (event.events & (EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR)) != 0,
-                 .writable = (event.events & (EPOLLOUT | EPOLLHUP | EPOLLERR)) != 0});
+            const auto readMask =
+                static_cast<std::uint32_t>(EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR);
+            const auto writeMask = static_cast<std::uint32_t>(EPOLLOUT | EPOLLHUP | EPOLLERR);
+            ready_.push_back({.tag = event.data.u64,
+                              .readable = (event.events & readMask) != 0,
+                              .writable = (event.events & writeMask) != 0});
 #else
             ready_.push_back({.tag = reinterpret_cast<std::uint64_t>(event.udata),
                               .readable = event.filter == EVFILT_READ,
