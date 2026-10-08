@@ -9,6 +9,7 @@ cmake --workflow --preset release
 uv run --project analysis crowdbook-facts         # about 12 minutes on 10 cores
 uv run --project analysis crowdbook-experiments   # a few seconds
 uv run --project analysis crowdbook-large-orders  # about 2 minutes
+uv run --project analysis crowdbook-trading-day   # a few seconds
 ```
 
 Uncertainties are standard errors across independent runs. Prices are in ticks, and PnL is in
@@ -283,6 +284,46 @@ The brokers draw the same parents in all three markets, so the rows differ only 
   same rate, so these runs change the book's depth and its memory together. Separating the two,
   and measuring how much of the impact stays after a parent ends, are open.
 
+## The trading day
+
+[trading_day.toml](../examples/scenarios/trading_day.toml) trades the way a stock exchange's day
+goes: a one-minute opening auction, continuous trading, a one-minute closing auction, and halts
+when a trade lands more than 15 ticks from the last auction's price. Sixty noise traders follow a
+U-shaped activity curve, 1.8 times their average pace at the open and the close and 0.6 times at
+midday; a market maker, five trend followers, five informed traders and five brokers working
+parents by the same curve (VWAP) trade among them. The curve is an assumption, stated in the
+scenario, like the U shape of real exchanges' volume it imitates; what follows from it is
+measured. Each day ran for six and a half hours under 16 seeds, with the curve and with a flat
+one, and the continuous session was cut into thirteen half hours.
+
+![Volume, one-minute volatility and the spread through the day, against each one's average](images/trading_day.png)
+
+| activity | measure | first third | middle third | last third | first / middle |
+|---|---|---:|---:|---:|---:|
+| U-shaped (2.0) | volume (lots a minute) | 1,328 | 844 | 1,398 | 1.57 |
+| U-shaped (2.0) | volatility (ticks, one minute) | 2.43 | 3.23 | 2.28 | 0.75 |
+| U-shaped (2.0) | spread (ticks) | 0.89 | 0.91 | 0.92 | 0.98 |
+| flat | volume (lots a minute) | 1,230 | 1,181 | 1,202 | 1.04 |
+| flat | volatility (ticks, one minute) | 2.55 | 2.36 | 2.54 | 1.08 |
+| flat | spread (ticks) | 0.89 | 0.95 | 0.90 | 0.94 |
+
+- **Volume takes the curve's shape**, as it must: the busy hours trade half as much again as
+  midday.
+- **Volatility takes the opposite shape.** It is a quarter lower in the busy hours than at
+  midday, where on real exchanges it is highest at the open. The curve brings more noise traders'
+  limit orders as well as their market orders, so the book is deepest when the market is busiest,
+  and the trend followers', informed traders' and brokers' orders, which do not follow the curve,
+  move the price least then. An activity curve alone does not make the open volatile; in real
+  markets that comes with the news that piled up overnight, which this market does not have.
+- **Spreads hardly move** through the day, within a few percent either way.
+- **The auctions are small.** In a full day of this market the two auctions trade under 0.2% of
+  the volume; real closing auctions trade around a tenth, because index funds and brokers send
+  their orders for the close. Here only noise traders send auction orders, and only as many as
+  the market orders they would have sent in that minute.
+- **Halts follow the drift.** With a 15-tick band the market halted twelve times in one day, each
+  time restarting from the halt's auction price, as the true value wandered away from where the
+  day began.
+
 ## Market-maker experiments
 
 These use a smaller market, so many seeds are cheap. Each point averages 32 runs of 60 seconds.
@@ -393,8 +434,9 @@ give other markets. Making that easy to explore is the point of the toolkit.
   trades. The scripts make sweeps cheap.
 - None of these markets is calibrated to real data yet; a scorecard comparing the same statistics
   on real order books is on the roadmap.
-- One instrument, no hidden orders, no trading day with auctions, and an exchange that takes no
-  time to process a message.
+- One instrument, no hidden orders, and an exchange that takes no time to process a message.
+- The trading day's open is no more volatile than its midday: nothing here brings news at the
+  open, and nobody but the noise traders trades in the auctions.
 - Impact and markouts are measured on the mid, so they miss changes in depth behind the best
   prices.
 

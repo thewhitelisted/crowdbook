@@ -57,6 +57,7 @@ Rules and market data that apply to everyone.
 | `depth_levels` | integer | `0` | Price levels per side in the public depth feed, up to 1,000; 0 publishes only the best bid and ask |
 | `maker_fee` | number | `0` | Ticks per lot paid by the owner of the resting order in every trade; negative is a rebate |
 | `taker_fee` | number | `0` | Ticks per lot paid by the owner of the incoming order |
+| `auction_fee` | number | `0` | Ticks per lot paid by both sides of a trade in an auction's uncross; not negative |
 
 Fees take at most three decimals, such as `-0.25`, and `maker_fee + taker_fee` must not be
 negative: no exchange pays out more in rebates than it collects. Fees are kept apart from cash,
@@ -65,6 +66,26 @@ which only trades move, and every fill reports its own fee.
 A depth feed lets agents see the book beyond the best prices, both in `context.market()` and, for
 agents that stream market data, in `onDepth`. It costs time: ten levels add about half again to
 the run time of the thousand-trader example market, so it is off unless a scenario asks for it.
+
+## `[trading_day]` (optional)
+
+Makes the market trade the way a stock exchange's day goes: an opening auction, continuous
+trading, a closing auction, then closed, with halts. [design.md](design.md#trading-day) explains
+the rules; without this section the market trades continuously from start to end.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `opening_auction` | duration | `"0s"` | A call auction from the start, uncrossed when it ends; none if 0 |
+| `closing_auction` | duration | `"0s"` | A call auction before the end, uncrossed at the end; none if 0 |
+| `halt_band` | integer | `0` | Ticks: a continuous trade further than this from the last auction's price, or the reference price before any, halts the market; 0 never halts |
+| `halt` | duration | none | How long a halt's auction lasts; needed with a `halt_band` |
+| `activity` | number | `0` | The depth of a U-shaped curve that the noise traders' pace and VWAP brokers follow: (1 + a·u) / (1 + a/3), where u runs from 1 at the start to 0 at midday and back to 1 at the end. 0 is flat |
+
+In an auction, limit orders rest without trading and the book may cross; market,
+immediate-or-cancel and post-only orders are rejected. After the close only cancels are taken.
+The opening and closing auctions together must fit in the duration. `crowdbook play` and `serve`
+end a trading day once the close's messages have reached the participants, a latency after the
+duration.
 
 ## `[participant]` (optional)
 
@@ -247,8 +268,11 @@ A broker's algorithm working large orders, one at a time. After a pause, exponen
 P(size > q) = (`min_parent` / q)^`parent_tail`, capped at `max_parent`, and trades it with child
 market orders: `child_size` lots every `interval` for `twap`; for `pov`, every `interval`, enough to
 keep its own trading at `participation` of all the volume traded since the parent started, up to
-`child_size` at a time. Lots a child leaves unfilled are sent again; if the exchange rejects a
-child, as at the account's position limit, it gives up on the rest of the parent. Every child
+`child_size` at a time; for `vwap`, every `interval`, `child_size` scaled by the trading day's
+activity curve at that moment. Lots a child leaves unfilled are sent again. In an auction it sends
+nothing, and a child the exchange turns away because an auction began, or the market closed,
+while it was on its way is sent again later; if the exchange rejects a child for any other reason,
+as at the account's position limit, it gives up on the rest of the parent. Every child
 carries the parent's id, 1, 2, 3, ... for each agent, in the `parent` column of the event log.
 
 Positions follow the random sides of the parents, so give execution agents a large `max_position`
@@ -257,7 +281,7 @@ them.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `style` | `"twap"` | `"twap"` for an even pace in time, `"pov"` for a share of the volume |
+| `style` | `"twap"` | `"twap"` for an even pace in time, `"pov"` for a share of the volume, `"vwap"` for the day's activity curve |
 | `min_parent` | `20` | Lots; the smallest parent |
 | `parent_tail` | `1.5` | Exponent of the Pareto tail of parent sizes |
 | `max_parent` | `5000` | Lots; parent sizes are capped here |
@@ -284,14 +308,20 @@ Columns that do not apply to a row are empty.
 | Column | Meaning |
 |---|---|
 | `time` | Nanoseconds since the start of the run |
-| `kind` | `new`, `cancel`, `modify` (requests as they reach the exchange); `accepted`, `rejected`, `modified`, `filled`, `cancelled` (reports to one agent); `trade`, `top_of_book` (public) |
+| `kind` | `new`, `cancel`, `modify` (requests as they reach the exchange); `accepted`, `rejected`, `modified`, `filled`, `cancelled` (reports to one agent); `trade`, `top_of_book`, `phase`, `indicative` (public) |
 | `agent`, `client_order_id`, `order_id` | Who and which order |
 | `side`, `type`, `time_in_force` | `buy` or `sell`; `limit` or `market`; `good-till-cancel`, `immediate-or-cancel` or `post-only`. For trades, the side is the aggressor's |
 | `price`, `quantity`, `leaves` | Ticks and lots; `leaves` is the open quantity after a fill |
-| `liquidity`, `fee` | For fills: `maker` or `taker`, and the fill's fee in tick-lots (negative for a rebate) |
+| `liquidity`, `fee` | For fills: `maker`, `taker` or `auction`, and the fill's fee in tick-lots (negative for a rebate); `auction` marks a trade in an auction's uncross too |
 | `request`, `reason` | For rejections, the request kind and why; for cancellations, why |
 | `bid_price`, `bid_quantity`, `ask_price`, `ask_quantity` | For `top_of_book` |
 | `parent` | For `new`: the sender's id for the larger order this one is part of, if it gave one |
+
+A trading day adds two kinds of row. `phase` gives the new phase in `reason` (`opening auction`,
+`continuous`, `halt`, `closing auction` or `closed`) and, leaving an auction, the price it
+uncrossed at in `price`. `indicative`, during an auction, gives the price the book would uncross
+at in `price`, the lots that would trade in `quantity` and the imbalance in `leaves`, positive when
+more is bid than offered at that price; all three are empty while nothing would trade.
 
 Updates of the depth feed are not logged: the log's orders already determine the whole book, and
 `--depth` records the levels at regular times.

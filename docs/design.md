@@ -559,7 +559,8 @@ uv run --project analysis crowdbook-large-orders
 - **Golden test:** a market with every agent type and every source of randomness runs for four
   simulated minutes, and the hashes of its event log, price and depth samples and results, and of
   the replayed logs of the demo session, of a session served to two clients and of a scored
-  challenge, must equal committed values, and so must the challenge's score. CI runs it on macOS
+  challenge, and the log of a trading day with halts, must equal committed values, and so must
+  the challenge's score. CI runs it on macOS
   arm64 and on Linux x86-64, so the two platforms have to agree byte for byte. `crowdbook::math` is checked
   against the standard library over its whole range, and a test fails if the compiler fuses a
   multiply and an add.
@@ -613,7 +614,20 @@ uv run --project analysis crowdbook-large-orders
   every action or stops short of its moment, rewound orders under no id, rewound actions not
   recorded, a rewound gateway left at the last action) were each caught, four only after the
   tests were made to tell them apart: a market whose mid moves between one and ten seconds, a
-  true value that stands still, and a rewind to a moment after the last action.
+  true value that stands still, and a rewind to a moment after the last action. Twenty-nine in
+  the trading day were each caught: nine in the uncross (ties that skip the imbalance, prefer the
+  farthest price or the highest, the newer order as maker, supply counted a level late, asks above
+  the price trading, calls that still match, a crossed call failing its audit, time priority
+  ignored), ten in the exchange (auctions taking market orders, the close taking orders, one
+  uncross round only, the auction fee charged once, a reference that never moves, a halt band a
+  tick wider, auctions that keep matching, no indicative price on entering an auction,
+  self-trades keeping their open quantity, leftovers counted from one side of a fill), three in
+  the simulation (a halt's end ending any phase, halts that never end, snapshots without the
+  phase), five in the agents (auction orders dropped, orders after the close, a pace without the
+  curve, children in auctions, auction rejections abandoning the parent) and two in the
+  scenario's schedule. Three of them, the reference price, the edge of the halt band and the
+  indicative price on entering an auction, were at first caught only by the golden hash, which
+  catches any change at all; direct tests now catch each.
 - **Session tests** play a scripted session the way a live one runs, in uneven steps with requests
   at chosen nanoseconds, then write it, read it back and replay it: the event log must come out
   byte for byte the same. The real `play` command was also driven through a pseudo-terminal with
@@ -643,6 +657,16 @@ uv run --project analysis crowdbook-large-orders
   same JSON every time. Replaying a session without its seat gives the log of the scenario run
   with no participant, byte for byte. A rewound session matches the original up to the moment,
   its seats get their open orders back under their ids, and what is played on replays exactly.
+- **Auction tests** check the uncross against a deliberately naive reference that tries every
+  price and sorts every order, through random flow for 40 seeds that goes in and out of call
+  auctions: the indicative price after every step, and each uncross's fills, self-trades and
+  book; after each uncross the book must not be crossed. Hand-worked books pin each tie rule. A
+  randomized exchange test drives 30 seeds through random phase changes, halts set off by a
+  narrow band, and the close, auditing conservation, ledgers, feeds and the indicative price after
+  every step. Scenario tests check the day's schedule, that auctions trade only at their uncross,
+  that a halt lasts its length unless the close comes first, and that a served day with its own
+  duration replays byte for byte; a client fed only the protocol sees the phase and the
+  indicative price as the server does.
 - **Client model tests** feed a client only the protocol messages for its seat while it trades,
   modifies and cancels for 200 steps: its ledger and its view of the market must equal the
   server's exactly, before and after the seat is claimed again.
@@ -765,8 +789,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Done |
 | M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Done |
 | M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Planned (hosted product) |
-| M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Next |
-| M17 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
+| M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Done |
+| M17 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Next |
 | M18 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Planned |
 | M19 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules | A learning agent's runs reproduce from their seeds; throughput benchmark | Planned |
 | M20 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |

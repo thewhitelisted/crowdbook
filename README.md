@@ -19,9 +19,10 @@ or writing a program in any language that trades over the network.
 > market would have done without you. A market with memory shows volatility clustering for about an
 > hour, and brokers working large orders give order flow long memory and price impact whose shape
 > depends on how long the book remembers. The engine is also a library, with versioned formats, a
-> package to install and a container image. Next: the trading day, with opening and closing auctions
-> and halts. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
-> approach and the roadmap.
+> package to install and a container image. Markets can trade a whole day, with opening and closing
+> auctions and halts. Next: calibration against real order books. See
+> [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
+> roadmap.
 
 ## Quick start
 

@@ -21,15 +21,16 @@ end = crowdbook.run(DipBuyer(), host="127.0.0.1", port=7878, seat="alice")
 print(end.pnl)
 ```
 
-- **Callbacks:** `on_start`, `on_wakeup`, `on_trade`, `on_top`, `on_depth`, `on_accepted`,
-  `on_rejected`, `on_modified`, `on_filled`, `on_cancelled`, `on_error` and `on_end`, each with
-  the message as it arrived.
+- **Callbacks:** `on_start`, `on_wakeup`, `on_trade`, `on_top`, `on_depth`, `on_phase`,
+  `on_indicative`, `on_accepted`, `on_rejected`, `on_modified`, `on_filled`, `on_cancelled`,
+  `on_error` and `on_end`, each with the message as it arrived.
 - **Actions:** `buy` and `sell` at a limit price, with a time in force (`good-till-cancel`,
   `immediate-or-cancel` or `post-only`), `buy_market` and `sell_market`, `cancel`, `cancel_all`
   and `modify`. Orders are named by ids the bot gives them, so a bot can cancel an order before
   it is acknowledged. `wake_after` asks for `on_wakeup` after a stretch of the market's time.
 - **State:** `ledger` holds the seat's cash, position, fees and orders, built from what the bot
-  sent and heard back; `book` the best prices, the depth and the last trade; `settings` the
+  sent and heard back; `book` the best prices, the depth, the last trade and, in a market with a
+  trading day, the phase and, in an auction, the indicative price; `settings` the
   market's length, reference price, fees, latency and the seat's limits; `now` the market's time
   in nanoseconds.
 
