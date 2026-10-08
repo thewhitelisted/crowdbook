@@ -352,9 +352,22 @@ byte for byte. [protocol.md](protocol.md) specifies the messages.
 - **Disconnecting** cancels every open order of the seat, as cancel-on-disconnect does on real
   exchanges; the cancels are recorded like any other request. The seat can be claimed again, and
   the welcome message then carries its cash, position, fees and open orders.
-- **Sockets:** POSIX sockets, non-blocking, with `poll`, on the market's thread. The server
-  listens on 127.0.0.1 unless told otherwise, so a market is not reachable from other machines by
-  accident.
+- **Sockets:** non-blocking sockets on the market's thread, waited on with epoll on Linux and
+  kqueue on macOS and the BSDs, which time out to the nanosecond where `poll` rounds to a
+  millisecond. The server sleeps until the market's next event is due or a client sends
+  something, so an order's answer leaves when the market makes it rather than on the next tick of
+  a timer; on Linux it asks the kernel for its wakeups on time while it serves. `--spin` has it
+  stop sleeping a little before each deadline and watch the clock instead, for answers on time to
+  the microsecond at the price of that much busy waiting per event. The gateway reports which
+  connections have something new and when it is next due, so the server never scans every
+  connection. The server listens on 127.0.0.1 unless told otherwise, so a market is not
+  reachable from other machines by accident.
+- **Market data for many seats:** a public update reaches every seat with the same latency at the
+  same moment, and is encoded once for all of them. With `--feed-interval`, market data goes out
+  on one shared tick, to every seat at once, so that none sees the market before another, and a
+  depth or top of book update still waiting when a newer one comes is dropped: snapshots
+  supersede each other. A seat's own order events, errors and the start and end go at once. At
+  200 seats and a 10 ms tick, this cuts what the server sends from 500 MB to 17 MB a second.
 - **Layers:** the gateway itself only turns bytes from connections into requests and events into
   bytes, and never touches a socket, so tests drive it with byte strings and no network. The
   server around it moves bytes between sockets and the gateway, and the clock between the wall
@@ -754,8 +767,12 @@ kinds of guard keep it fast.
   count, which is about one allocation per request with a depth feed (the shared levels) and 0.04
   without. Unlike timings, the counts do not depend on the machine, so CI enforces them.
 - **Benchmarks** (`bench/`) cover every feature: the book, whole markets by size, the challenges
-  alone and served, the event log, the protocol's encoding and decoding, a trading day, reports on
-  one thread and on four, and a large market. `tools/bench_check.py` runs them five times,
+  alone and served, an order through the gateway, the memory each served market takes, the event
+  log, the protocol's encoding and decoding, a trading day, reports on one thread and on four,
+  and a large market. `crowdbook_load` puts the server under load: clients over TCP, each
+  placing and cancelling orders while it reads the full market data, timing every answer at the
+  50th to the 99.9th percentile against the latency the market itself imposes. CI runs both on
+  its Linux machine and shows the figures on each run. `tools/bench_check.py` runs them five times,
   compares the medians with `bench/baseline.json`, recorded on the development machine, and fails
   if anything is more than 10% slower. `--update` records a new baseline when a change is meant to
   move it.

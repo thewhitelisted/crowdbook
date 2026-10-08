@@ -72,6 +72,10 @@ public:
     [[nodiscard]] Timestamp now() const noexcept { return now_; }
     // Messages and wakeups scheduled but not yet processed.
     [[nodiscard]] std::size_t pendingCount() const noexcept { return queue_.size(); }
+    // When the next of them is due, or nullopt if none is.
+    [[nodiscard]] std::optional<Timestamp> nextEventTime() const noexcept {
+        return queue_.empty() ? std::nullopt : std::optional{queue_.front().time};
+    }
     [[nodiscard]] const Exchange& exchange() const noexcept { return exchange_; }
     // These throw std::out_of_range for an unknown id.
     [[nodiscard]] Agent& agent(AgentId id);

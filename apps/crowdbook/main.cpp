@@ -44,7 +44,8 @@ constexpr std::string_view kUsage =
     "                      [--log-only KIND,KIND...] [--json FILE]\n"
     "       crowdbook serve <scenario.toml | session.toml --at D> [--seat NAME]...\n"
     "                       [--listen HOST:PORT]\n"
-    "                       [--tokens FILE] [--rate-limit N] [--seed N] [--duration D]\n"
+    "                       [--tokens FILE] [--rate-limit N] [--spin D]\n"
+    "                       [--feed-interval D] [--seed N] [--duration D]\n"
     "                       [--speed X] [--record FILE] [--report FILE] [--log FILE]\n"
     "                       [--log-only KIND,KIND...] [--json FILE]\n"
     "       crowdbook connect <host:port> [--seat NAME] [--token TOKEN]\n"
@@ -65,6 +66,8 @@ struct CommandLine {
     std::optional<std::string> listen{};
     std::optional<std::string> tokensPath{};
     std::optional<std::int64_t> rateLimit{};
+    std::optional<Duration> spin{};
+    std::optional<Duration> feedInterval{};
     std::optional<std::string> token{};
     std::optional<std::string> reportPath{};
     std::optional<Duration> interval{};
@@ -154,6 +157,10 @@ CommandLine parseCommandLine(std::span<char*> args, std::string_view command,
             line.tokensPath = std::string{value()};
         } else if (arg == "--rate-limit") {
             line.rateLimit = parseRateLimit(value());
+        } else if (arg == "--spin") {
+            line.spin = parseDuration(value());
+        } else if (arg == "--feed-interval") {
+            line.feedInterval = parseDuration(value());
         } else if (arg == "--log") {
             line.outputs.logPath = std::string{value()};
         } else if (arg == "--log-only") {
@@ -266,14 +273,17 @@ int playCommand(std::span<char*> args) {
 int serveCommand(std::span<char*> args) {
     const CommandLine line = parseCommandLine(
         args, "serve",
-        {"--at", "--seat", "--listen", "--tokens", "--rate-limit", "--seed", "--duration",
+        {"--at", "--seat", "--listen", "--tokens", "--rate-limit", "--spin", "--feed-interval",
+         "--seed", "--duration",
          "--speed", "--record", "--report", "--log", "--log-only", "--json"});
     checkRewind(line);
     ServeOptions options{.live = liveOptions(line),
                          .speed = line.speed.value_or(1.0),
                          .seats = line.seats,
                          .tokensPath = line.tokensPath,
-                         .rateLimit = line.rateLimit};
+                         .rateLimit = line.rateLimit,
+                         .spin = line.spin.value_or(0),
+                         .feedInterval = line.feedInterval.value_or(0)};
     if (line.listen) {
         parseListen(*line.listen, options.host, options.port);
     }

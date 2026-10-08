@@ -19,6 +19,8 @@ struct ServeOptions {
     std::uint16_t port = 7878;
     std::optional<std::string> tokensPath{}; // lines of "seat token"
     std::optional<std::int64_t> rateLimit{}; // messages per second per connection
+    Duration spin = 0;                       // see ServerOptions
+    Duration feedInterval = 0;
 };
 
 // Serves the scenario's market over the network to clients speaking docs/protocol.md, until its

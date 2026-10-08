@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -8,6 +9,7 @@
 #include <string_view>
 #include <thread>
 #include <variant>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -148,6 +150,135 @@ TEST(ServerTest, AClientTradesOverARealSocket) {
     server.join();
     EXPECT_TRUE(gateway.finished());
     EXPECT_EQ(gateway.session().actions.size(), 1U);
+}
+
+// Market data held back for a slow feed does not hold back the seat's own order events, and
+// what arrives is in time order. Spinning before deadlines changes nothing a client can see.
+TEST(ServerTest, BatchedMarketDataLeavesOrderEventsOnTime) {
+    const Scenario scenario = parseScenario(kScenario);
+    Gateway gateway{scenario, std::string{kScenario}, AgentRegistry::withBuiltIns(), {}};
+    std::atomic<bool> stop{false};
+    std::promise<std::uint16_t> listening;
+    std::thread server{[&] {
+        serve(gateway,
+              {.host = "127.0.0.1", .port = 0, .spin = 50 * kMicrosecond,
+               .feedInterval = 300 * kMillisecond},
+              stop, [&](std::uint16_t port) { listening.set_value(port); });
+    }};
+    const std::uint16_t port = listening.get_future().get();
+    {
+        LineClient client{port};
+        ASSERT_TRUE(client.connected());
+        client.send(protocol::Hello{.seat = "you"});
+        ASSERT_TRUE(client.readUntil<protocol::Start>());
+        std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        const auto sent = std::chrono::steady_clock::now();
+        client.send(NewOrder{.clientOrderId = 3, .side = Side::Buy, .price = 900, .quantity = 1});
+        Timestamp time = 0;
+        bool accepted = false;
+        while (!accepted) {
+            const auto message = client.readUntil<protocol::MarketMessage>();
+            ASSERT_TRUE(message);
+            EXPECT_GE(message->time, time);
+            time = message->time;
+            accepted = std::holds_alternative<OrderAccepted>(message->event);
+        }
+        // Sooner than the next feed tick: the answer went at once.
+        EXPECT_LT(std::chrono::steady_clock::now() - sent, std::chrono::milliseconds{200});
+        // And the market data held back arrives on the ticks.
+        std::size_t marketData = 0;
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds{1};
+        while (std::chrono::steady_clock::now() < until) {
+            const auto message = client.readUntil<protocol::MarketMessage>();
+            ASSERT_TRUE(message);
+            EXPECT_GE(message->time, time);
+            time = message->time;
+            marketData += recipient(message->event) ? 0U : 1U;
+        }
+        EXPECT_GT(marketData, 0U);
+        stop = true;
+        ASSERT_TRUE(client.readUntil<protocol::End>());
+    }
+    server.join();
+}
+
+// The server sleeps until the market's next event is due, not a moment longer: an order's answer,
+// due two milliseconds after it is sent, arrives close to then.
+TEST(ServerTest, AnswersLeaveWhenTheMarketMakesThem) {
+    const Scenario scenario = parseScenario(kScenario);
+    Gateway gateway{scenario, std::string{kScenario}, AgentRegistry::withBuiltIns(), {}};
+    std::atomic<bool> stop{false};
+    std::promise<std::uint16_t> listening;
+    std::thread server{[&] {
+        serve(gateway, {.host = "127.0.0.1", .port = 0}, stop,
+              [&](std::uint16_t port) { listening.set_value(port); });
+    }};
+    const std::uint16_t port = listening.get_future().get();
+    {
+        LineClient client{port};
+        client.send(protocol::Hello{.seat = "you"});
+        ASSERT_TRUE(client.readUntil<protocol::Start>());
+        std::vector<std::chrono::steady_clock::duration> trips;
+        for (ClientOrderId id = 1; id <= 21; ++id) {
+            const auto sent = std::chrono::steady_clock::now();
+            client.send(
+                NewOrder{.clientOrderId = id, .side = Side::Buy, .price = 900, .quantity = 1});
+            bool accepted = false;
+            while (!accepted) {
+                const auto message = client.readUntil<protocol::MarketMessage>();
+                ASSERT_TRUE(message);
+                const auto* answer = std::get_if<OrderAccepted>(&message->event);
+                accepted = answer != nullptr && answer->clientOrderId == id;
+            }
+            trips.push_back(std::chrono::steady_clock::now() - sent);
+        }
+        std::ranges::sort(trips);
+        // Two milliseconds of the market's own latency, and little more: a server that slept
+        // past the answer would take tens.
+        EXPECT_LT(trips[trips.size() / 2], std::chrono::milliseconds{15});
+        stop = true;
+        ASSERT_TRUE(client.readUntil<protocol::End>());
+    }
+    server.join();
+}
+
+// A client that stops reading fills its socket, so sends block; once it reads again, everything
+// waiting reaches it, the end included, though nothing new is added after the end.
+TEST(ServerTest, AClientThatFallsBehindStillGetsEverything) {
+    constexpr std::string_view kBusy = R"(duration = "60s"
+reference_price = 1000
+
+[exchange]
+depth_levels = 20
+
+[[agents]]
+type = "zero_intelligence"
+count = 40
+limit_rate = 20.0
+market_rate = 2.0
+cancel_rate = 10.0
+)";
+    const Scenario scenario = parseScenario(kBusy);
+    GatewayOptions options;
+    options.speed = 10.0;
+    options.maxPendingOutput = std::size_t{256} << 20;
+    Gateway gateway{scenario, std::string{kBusy}, AgentRegistry::withBuiltIns(), options};
+    std::atomic<bool> stop{false};
+    std::promise<std::uint16_t> listening;
+    std::thread server{[&] {
+        serve(gateway, {.host = "127.0.0.1", .port = 0, .closeGrace = 20 * kSecond}, stop,
+              [&](std::uint16_t port) { listening.set_value(port); });
+    }};
+    const std::uint16_t port = listening.get_future().get();
+    {
+        LineClient client{port};
+        client.send(protocol::Hello{.seat = "you"});
+        ASSERT_TRUE(client.readUntil<protocol::Start>());
+        std::this_thread::sleep_for(std::chrono::seconds{1}); // megabytes of market data pile up
+        stop = true;
+        ASSERT_TRUE(client.readUntil<protocol::End>());
+    }
+    server.join();
 }
 
 TEST(ServerTest, AClientThatHangsUpHasItsOrdersCancelled) {

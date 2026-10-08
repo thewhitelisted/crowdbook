@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 #include "crowdbook/messages.hpp"
 #include "crowdbook/simulation.hpp"
@@ -17,6 +18,9 @@ public:
     Pacer(std::int64_t wallNow, Timestamp simulatedNow, double speed = 1.0);
 
     [[nodiscard]] Timestamp simulatedAt(std::int64_t wall) const noexcept;
+    // The first wall-clock time at which simulated time reaches `simulated`, or nullopt if it
+    // never does because the clock is paused.
+    [[nodiscard]] std::optional<std::int64_t> wallAt(Timestamp simulated) const noexcept;
     // Both take effect from `wall` on, with simulated time carrying on from where it was then.
     // setSpeed throws std::invalid_argument unless the speed is positive and finite.
     void setSpeed(double speed, std::int64_t wall);

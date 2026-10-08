@@ -452,6 +452,8 @@ claimed, and the session ends at the scenario's duration or on ctrl-c. It takes 
 | `--listen HOST:PORT` | Where to listen; `127.0.0.1:7878` unless given. `:7878` listens on every address, and port 0 picks a free one |
 | `--tokens FILE` | Seats' tokens, one `seat token` pair per line; a client must give its seat's token. Every seat needs one |
 | `--rate-limit N` | Messages each connection may send per second; 500 unless given |
+| `--feed-interval D` | Send market data every D, to every seat at once, with only the latest depth and top of book; order events still go at once. Everything as it happens unless given |
+| `--spin D` | Stop sleeping D before each event is due and watch the clock instead: answers on time to the microsecond, for up to D of busy waiting per event. 0 unless given |
 
 A recorded session replays with `replay` like one from `play`, every seat's orders included.
 

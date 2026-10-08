@@ -50,6 +50,7 @@ std::pair<ClientOrderId, RequestKind> orderOf(const protocol::ClientMessage& mes
 }
 
 struct Connection {
+    ConnectionId id = 0;
     std::int64_t connectedAt = 0;
     std::optional<std::size_t> seat{};
     std::string input{};         // the start of a line not yet complete
@@ -61,8 +62,23 @@ struct Connection {
     std::int64_t allowance = 0;  // for the rate limit, in message-nanoseconds
     std::int64_t refilledAt = 0;
     std::int64_t lastSentAt = 0;
+    bool ready = false; // in State::ready, waiting for the caller to look at it
+    bool urgent = false; // what is waiting holds more than market data
+    // With conflation, where in `output` the latest depth and top of book still unsent start, so
+    // that a newer one can replace it; npos when there is none.
+    std::size_t heldDepth = std::string::npos;
+    std::size_t heldTop = std::string::npos;
+    std::size_t heldDepthLength = 0;
+    std::size_t heldTopLength = 0;
 
     [[nodiscard]] std::size_t pending() const noexcept { return output.size() - outputStart; }
+};
+
+// The last public event encoded, so that seats receiving it at the same moment share the bytes.
+struct EncodedEvent {
+    Timestamp time = 0;
+    std::optional<Event> event{};
+    std::string line{};
 };
 
 } // namespace
@@ -79,6 +95,9 @@ struct Gateway::State {
     bool paused = false; // asked for before the clock started, too
     bool finished = false;
     std::int64_t wall = 0; // the latest wall-clock time the caller has given
+    std::vector<ConnectionId> ready; // see Gateway::takeReady
+    EncodedEvent lastPublic;
+    bool conflating = false; // see Gateway::conflate
 
     State(const Scenario& scenarioIn, std::string scenarioText, const AgentRegistry& registry,
           GatewayOptions optionsIn, EventSink* sink)
@@ -139,12 +158,40 @@ struct Gateway::State {
 
     // Output.
 
+    // Puts the connection on the ready list, once.
+    void markReady(Connection& connection) {
+        if (!connection.ready) {
+            connection.ready = true;
+            ready.push_back(connection.id);
+        }
+    }
+
     void send(Connection& connection, const protocol::ServerMessage& message,
               std::int64_t wallNow) {
         if (connection.closing || connection.dropped) {
             return;
         }
         protocol::encodeTo(connection.output, message);
+        // Everything but public market data and the time is the seat's own business, or the
+        // session's, and urgent.
+        if (const auto* data = std::get_if<protocol::MarketMessage>(&message)) {
+            connection.urgent = connection.urgent || recipient(data->event).has_value();
+        } else if (!std::holds_alternative<protocol::Clock>(message)) {
+            connection.urgent = true;
+        }
+        sent(connection, wallNow);
+    }
+
+    // The same, for a message already encoded.
+    void sendLine(Connection& connection, std::string_view line, std::int64_t wallNow) {
+        if (connection.closing || connection.dropped) {
+            return;
+        }
+        connection.output += line;
+        sent(connection, wallNow);
+    }
+
+    void sent(Connection& connection, std::int64_t wallNow) {
         connection.lastSentAt = wallNow;
         if (connection.pending() > options.maxPendingOutput) {
             // Too far behind to catch up: nothing more is sent, and the connection is closed.
@@ -152,11 +199,14 @@ struct Gateway::State {
             connection.output.clear();
             connection.outputStart = 0;
         }
+        markReady(connection);
     }
 
     void fail(Connection& connection, std::string message, std::int64_t wallNow) {
         send(connection, protocol::Error{.message = std::move(message), .fatal = true}, wallNow);
         connection.closing = true;
+        connection.urgent = true;
+        markReady(connection);
     }
 
     void complain(Connection& connection, std::string message, std::int64_t wallNow) {
@@ -185,9 +235,55 @@ struct Gateway::State {
         if (internal) {
             noteAnswer(seat, *internal, event);
         }
-        if (Connection* connection = seatConnection(seat)) {
-            send(*connection, protocol::MarketMessage{.time = time, .event = event}, wall);
+        Connection* connection = seatConnection(seat);
+        if (connection == nullptr) {
+            return;
         }
+        // A seat's own events, and with one seat everything, go straight to its connection.
+        if (internal || (seats.size() == 1 && !conflating)) {
+            send(*connection, protocol::MarketMessage{.time = time, .event = event}, wall);
+            return;
+        }
+        // Public market data reaches every seat with the same latency at the same moment, and
+        // is encoded once for all of them.
+        if (!lastPublic.event || lastPublic.time != time || *lastPublic.event != event) {
+            lastPublic.time = time;
+            lastPublic.event = event;
+            lastPublic.line.clear();
+            protocol::encodeTo(lastPublic.line,
+                               protocol::MarketMessage{.time = time, .event = event});
+        }
+        if (conflating && (std::holds_alternative<BookDepth>(event) ||
+                           std::holds_alternative<TopOfBook>(event))) {
+            const bool depth = std::holds_alternative<BookDepth>(event);
+            replaceHeld(*connection, depth ? connection->heldDepth : connection->heldTop,
+                        depth ? connection->heldDepthLength : connection->heldTopLength,
+                        lastPublic.line);
+            return;
+        }
+        sendLine(*connection, lastPublic.line, wall);
+    }
+
+    // Takes the snapshot still unsent at `held`, if there is one, out of the connection's output,
+    // and adds `line`, a newer one, at the end, where `held` then points. Later messages move up,
+    // so they stay in time order.
+    void replaceHeld(Connection& connection, std::size_t& held, std::size_t& heldLength,
+                     std::string_view line) {
+        if (connection.closing || connection.dropped) {
+            return;
+        }
+        if (held != std::string::npos) {
+            const std::size_t length = heldLength;
+            connection.output.erase(held, length);
+            for (std::size_t* other : {&connection.heldDepth, &connection.heldTop}) {
+                if (*other != std::string::npos && *other > held) {
+                    *other -= length;
+                }
+            }
+        }
+        held = connection.output.size();
+        heldLength = line.size();
+        sendLine(connection, line, wall);
     }
 
     // Counts answers to cancels and modifies, and lets go of the ids of an order that is done.
@@ -482,8 +578,10 @@ struct Gateway::State {
         }
         if (pacer) {
             const Timestamp end = sessionEnd(scenario);
+            // Everything due by then, including what is due at the very moment the market is at,
+            // as a replay runs it before performing an action at that moment.
             const Timestamp target = std::min(pacer->simulatedAt(wallNow), end);
-            if (target > simulation().now()) {
+            if (target >= simulation().now()) {
                 market.run.runUntil(target);
             }
             stopLosers(wallNow);
@@ -542,7 +640,39 @@ struct Gateway::State {
                 send(connection, end, wallNow);
             }
             connection.closing = true;
+            connection.urgent = true;
+            markReady(connection);
         }
+    }
+
+    [[nodiscard]] std::optional<std::int64_t> nextWake() const {
+        std::optional<std::int64_t> next;
+        const auto consider = [&next](std::int64_t at) {
+            if (!next || at < *next) {
+                next = at;
+            }
+        };
+        for (const auto& [id, connection] : connections) {
+            if (!connection.seat && !connection.closing) {
+                consider(connection.connectedAt + options.helloTimeout);
+            }
+        }
+        if (finished || !pacer) {
+            return next;
+        }
+        Timestamp due = sessionEnd(scenario);
+        if (const std::optional<Timestamp> event = market.run.simulation().nextEventTime()) {
+            due = std::min(due, *event);
+        }
+        if (const std::optional<std::int64_t> at = pacer->wallAt(due)) {
+            consider(*at);
+        }
+        for (const auto& [id, connection] : connections) {
+            if (connection.seat) {
+                consider(connection.lastSentAt + options.clockInterval);
+            }
+        }
+        return next;
     }
 };
 
@@ -595,7 +725,8 @@ Gateway::~Gateway() = default;
 
 ConnectionId Gateway::connect(std::int64_t wallNow) {
     const ConnectionId id = state_->nextConnection++;
-    state_->connections.emplace(id, Connection{.connectedAt = wallNow,
+    state_->connections.emplace(id, Connection{.id = id,
+                                               .connectedAt = wallNow,
                                                .allowance = kSecond *
                                                             state_->options.maxMessagesPerSecond,
                                                .refilledAt = wallNow,
@@ -706,12 +837,36 @@ void Gateway::consumeOutput(ConnectionId id, std::size_t bytes) {
     }
     Connection& connection = found->second;
     connection.outputStart += std::min(bytes, connection.pending());
+    if (connection.pending() == 0) {
+        connection.urgent = false;
+    }
+    // A snapshot that has started to go can no longer be replaced.
+    for (std::size_t* held : {&connection.heldDepth, &connection.heldTop}) {
+        if (*held != std::string::npos && *held < connection.outputStart) {
+            *held = std::string::npos;
+        }
+    }
     // Sent bytes are dropped from the front once they are most of the buffer, so each byte is
     // moved at most once on average.
     if (connection.outputStart > connection.output.size() / 2) {
         connection.output.erase(0, connection.outputStart);
+        for (std::size_t* held : {&connection.heldDepth, &connection.heldTop}) {
+            if (*held != std::string::npos) {
+                *held -= connection.outputStart;
+            }
+        }
         connection.outputStart = 0;
     }
+}
+
+void Gateway::conflate(bool conflating) {
+    state_->conflating = conflating;
+}
+
+bool Gateway::urgent(ConnectionId id) const {
+    const auto found = state_->connections.find(id);
+    return found == state_->connections.end() || found->second.urgent ||
+           found->second.dropped;
 }
 
 bool Gateway::shouldClose(ConnectionId id) const {
@@ -721,6 +876,21 @@ bool Gateway::shouldClose(ConnectionId id) const {
     }
     const Connection& connection = found->second;
     return connection.dropped || (connection.closing && connection.pending() == 0);
+}
+
+void Gateway::takeReady(std::vector<ConnectionId>& ready) {
+    for (const ConnectionId id : state_->ready) {
+        const auto found = state_->connections.find(id);
+        if (found != state_->connections.end()) {
+            found->second.ready = false;
+            ready.push_back(id);
+        }
+    }
+    state_->ready.clear();
+}
+
+std::optional<std::int64_t> Gateway::nextWake() const {
+    return state_->nextWake();
 }
 
 bool Gateway::started() const noexcept {

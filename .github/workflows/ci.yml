@@ -74,6 +74,25 @@ jobs:
           fi
           exit "$status"
 
+      # Numbers for an x86-64 Linux server, shown as notices on the run: the benchmarks and the
+      # server under load. Shared runners are noisy, so these inform rather than gate.
+      - name: Measure (Linux release)
+        if: matrix.preset == 'release' && runner.os == 'Linux'
+        shell: bash
+        run: |
+          {
+            grep -m1 "model name" /proc/cpuinfo
+            nproc | sed 's/^/cores: /'
+            build/release/bench/crowdbook_bench \
+              --benchmark_filter='MixedOrderFlow|ChallengeMarket/0|ServedChallenge/0|LargeMarket|GatewayRoundTrip|EncodeDepth' \
+              2>/dev/null | grep '^BM_'
+            for args in "--clients 1" "--clients 50" "--clients 200" "--clients 200 --feed-interval 10000"; do
+              echo "load: $args"
+              build/release/bench/crowdbook_load $args --rate 20 --seconds 10 |
+                grep -E "round trips|beyond|server thread"
+            done
+          } 2>&1 | while IFS= read -r line; do echo "::notice::${line//%/%25}"; done
+
   container:
     name: container / docker
     runs-on: ubuntu-24.04

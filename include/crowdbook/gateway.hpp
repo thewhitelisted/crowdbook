@@ -90,6 +90,23 @@ public:
     // and once everything waiting has been sent, or at once for a connection that fell too far
     // behind. Its caller should then close it and call disconnect.
     [[nodiscard]] bool shouldClose(ConnectionId connection) const;
+    // Whether what is waiting holds more than public market data and the time: the seat's own
+    // order events, an error, the welcome, the start or the end. A caller that holds market data
+    // back to send it in batches should still send these at once.
+    [[nodiscard]] bool urgent(ConnectionId connection) const;
+    // For a caller that sends market data in batches: a depth or top of book update still waiting
+    // to be sent when a newer one comes is dropped, so each batch carries only the latest of each.
+    // Trades, the seat's own events and everything else are all sent. Off by default.
+    void conflate(bool conflating);
+
+    // For a caller that waits on many connections: the connections given something to send, or
+    // told to close, since the last call, each once, appended to `ready`. Only these need looking
+    // at after a call to advance, receive or disconnect.
+    void takeReady(std::vector<ConnectionId>& ready);
+    // The wall-clock time by which advance should next be called, if nothing arrives first: when
+    // the market's next event is due, a quiet connection is owed the time, or a connection runs
+    // out of time to claim a seat. Nullopt when nothing is due until something arrives.
+    [[nodiscard]] std::optional<std::int64_t> nextWake() const;
 
     [[nodiscard]] bool started() const noexcept;
     [[nodiscard]] bool finished() const noexcept;

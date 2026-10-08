@@ -96,7 +96,12 @@ int serve(const ServeOptions& options) {
 
     std::signal(SIGINT, onInterrupt);
     std::signal(SIGTERM, onInterrupt);
-    crowdbook::serve(live.gateway(), {.host = options.host, .port = options.port}, interrupted,
+    crowdbook::serve(live.gateway(),
+                     {.host = options.host,
+                      .port = options.port,
+                      .spin = options.spin,
+                      .feedInterval = options.feedInterval},
+                     interrupted,
                      [&](std::uint16_t port) {
                          std::cout << std::format(
                              "{} (seed {}): serving on {}:{} to seats {}; the clock starts when "

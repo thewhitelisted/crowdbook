@@ -26,7 +26,7 @@ package in CI.
 | `crowdbook::crowdbook` | The order book, the exchange, the simulation kernel, the built-in agents, scenarios as structs, scoring | Nothing |
 | `crowdbook::protocol` | The gateway's messages and their encoding as JSON lines | `crowdbook` |
 | `crowdbook::scenario` | Scenario and session files, live sessions, replays, rewinding, reports | `crowdbook`; toml++ is compiled in |
-| `crowdbook::gateway` | The gateway, which serves a market to clients over bytes, and the POSIX socket server around it | `scenario`, `protocol` |
+| `crowdbook::gateway` | The gateway, which serves a market to clients over bytes, and the socket server around it, on epoll (Linux) or kqueue (macOS and the BSDs) | `scenario`, `protocol` |
 
 ## What to use for what
 
@@ -79,12 +79,38 @@ Apple M5 at:
 | Served through the gateway to one client reading every message | 19,000 to 27,000 |
 
 So one core keeps up with thousands of such markets in computation; encoding market data for
-clients costs about two fifths of it. A served market also spends a system call or two per
-connection per millisecond in its socket loop, which these figures leave out. To measure:
+clients costs about two fifths of it. Each served market takes about 400 KB of memory, so a
+gigabyte holds some 2,500. To measure:
 
 ```bash
 cmake --workflow --preset release
-./build/release/bench/crowdbook_bench --benchmark_filter=Challenge
+./build/release/bench/crowdbook_bench --benchmark_filter='Challenge|MemoryPerMarket'
+```
+
+## Latency under load
+
+`crowdbook_load` serves a market over TCP to many clients, each placing an order or cancelling
+it 20 times a second at random moments while reading all the market data, and times every
+answer. The playable market's seats are a millisecond from the exchange each way, so an answer is
+due 2 ms after its order; the table gives how much later it arrives, which is what the server and
+the operating system add. On an Apple M5:
+
+| Clients | Market data | Late at the median | 99th percentile | Server CPU |
+|---:|---|---:|---:|---:|
+| 1 | as it happens | 0.24 ms | 0.34 ms | 1% |
+| 1 | as it happens, `--spin 150us` | 0.14 ms | 0.21 ms | 1% |
+| 50 | as it happens | 0.17 ms | 0.54 ms | 18% |
+| 200 | as it happens | 1.3 ms | 2.6 ms | 79% |
+| 200 | every 10 ms | 0.18 ms | 1.1 ms | 28% |
+
+A bare TCP round trip between two threads on the same machine takes 35 to 80 µs, depending on how
+deeply its cores sleep; most of what remains for one client is that. With hundreds of seats, the
+cost is the market data: every seat gets every update, so batching it (`--feed-interval`) is
+what lets one core serve them. To measure, against a server of its own or one already running:
+
+```bash
+./build/release/bench/crowdbook_load --clients 50 --seconds 10
+./build/release/bench/crowdbook_load --clients 200 --feed-interval 10000
 ```
 
 ## Containers

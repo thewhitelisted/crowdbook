@@ -1,5 +1,6 @@
 #include "crowdbook/live.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 #include <stdexcept>
@@ -27,6 +28,31 @@ Timestamp Pacer::simulatedAt(std::int64_t wall) const noexcept {
         return simulatedAnchor_;
     }
     return simulatedAnchor_ + std::llround(static_cast<double>(wall - wallAnchor_) * speed_);
+}
+
+std::optional<std::int64_t> Pacer::wallAt(Timestamp simulated) const noexcept {
+    if (simulated <= simulatedAnchor_) {
+        return wallAnchor_;
+    }
+    if (paused_) {
+        return std::nullopt;
+    }
+    // Far enough out to stand for never, without overflowing.
+    constexpr double kFar = 1e18;
+    const double after = std::ceil(static_cast<double>(simulated - simulatedAnchor_) / speed_);
+    if (after >= kFar) {
+        return wallAnchor_ + static_cast<std::int64_t>(kFar);
+    }
+    // simulatedAt rounds, so the estimate can be a nanosecond or two out either way: step to the
+    // first wall time that reaches `simulated`.
+    std::int64_t wall = wallAnchor_ + static_cast<std::int64_t>(after);
+    while (wall > wallAnchor_ && simulatedAt(wall - 1) >= simulated) {
+        --wall;
+    }
+    while (simulatedAt(wall) < simulated) {
+        ++wall;
+    }
+    return wall;
 }
 
 void Pacer::setSpeed(double speed, std::int64_t wall) {

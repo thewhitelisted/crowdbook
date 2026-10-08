@@ -1,14 +1,23 @@
 #include <cstdint>
 #include <fstream>
+#include <memory>
 #include <ostream>
 #include <sstream>
 #include <streambuf>
 #include <string>
+#include <vector>
 
 #include <benchmark/benchmark.h>
 
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "crowdbook/agent_registry.hpp"
 #include "crowdbook/event_log.hpp"
+#include "crowdbook/gateway.hpp"
 #include "crowdbook/protocol.hpp"
 #include "crowdbook/report.hpp"
 #include "crowdbook/scenario.hpp"
@@ -102,6 +111,83 @@ void BM_DecodeNewOrder(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations());
 }
 BENCHMARK(BM_DecodeNewOrder);
+
+// One order through the gateway and back with no latency in the market: the line in, the
+// acknowledgement out, then the same for its cancel. What the server adds to a round trip, short
+// of the sockets.
+void BM_GatewayRoundTrip(benchmark::State& state) {
+    Scenario scenario = loadScenario(example("/examples/scenarios/playable.toml"));
+    scenario.participant.latency = {};
+    Gateway gateway{scenario, "", AgentRegistry::withBuiltIns(), {}};
+    const ConnectionId client = gateway.connect(0);
+    gateway.receive(client, protocol::encode(protocol::Hello{.seat = "you"}), 0);
+    std::int64_t wall = 0;
+    ClientOrderId id = 1;
+    std::vector<ConnectionId> ready;
+    const auto roundTrip = [&](const protocol::ClientMessage& message) {
+        wall += kMicrosecond;
+        gateway.receive(client, protocol::encode(message), wall);
+        gateway.advance(wall);
+        ready.clear();
+        gateway.takeReady(ready);
+        benchmark::DoNotOptimize(gateway.pendingOutput(client).size());
+        gateway.consumeOutput(client, gateway.pendingOutput(client).size());
+    };
+    for (auto _ : state) {
+        roundTrip(NewOrder{.clientOrderId = id, .side = Side::Buy, .price = 5'000, .quantity = 1});
+        roundTrip(CancelOrder{.clientOrderId = id});
+        ++id;
+    }
+    state.SetItemsProcessed(2 * state.iterations());
+}
+BENCHMARK(BM_GatewayRoundTrip);
+
+// The memory a process holds, resident, in bytes.
+std::int64_t residentBytes() {
+#if defined(__APPLE__)
+    mach_task_basic_info info{};
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info),
+              &count);
+    return static_cast<std::int64_t>(info.resident_size);
+#else
+    std::ifstream statm{"/proc/self/statm"};
+    std::int64_t size = 0;
+    std::int64_t resident = 0;
+    statm >> size >> resident;
+    return resident * ::sysconf(_SC_PAGESIZE);
+#endif
+}
+
+// How many markets fit in memory: a hundred of the market making challenge, each served to one
+// client, run side by side for a simulated minute. The counter is the memory each adds.
+void BM_MemoryPerMarket(benchmark::State& state) {
+    const Scenario scenario = loadScenario(example("/examples/challenges/market_making.toml"));
+    constexpr std::size_t kMarkets = 100;
+    for (auto _ : state) {
+        const std::int64_t before = residentBytes();
+        std::vector<std::unique_ptr<Gateway>> markets;
+        std::vector<ConnectionId> clients;
+        for (std::size_t i = 0; i < kMarkets; ++i) {
+            markets.push_back(
+                std::make_unique<Gateway>(scenario, "", AgentRegistry::withBuiltIns(),
+                                          GatewayOptions{}));
+            clients.push_back(markets.back()->connect(0));
+            markets.back()->receive(clients.back(),
+                                    protocol::encode(protocol::Hello{.seat = "you"}), 0);
+        }
+        for (std::int64_t wall = 0; wall <= 60 * kSecond; wall += 10 * kMillisecond) {
+            for (std::size_t i = 0; i < kMarkets; ++i) {
+                markets[i]->advance(wall);
+                markets[i]->consumeOutput(clients[i],
+                                          markets[i]->pendingOutput(clients[i]).size());
+            }
+        }
+        state.counters["bytes_per_market"] =
+            static_cast<double>(residentBytes() - before) / static_cast<double>(kMarkets);
+    }
+}
+BENCHMARK(BM_MemoryPerMarket)->Iterations(1)->Unit(benchmark::kMillisecond);
 
 // The example trading day: its opening auction, twelve minutes of trading and its close.
 void BM_TradingDay(benchmark::State& state) {

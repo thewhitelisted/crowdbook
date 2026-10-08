@@ -203,6 +203,10 @@ The best bid and ask, sent when either changes; `null` for an empty side.
 The best `depth_levels` levels on each side, best first, sent when any of them changes. Only for
 markets with a depth feed.
 
+`top` and `depth` are snapshots: each replaces the last. A server that sends market data in
+batches (`serve --feed-interval`) sends only the latest of each in a batch. Trades and a seat's own
+events are never left out, and every message still arrives in time order.
+
 ### phase
 
 ```json

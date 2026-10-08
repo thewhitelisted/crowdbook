@@ -24,6 +24,26 @@ TEST(PacerTest, FollowsTheWallClockAtItsSpeed) {
     EXPECT_EQ(pacer.simulatedAt(900), 50); // never before where it started
 }
 
+// The first wall-clock time at which simulated time reaches a moment, so that a server can sleep
+// until then, exactly: any earlier and simulated time falls short.
+TEST(PacerTest, SaysWhenSimulatedTimeWillReachAMoment) {
+    for (const double speed : {1.0, 3.0, 0.3, 7.77}) {
+        const Pacer pacer{1'000, 50, speed};
+        EXPECT_EQ(pacer.wallAt(20), 1'000); // already past
+        for (const Timestamp moment : {51, 52, 100, 12'345, 1'000'003}) {
+            const std::optional<std::int64_t> wall = pacer.wallAt(moment);
+            ASSERT_TRUE(wall);
+            EXPECT_GE(pacer.simulatedAt(*wall), moment) << speed << " " << moment;
+            EXPECT_LT(pacer.simulatedAt(*wall - 1), moment) << speed << " " << moment;
+        }
+    }
+    Pacer paused{0, 0};
+    paused.setPaused(true, 100);
+    EXPECT_FALSE(paused.wallAt(200));
+    EXPECT_EQ(paused.wallAt(50), 100);
+    EXPECT_GT(Pacer(0, 0, 1e-9).wallAt(kMaxDuration), 0); // far off, but no overflow
+}
+
 TEST(PacerTest, PausesAndChangesSpeedWithoutJumping) {
     Pacer pacer{0, 0};
     pacer.setPaused(true, 100);

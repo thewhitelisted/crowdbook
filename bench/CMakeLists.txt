@@ -20,8 +20,16 @@ target_link_libraries(crowdbook_bench PRIVATE crowdbook::gateway benchmark::benc
 target_compile_definitions(crowdbook_bench PRIVATE CROWDBOOK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 crowdbook_set_warnings(crowdbook_bench)
 
+# The server under load: clients over TCP, timing each order's round trip.
+add_executable(crowdbook_load load.cpp)
+target_link_libraries(crowdbook_load PRIVATE crowdbook::gateway)
+target_compile_definitions(crowdbook_load PRIVATE CROWDBOOK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+crowdbook_set_warnings(crowdbook_load)
+
 if(CROWDBOOK_BUILD_TESTS)
     # Runs each benchmark once so a broken benchmark fails the build; real numbers come from
     # running crowdbook_bench directly on a quiet machine.
     add_test(NAME bench.smoke COMMAND crowdbook_bench --benchmark_min_time=1x)
+    add_test(NAME bench.load_smoke COMMAND crowdbook_load --clients 4 --seconds 1)
+    set_tests_properties(bench.load_smoke PROPERTIES PASS_REGULAR_EXPRESSION "order to answer")
 endif()

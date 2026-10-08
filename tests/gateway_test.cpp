@@ -12,6 +12,7 @@
 #include "crowdbook/gateway.hpp"
 #include "crowdbook/protocol.hpp"
 #include "crowdbook/scenario_file.hpp"
+#include "test_agents.hpp"
 
 namespace crowdbook {
 namespace {
@@ -566,6 +567,125 @@ TEST(GatewayTest, TheClockCanBePausedAndSpedUp) {
     gateway.advance(9 * kSecond);
     EXPECT_EQ(gateway.now(), 6 * kSecond);
     EXPECT_THROW(gateway.setSpeed(0.0, 9 * kSecond), std::invalid_argument);
+}
+
+// What a server waiting on many connections needs: the ones with something new to send, each
+// once, and when to call advance next if nothing arrives.
+TEST(GatewayTest, SaysWhichConnectionsAreReadyAndWhenToWake) {
+    Gateway gateway{parseScenario(kScenario), std::string{kScenario},
+                    AgentRegistry::withBuiltIns(), twoSeats()};
+    Client alice{gateway, 0};
+    Client bob{gateway, 0};
+    // Before anyone says hello, only the hello deadline is due.
+    ASSERT_TRUE(gateway.nextWake());
+    EXPECT_EQ(*gateway.nextWake(), 5 * kSecond);
+    alice.hello("alice", 0);
+    std::vector<ConnectionId> ready;
+    gateway.takeReady(ready);
+    EXPECT_EQ(ready, (std::vector<ConnectionId>{alice.id()}));
+    EXPECT_TRUE(gateway.urgent(alice.id())); // the welcome
+    ready.clear();
+    gateway.takeReady(ready);
+    EXPECT_TRUE(ready.empty()); // each once
+    alice.read();
+    EXPECT_FALSE(gateway.urgent(alice.id()));
+
+    bob.hello("bob", 0);
+    // The agents start at once, so the market is due now; once it has run, its next event is due
+    // later.
+    EXPECT_EQ(gateway.nextWake(), 0);
+    gateway.advance(0);
+    alice.read();
+    bob.read();
+    gateway.takeReady(ready);
+    // Running the market to any wall time before nextWake changes nothing a client could see;
+    // running it to nextWake processes the market's next event.
+    const std::int64_t next = *gateway.nextWake();
+    EXPECT_GT(next, 0);
+    EXPECT_LE(next, 100 * kMs); // a clock message at the latest
+    const std::size_t pending = gateway.market().run.simulation().pendingCount();
+    gateway.advance(next - 1);
+    EXPECT_EQ(gateway.market().run.simulation().pendingCount(), pending);
+    EXPECT_TRUE(alice.read().empty());
+
+    // Market data alone is not urgent; an order's acknowledgement is.
+    gateway.advance(2 * kSecond);
+    ASSERT_FALSE(only<protocol::MarketMessage>(alice.read()).empty());
+    gateway.advance(2 * kSecond + kMs);
+    if (!gateway.pendingOutput(alice.id()).empty()) {
+        EXPECT_FALSE(gateway.urgent(alice.id()));
+    }
+    alice.send(bid(1, 900, 1), 2 * kSecond + kMs);
+    gateway.advance(2 * kSecond + 3 * kMs);
+    EXPECT_TRUE(gateway.urgent(alice.id()));
+}
+
+// Each seat gets every trade with the moment it reached the seat, even when one trade is the
+// same as the last but for its time, which the encoding shared between seats must not mix up.
+TEST(GatewayTest, EveryTradeArrivesWithItsOwnTime) {
+    test::RecordingSink exchange;
+    Started market{twoSeats(), kScenario, &exchange};
+    market.gateway.advance(5 * kSecond);
+    std::vector<Timestamp> expected;
+    for (const auto& [time, event] : exchange.events) {
+        if (std::holds_alternative<Trade>(event)) {
+            expected.push_back(time + kMs); // a millisecond to the seats
+        }
+    }
+    for (Client* seat : {&market.alice, &market.bob}) {
+        std::vector<Timestamp> received;
+        for (const auto& message : only<protocol::MarketMessage>(seat->read())) {
+            if (std::holds_alternative<Trade>(message.event)) {
+                received.push_back(message.time);
+            }
+        }
+        ASSERT_GT(expected.size(), 10U);
+        // Trades still on their way at the end have not arrived.
+        ASSERT_LE(received.size(), expected.size());
+        EXPECT_EQ(received, std::vector<Timestamp>(expected.begin(),
+                                                   expected.begin() + std::ssize(received)));
+    }
+}
+
+// Conflating, a depth or top of book update still unsent when a newer one comes is replaced by
+// it; everything else is kept, in time order.
+TEST(GatewayTest, ConflatingSendsOnlyTheLatestSnapshots) {
+    Started plain;
+    Started conflated;
+    conflated.gateway.conflate(true);
+    for (Started* market : {&plain, &conflated}) {
+        market->gateway.advance(3 * kSecond);
+    }
+    const auto everything = plain.alice.read();
+    const auto latest = conflated.alice.read();
+    ASSERT_LT(latest.size(), everything.size());
+    // The same trades, and only the last depth and top of book.
+    const auto trades = [](const std::vector<ServerMessage>& messages) {
+        return std::ranges::count_if(only<protocol::MarketMessage>(messages), [](const auto& m) {
+            return std::holds_alternative<Trade>(m.event);
+        });
+    };
+    EXPECT_EQ(trades(latest), trades(everything));
+    const auto last = [](const std::vector<ServerMessage>& messages, auto kind) {
+        std::optional<protocol::MarketMessage> found;
+        std::size_t count = 0;
+        for (const auto& message : only<protocol::MarketMessage>(messages)) {
+            if (std::holds_alternative<decltype(kind)>(message.event)) {
+                found = message;
+                ++count;
+            }
+        }
+        return std::pair{found, count};
+    };
+    EXPECT_EQ(last(latest, BookDepth{}).first, last(everything, BookDepth{}).first);
+    EXPECT_EQ(last(latest, BookDepth{}).second, 1U);
+    EXPECT_EQ(last(latest, TopOfBook{}).first, last(everything, TopOfBook{}).first);
+    EXPECT_EQ(last(latest, TopOfBook{}).second, 1U);
+    Timestamp time = 0;
+    for (const auto& message : only<protocol::MarketMessage>(latest)) {
+        EXPECT_GE(message.time, time);
+        time = message.time;
+    }
 }
 
 TEST(GatewayTest, TheEndReportsTheSeatsResults) {

@@ -294,8 +294,8 @@ Each workflow preset configures, builds and runs the test suite, with output in 
 | `release` | Release, including the benchmarks                          |
 | `asan`    | Debug with AddressSanitizer and UndefinedBehaviorSanitizer |
 
-The core library has no dependencies. `serve` and `connect` use POSIX sockets, so they need
-macOS, Linux or another POSIX system. Scenario files use
+The core library has no dependencies. `serve` waits on its sockets with epoll or kqueue, so it
+needs Linux, macOS or a BSD; `connect` needs any POSIX system. Scenario files use
 [toml++](https://github.com/marzer/tomlplusplus) and the tests use GoogleTest; CMake fetches both
 at pinned versions, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has toml++'s license,
 since it is compiled into the `crowdbook` command. The analysis in `analysis/` is a
@@ -315,6 +315,11 @@ Measured on one core of an Apple M5 with a Release build:
   19,000 to 27,000 times when served through the gateway to a client that reads every message.
 - The event log writes about 280 MB a second, and the server encodes a ten-level depth update in
   about 120 ns.
+- Served over TCP to 50 trading clients, each placing or cancelling 20 orders a second and reading
+  every market data message, the server answers within 0.17 ms of the market's own latency at the
+  median and 0.54 ms at the 99th percentile, on 18% of a core. With 200 clients and market data
+  batched every 10 ms, it is 0.18 and 1.1 ms on 28% of a core. A served market takes about 400 KB
+  of memory.
 - Whole markets of zero-intelligence traders, each acting about four times a second, simulate
   this many seconds per second of wall-clock time:
 
