@@ -4,6 +4,8 @@
 #include <limits>
 #include <vector>
 
+#include <utility>
+
 #include <gtest/gtest.h>
 
 #include "crowdbook/math.hpp"
@@ -158,6 +160,32 @@ TEST(MathTest, PowHasTheStandardSpecialCases) {
             EXPECT_EQ(std::signbit(ours), std::signbit(theirs)) << x << "^" << y;
         }
     }
+}
+
+// Φ against values worked out to many digits, in the middle and far into the tails, where what
+// matters is that it is accurate in absolute terms: to about 1e-15, a thousand-billionth of a cent
+// in a prediction market's price.
+TEST(MathTest, NormalCdfMatchesKnownValues) {
+    const std::pair<double, double> known[] = {
+        {0.0, 0.5},
+        {1.0, 0.84134474606854292578},
+        {-1.0, 0.15865525393145707422},
+        {1.959963984540054, 0.975},
+        {2.5, 0.99379033467422384602},
+        {-3.0, 0.0013498980316300945267},
+        {5.0, 0.99999971334842807106},
+        {-5.0, 2.8665157187919391167e-7},
+        {-8.0, 6.2209605742717841235e-16},
+    };
+    for (const auto& [x, expected] : known) {
+        EXPECT_NEAR(math::normalCdf(x), expected, 1e-15) << x;
+    }
+    for (double x = -9.5; x <= 9.5; x += 0.37) {
+        EXPECT_NEAR(math::normalCdf(x) + math::normalCdf(-x), 1.0, 2e-15) << x;
+        EXPECT_LE(math::normalCdf(x), math::normalCdf(x + 0.01) + 1e-15) << x;
+    }
+    EXPECT_EQ(math::normalCdf(-11.0), 0.0);
+    EXPECT_EQ(math::normalCdf(11.0), 1.0);
 }
 
 } // namespace

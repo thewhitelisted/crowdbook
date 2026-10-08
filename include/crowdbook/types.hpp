@@ -25,13 +25,13 @@ using AgentId = std::uint32_t;
 inline constexpr Price kMaxPrice = 1'000'000'000;
 inline constexpr Quantity kMaxQuantity = 1'000'000'000;
 // A price worked out in floating point, already a whole number of ticks, brought within the
-// prices the exchange accepts. Agents use it so that a wild estimate becomes an extreme but valid
-// price instead of overflowing the conversion; NaN becomes 1.
-[[nodiscard]] constexpr Price clampPrice(double ticks) noexcept {
+// prices the exchange accepts, up to `highest`, its own limit. Agents use it so that a wild
+// estimate becomes an extreme but valid price instead of overflowing the conversion; NaN becomes 1.
+[[nodiscard]] constexpr Price clampPrice(double ticks, Price highest = kMaxPrice) noexcept {
     if (!(ticks >= 1.0)) {
         return 1;
     }
-    return ticks >= static_cast<double>(kMaxPrice) ? kMaxPrice : static_cast<Price>(ticks);
+    return ticks >= static_cast<double>(highest) ? highest : static_cast<Price>(ticks);
 }
 // The largest fee or rebate per lot, in fee units: 1,000 ticks per lot.
 inline constexpr Fee kMaxFeeRate = 1'000'000;
@@ -110,7 +110,7 @@ enum class CancelReason : std::uint8_t {
 enum class RejectReason : std::uint8_t {
     None,
     NonPositiveQuantity,
-    InvalidPrice,           // limit price outside [1, kMaxPrice]
+    InvalidPrice,           // limit price outside 1 to the exchange's highest price
     OrderSizeLimit,         // quantity above the agent's maximum order size
     PositionLimit,          // could breach the agent's position limit if every open order filled
     DuplicateOrderId,

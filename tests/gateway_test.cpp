@@ -881,6 +881,23 @@ TEST(GatewayTest, ARewoundSessionServesOnFromTheMoment) {
     EXPECT_EQ(replayed.str(), second.str());
 }
 
+// A prediction market's clients learn that its prices stop at 99.
+TEST(GatewayTest, TheWelcomeCarriesTheHighestPrice) {
+    constexpr std::string_view kQuestion = R"(duration = "20s"
+[prediction]
+probability = 0.3
+[[agents]]
+type = "zero_intelligence"
+)";
+    Gateway gateway{parseScenario(kQuestion), std::string{kQuestion},
+                    AgentRegistry::withBuiltIns(), {}};
+    Client client{gateway, 0};
+    client.hello("you", 0);
+    const auto welcome = std::get<protocol::Welcome>(client.read().at(0));
+    EXPECT_EQ(welcome.maxPrice, 99);
+    EXPECT_EQ(welcome.referencePrice, 30);
+}
+
 TEST(GatewayTest, OptionsAreChecked) {
     const Scenario scenario = parseScenario(kScenario);
     const AgentRegistry registry = AgentRegistry::withBuiltIns();

@@ -40,10 +40,13 @@ class MarketMaker(crowdbook.Bot):
         staying = [order for order in self.ledger.orders.values() if not order.cancel_requested]
         buying = sum(order.leaves for order in staying if order.side == "buy")
         selling = sum(order.leaves for order in staying if order.side == "sell")
-        if self.ledger.position + buying + self.size <= limit:
-            self.buy(center - self.half_spread, self.size, "post-only")
-        if self.ledger.position - selling - self.size >= -limit:
-            self.sell(center + self.half_spread, self.size, "post-only")
+        # Only prices the exchange takes: 1 to 99 in a prediction market.
+        bid, ask = center - self.half_spread, center + self.half_spread
+        highest = self.settings.max_price
+        if 1 <= bid < highest and self.ledger.position + buying + self.size <= limit:
+            self.buy(bid, self.size, "post-only")
+        if 1 < ask <= highest and self.ledger.position - selling - self.size >= -limit:
+            self.sell(ask, self.size, "post-only")
 
 
 def main():

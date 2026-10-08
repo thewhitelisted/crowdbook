@@ -490,5 +490,29 @@ TEST(AccountTest, EquityMarksThePositionToMarket) {
     EXPECT_EQ((Account{.cash = 303, .position = -3}).equity(105), -12);
 }
 
+// A prediction market's shares pay 100 at most, so its exchange takes no price above 99, for new
+// orders and modifies alike.
+TEST(ExchangeLimitTest, TakesNoPriceAboveTheHighest) {
+    Exchange exchange{ExchangeConfig{.maxPrice = 99}};
+    exchange.addAgent(kAlice);
+    std::vector<Event> events;
+    exchange.handle(kAlice, limitOrder(1, Side::Buy, 100, 5), events);
+    ASSERT_EQ(events.size(), 1U);
+    EXPECT_EQ(std::get<OrderRejected>(events[0]).reason, RejectReason::InvalidPrice);
+    events.clear();
+    exchange.handle(kAlice, limitOrder(2, Side::Sell, 99, 5), events);
+    EXPECT_TRUE(std::holds_alternative<OrderAccepted>(events.front()));
+    events.clear();
+    exchange.handle(kAlice, ModifyOrder{.clientOrderId = 2, .price = 100, .quantity = 5}, events);
+    ASSERT_EQ(events.size(), 1U);
+    EXPECT_EQ(std::get<OrderRejected>(events[0]).reason, RejectReason::InvalidPrice);
+    EXPECT_EQ(exchange.audit(), std::nullopt);
+
+    EXPECT_THROW(Exchange(ExchangeConfig{.maxPrice = 0}), std::invalid_argument);
+    EXPECT_THROW(Exchange(ExchangeConfig{.maxPrice = kMaxPrice + 1}), std::invalid_argument);
+    EXPECT_THROW(Exchange(ExchangeConfig{.referencePrice = 100, .maxPrice = 99}),
+                 std::invalid_argument);
+}
+
 } // namespace
 } // namespace crowdbook

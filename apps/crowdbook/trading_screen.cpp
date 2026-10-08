@@ -106,6 +106,10 @@ void TradingScreen::cancel(bool everywhere, std::vector<protocol::ClientMessage>
         std::format("cancelling {} order{}", cancels.size(), cancels.size() == 1 ? "" : "s");
 }
 
+Price TradingScreen::highest() const {
+    return remote_.welcomed() ? remote_.settings().maxPrice : kMaxPrice;
+}
+
 void TradingScreen::centerCursor() {
     const MarketSnapshot& market = remote_.market();
     if (market.bid && market.ask) {
@@ -118,13 +122,13 @@ void TradingScreen::centerCursor() {
 bool TradingScreen::press(const Key& key, std::vector<protocol::ClientMessage>& out) {
     switch (key.kind) {
     case Key::Kind::Up:
-        ++cursor_;
+        cursor_ = std::min(cursor_ + 1, highest());
         return true;
     case Key::Kind::Down:
         cursor_ = std::max<Price>(1, cursor_ - 1);
         return true;
     case Key::Kind::PageUp:
-        cursor_ += 10;
+        cursor_ = std::min(cursor_ + 10, highest());
         return true;
     case Key::Kind::PageDown:
         cursor_ = std::max<Price>(1, cursor_ - 10);

@@ -8,6 +8,7 @@
 #include <functional>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -249,7 +250,7 @@ SessionReport makeReport(const Session& session, const AgentRegistry& registry,
 
     // Every moment the true value is wanted, read in order from a copy of the value's path.
     std::map<Timestamp, double> values;
-    if (scenario.fundamental) {
+    if (const std::shared_ptr<Fundamental> value = makeFundamental(scenario)) {
         for (std::size_t i = 0; i < session.seats.size(); ++i) {
             for (const ReportFill& fill : recorder.fills(firstSeat + static_cast<AgentId>(i))) {
                 values[fill.time] = 0.0;
@@ -258,9 +259,8 @@ SessionReport makeReport(const Session& session, const AgentRegistry& registry,
         for (const Timestamp time : grid) {
             values[time] = 0.0;
         }
-        Fundamental value{*scenario.fundamental, Random{scenario.seed, 0}};
         for (auto& [time, at] : values) {
-            at = value.valueAt(time);
+            at = value->valueAt(time);
         }
     }
     const auto valueAt = [&](Timestamp time) -> std::optional<double> {

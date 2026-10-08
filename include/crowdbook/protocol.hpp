@@ -75,6 +75,7 @@ struct Welcome {
     Timestamp time = 0;
     Duration duration = 0;
     Price referencePrice = 0;
+    Price maxPrice = kMaxPrice; // the highest limit price: 99 in a prediction market
     std::size_t depthLevels = 0;
     Fee makerFee = 0;
     Fee takerFee = 0;

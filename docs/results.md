@@ -10,10 +10,11 @@ uv run --project analysis crowdbook-facts         # about 12 minutes on 10 cores
 uv run --project analysis crowdbook-experiments   # a few seconds
 uv run --project analysis crowdbook-large-orders  # about 2 minutes
 uv run --project analysis crowdbook-trading-day   # a few seconds
+uv run --project analysis crowdbook-prediction    # about half a minute
 ```
 
-Uncertainties are standard errors across independent runs. Prices are in ticks, and PnL is in
-ticks per lot traded.
+Uncertainties are standard errors across independent runs. Prices are in ticks, cents in the
+prediction market, and PnL is in ticks per lot traded.
 
 ## The markets
 
@@ -323,6 +324,70 @@ one, and the continuous session was cut into thirteen half hours.
 - **Halts follow the drift.** With a 15-tick band the market halted twelve times in one day, each
   time restarting from the halt's auction price, as the true value wandered away from where the
   day began.
+
+## Prediction markets
+
+[prediction.toml](../examples/scenarios/prediction.toml) is a market on one yes-or-no question
+that resolves in thirty minutes, starting at a coin flip. A share pays 100 if the answer is yes,
+so the price is the market's probability, in cents. News arrives about every hundred seconds and
+carries half of what decides the question; the true probability is worked out exactly from
+everything so far. Ten informed traders see it within a few cents and trade until the price
+agrees; forty noise traders, a market maker and five trend followers trade too. It ran under 400
+seeds, and every thirty seconds of each run the mid price and the true probability were set
+against how the question resolved.
+
+![How often the question resolved yes, by the price or probability at the time](images/prediction_calibration.png)
+
+| price | mean price | resolved yes | moments |
+|---|---:|---:|---:|
+| 0 to 10 | 3.7 | 2.8% | 2,350 |
+| 10 to 20 | 14.9 | 9.4% | 1,387 |
+| 20 to 30 | 25.2 | 23.8% | 1,551 |
+| 30 to 40 | 35.2 | 31.2% | 2,195 |
+| 40 to 50 | 45.4 | 45.1% | 3,205 |
+| 50 to 60 | 54.6 | 54.8% | 3,186 |
+| 60 to 70 | 64.8 | 64.4% | 2,307 |
+| 70 to 80 | 74.9 | 75.2% | 1,936 |
+| 80 to 90 | 85.0 | 84.7% | 1,644 |
+| 90 to 100 | 96.2 | 95.9% | 3,184 |
+
+| forecast | Brier score |
+|---|---:|
+| the true probability | 0.158 |
+| the mid price | 0.163 |
+| a coin flip, 50 | 0.250 |
+
+- **Prices are calibrated probabilities.** Of the moments the market said 70 to 80, three
+  quarters resolved yes; every bin is within a few points. The largest gap, at 10 to 20, is
+  noise: the true probability, calibrated by construction, misses there by as much. Moments from
+  one run are alike, so 400 runs are worth far fewer than 23,000 independent forecasts.
+- **The price loses little of what the informed know.** Its Brier score, the mean squared error
+  of a forecast, is 0.163, against 0.158 for the true probability, the best any trader could do,
+  and 0.25 for a coin flip.
+- **It needs informed traders with room to trade.** With each informed trader limited to 300
+  shares, they ran out within minutes and the price stopped moving: in one run it sat at 58
+  for the last twenty minutes of a question that resolved yes, 34 cents from the probability on
+  average in the run's last fifth. With room for 3,000 the price stays within about 2 cents of
+  the probability to the end. A market is only as informed as the capital behind its informed
+  traders.
+
+![The size of one-minute moves in the mid through the run](images/prediction_volatility.png)
+
+| tenth of the run | every question | still close (20 to 80) | nearly decided (<10 or >90) |
+|---|---:|---:|---:|
+| 1 | 6.35 | 6.35 | — |
+| 3 | 6.79 | 7.08 | — |
+| 5 | 6.91 | 7.87 | 3.22 |
+| 7 | 8.14 | 10.41 | 2.88 |
+| 9 | 10.27 | 15.38 | 4.34 |
+| 10 | 12.40 | 22.17 | 3.51 |
+
+- **Prices move fastest at the end, while the question is open.** In questions still between 20
+  and 80, one-minute moves grow from 6 cents to 22 in the last tenth of the run: the same news
+  moves the probability further the less time is left for anything to reverse it. That is how
+  election-night markets and the last minutes of close games behave.
+- **Questions nearly decided hardly move**, 3 to 4 cents a minute at any time. A price at 97 has
+  nowhere to go. Averaged over every question, moves double through the run.
 
 ## Market-maker experiments
 

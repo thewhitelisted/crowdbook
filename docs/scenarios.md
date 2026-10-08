@@ -31,7 +31,7 @@ run instead of silently using a default.
 |---|---|---|---|
 | `seed` | integer | `1` | The run's seed; the same seed always gives the same run |
 | `duration` | duration | `"60s"` | How much simulated time to run |
-| `reference_price` | integer | `10000` | Where agents anchor before they have seen any quotes |
+| `reference_price` | integer | `10000`, or in a prediction market the starting probability in cents | Where agents anchor before they have seen any quotes |
 
 ## `[fundamental]` (optional)
 
@@ -47,6 +47,26 @@ news.
 | `step` | duration | `"100ms"` | How often the value changes |
 | `jump_rate` | number | `0` | News per second: jumps come at random times, this many a second on average |
 | `jump_size` | number | `0` | Ticks: the standard deviation of each jump, which is normally distributed |
+
+## `[prediction]` (optional)
+
+Makes the market a prediction market on one yes-or-no question, the kind Polymarket and Kalshi
+run, which resolves at the end of the run. A share pays 100 if the answer is yes and nothing if it
+is no, so prices are cents from 1 to 99 and the exchange takes none higher. The true value is the
+probability of yes, in cents: the chance, given everything so far, that a hidden quantity which
+wanders and jumps with news ends above zero. It moves slowly while much is unknown and faster as
+resolution nears, and at the end it is 100 or 0. Informed and adaptive agents observe it with
+noise; every agent keeps its prices within 1 to 99. It takes no `[fundamental]` section.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `probability` | number | `0.5` | The chance of yes at the start, between 0 and 1 |
+| `news_rate` | number | `0` | News per second: pieces of news come at random times, this many a second on average |
+| `news_share` | number | `0` | How much of the question's uncertainty arrives as news, from 0 to below 1; the rest comes a little at a time. Needs `news_rate` |
+| `step` | duration | `"1s"` | How often the hidden quantity moves |
+
+At most 500 pieces of news may be expected over the run. The results value each group's position
+at resolution, beside the last price.
 
 ## `[exchange]` (optional)
 
@@ -330,7 +350,8 @@ Updates of the depth feed are not logged: the log's orders already determine the
 
 `--prices` writes `time,bid,ask,last_trade` every `--sample-interval`, from time 0 to the end of
 the run: the best bid and ask as the market stood at that time, after everything that happened at
-it, and the price of the last trade so far. A field is empty while there is no such price. A
+it, and the price of the last trade so far. A field is empty while there is no such price. With a
+`[fundamental]` or `[prediction]` section, a last column, `value`, has the true value then. A
 simulated day sampled every second is 86,400 rows, about 3 MB, where the full event log of the
 thousand-trader example market is about 12 GB, so long runs for return statistics use this
 instead of `--log`.
@@ -365,10 +386,11 @@ have are empty.
 |---|---|
 | `trades`, `volume` | Trades printed and lots traded |
 | `last_price` | The last trade's price, or the reference price if nothing traded |
-| `final_value` | The fundamental value at the end, or `null` without a `[fundamental]` section |
+| `final_value` | The true value at the end, 0 or 100 for a prediction market that resolved, or `null` without a `[fundamental]` or `[prediction]` section |
 | `agent_ids` | The group's agents, as they appear in the event log's `agent` column |
 | `traded` | Lots the group bought plus lots it sold |
 | `cash`, `pnl` | In tick-lots; `pnl` is the change in cash plus the change in position valued at `last_price`, before fees |
+| `pnl_at_value` | In a prediction market only: the same with the position valued at `final_value`, which is what a group made once the question resolved |
 | `fees` | Fees paid net of rebates, in tick-lots |
 
 A played, served or replayed session of a scenario with `[scoring]` also has `scores`, one per

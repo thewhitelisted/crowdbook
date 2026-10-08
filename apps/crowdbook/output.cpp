@@ -47,7 +47,7 @@ Outputs::Outputs(const OutputOptions& options, const Scenario& scenario) : optio
     }
     if (options.pricesPath) {
         pricesFile_ = openForWriting(*options.pricesPath);
-        sinks_.add(prices_.emplace(pricesFile_, options.sampleInterval));
+        sinks_.add(prices_.emplace(pricesFile_, options.sampleInterval, makeFundamental(scenario)));
     }
     if (options.depthPath) {
         if (scenario.exchange.depthLevels == 0) {
@@ -93,27 +93,43 @@ void Outputs::report(std::ostream& out, const Scenario& scenario, const RunResul
 }
 
 void printResults(std::ostream& out, const Scenario& scenario, const RunResult& result) {
+    // A prediction market that ran to the end has resolved; one stopped before has a probability.
+    const bool prediction = scenario.prediction && result.finalValue;
+    const bool resolved =
+        prediction && (*result.finalValue == 0.0 || *result.finalValue == kPredictionPayout);
     out << std::format("{} trades, {} lots traded, last price {}", result.trades, result.volume,
                        result.lastPrice);
-    if (result.finalValue) {
+    if (resolved) {
+        out << std::format(", resolved {}", *result.finalValue > 0.0 ? "yes" : "no");
+    } else if (result.finalValue) {
         out << std::format(", true value {:.1f}", *result.finalValue);
     }
     out << "\n\n";
     // Fee columns appear only when the exchange charges fees.
     const bool fees = scenario.exchange.makerFee != 0 || scenario.exchange.takerFee != 0;
     const auto signedFee = [](Fee fee) { return (fee > 0 ? "+" : "") + formatFee(fee); };
+    const std::string_view atValue = resolved ? "at resolution" : "at value";
     out << std::format("{:<20} {:>7} {:>10} {:>14} {:>12}", "group", "agents", "position", "cash",
                        "pnl");
-    out << (fees ? std::format(" {:>12} {:>12}\n", "fees", "net pnl") : "\n");
+    out << (fees ? std::format(" {:>12} {:>12}", "fees", "net pnl") : "");
+    out << (prediction ? std::format(" {:>14}\n", atValue) : "\n");
     for (const GroupResult& group : result.groups) {
         out << std::format("{:<20} {:>7} {:>10} {:>14} {:>+12}", group.name, group.agents.size(),
                            group.position, group.cash, group.pnl);
-        out << (fees ? std::format(" {:>12} {:>12}\n", formatFee(group.fees),
+        out << (fees ? std::format(" {:>12} {:>12}", formatFee(group.fees),
                                    signedFee(group.pnl * kFeeUnitsPerTickLot - group.fees))
-                     : "\n");
+                     : "");
+        out << (prediction
+                    ? std::format(" {:>+14.1f}\n", pnlAtValue(group, *result.finalValue))
+                    : "\n");
     }
     out << "\ncash and pnl are in tick-lots; pnl values positions at the last price"
-        << (fees ? ", and net pnl is pnl minus fees\n" : "\n");
+        << (fees ? ", and net pnl is pnl minus fees" : "")
+        << (resolved     ? std::format("; at resolution, at {} a share",
+                                       static_cast<Price>(*result.finalValue))
+            : prediction ? ", and at value, at the probability of yes"
+                         : "")
+        << "\n";
     if (result.scores.empty()) {
         return;
     }

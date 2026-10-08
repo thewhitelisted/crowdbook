@@ -120,6 +120,14 @@ TEST(AllocationTest, ALargeMarket) {
     EXPECT_LT(perRequest, 0.1) << "allocations per request: " << perRequest;
 }
 
+// A prediction market, whose true value is worked out every second, allocates no more than any
+// other market with a depth feed.
+TEST(AllocationTest, APredictionMarket) {
+    const double perRequest = allocationsPerRequest("/examples/scenarios/prediction.toml");
+    RecordProperty("allocations_per_request", std::to_string(perRequest));
+    EXPECT_LT(perRequest, 1.25) << "allocations per request: " << perRequest;
+}
+
 // The event log adds nothing: each row is built in a buffer that is reused.
 TEST(AllocationTest, TheEventLogAllocatesNothingPerRow) {
     Discard discard;

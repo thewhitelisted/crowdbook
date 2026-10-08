@@ -239,7 +239,8 @@ class LiveTest(unittest.TestCase):
         players = {"market_making": lambda: example("market_maker").MarketMaker(),
                    "large_order": lambda: example("twap").Twap(),
                    "news": lambda: example("momentum").Momentum(max_position=30),
-                   "informed_flow": lambda: example("market_maker").MarketMaker()}
+                   "informed_flow": lambda: example("market_maker").MarketMaker(),
+                   "prediction": lambda: example("momentum").Momentum(max_position=50)}
         self.assertEqual(sorted(players), sorted(path.stem for path in CHALLENGES.glob("*.toml")))
         for name, player in players.items():
             with self.subTest(challenge=name):

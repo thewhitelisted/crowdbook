@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <sstream>
 #include <streambuf>
@@ -17,6 +18,7 @@
 
 #include "crowdbook/agent_registry.hpp"
 #include "crowdbook/event_log.hpp"
+#include "crowdbook/fundamental.hpp"
 #include "crowdbook/gateway.hpp"
 #include "crowdbook/protocol.hpp"
 #include "crowdbook/report.hpp"
@@ -200,6 +202,36 @@ void BM_TradingDay(benchmark::State& state) {
         benchmark::Counter::kIsRate);
 }
 BENCHMARK(BM_TradingDay)->Unit(benchmark::kMillisecond);
+
+// Ten minutes of the example prediction market, its probability worked out every second.
+void BM_PredictionMarket(benchmark::State& state) {
+    Scenario scenario = loadScenario(example("/examples/scenarios/prediction.toml"));
+    scenario.duration = 600 * kSecond;
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(runScenario(scenario, AgentRegistry::withBuiltIns()));
+    }
+    state.counters["simulated_s_per_s"] = benchmark::Counter(
+        static_cast<double>(state.iterations()) * 600.0, benchmark::Counter::kIsRate);
+}
+BENCHMARK(BM_PredictionMarket)->Unit(benchmark::kMillisecond);
+
+// A prediction market's probability at one moment, with news still to come: a sum over how
+// much of it, each term a value of the normal distribution.
+void BM_PredictionValue(benchmark::State& state) {
+    const PredictionConfig config{.probability = 0.5, .newsRate = 0.05, .newsShare = 0.5};
+    Timestamp time = 0;
+    std::optional<Fundamental> value;
+    for (auto _ : state) {
+        if (!value || time >= 3'500 * kSecond) {
+            value.emplace(config, 3'600 * kSecond, Random{1, 0});
+            time = 0;
+        }
+        time += kSecond;
+        benchmark::DoNotOptimize(value->valueAt(time));
+    }
+    state.SetItemsProcessed(state.iterations());
+}
+BENCHMARK(BM_PredictionValue);
 
 // The report of five minutes of the playable market with four seats: five replays of it, on one
 // thread and on four.

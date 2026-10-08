@@ -204,23 +204,32 @@ election or a game, the kind Polymarket and Kalshi run. Everything else about th
 same: the exchange, the agents, the trading day, scoring and reports.
 
 - **Prices** are cents, 1 to 99: a share pays 100 if the answer is yes and nothing if it is no.
-  The exchange takes no limit price above 99.
+  The exchange takes no limit price above 99, and an agent asks its context, `maxPrice()`, for the
+  highest price it may use, so that every agent, built in or not, stays within any market's
+  prices.
 - **The true value is the probability of yes**, in cents. The question's answer is decided by a
   hidden quantity that wanders, with news that moves it in jumps, and the answer is yes if it
-  ends above zero. The true value at any moment is the probability, given everything so far, that
-  it will: Φ(x / √(remaining share of the run)), with x the hidden quantity measured in units of
-  the whole run's uncertainty. That makes the value a fair price that moves the way real ones do:
-  slowly while much is unknown, and in larger and larger steps as resolution comes near, until at
-  the end it is 0 or 100. The run starts with the hidden quantity where the probability is the
-  scenario's starting one.
+  ends above zero. Its change over the whole run has variance 1, a share of it from news at the
+  scenario's rate and the rest from the wandering. The true value at any moment is the exact
+  probability, given everything so far, that it will end above zero: a sum, over how many pieces
+  of news are still to come, of the Poisson chance of that many times Φ(x / √(the variance
+  left)). That makes the value a fair price that moves the way real ones do: slowly while much is
+  unknown, and in larger and larger steps as resolution comes near, until at the end it is 0 or
+  100. The run starts with the hidden quantity where the probability is the scenario's starting
+  one, found by bisection, and a run that does not end on a whole step takes what is left of the
+  last one, so the value is fair to the end.
 - **Resolution is the end of the run.** Positions are worth 100 or 0 a share from then on, which
   is how scoring at the true value and the reports already value them; the results add each
   group's PnL at resolution beside its PnL at the last price.
 - **Agents need nothing new.** Informed traders see the probability with noise, as they see any
-  true value; every agent keeps its prices within the exchange's limits.
+  true value. They need capital, though: with too little, they run out of room long before
+  resolution and the price stops following the probability ([results.md](results.md)).
+- **One source of the value.** `makeFundamental` builds a scenario's true value, fundamental or
+  probability, from its seed for the agents, the reports and the price samples alike, so they all
+  see the same path without one disturbing another.
 - **Normal probabilities** are computed with Marsaglia's series for Φ and the deterministic
-  `math::exp`, and its inverse, needed once for the starting point, by bisection, so the path is
-  the same on every platform.
+  `math::exp`, accurate to about 1e-15, so the path is the same on every platform. The value is
+  worked out once per step, about 2 µs with dozens of pieces of news still to come.
 
 ## Simulation
 
@@ -877,8 +886,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Done |
 | M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Planned (hosted product) |
 | M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Done |
-| M17 | Prediction markets: a market type on a yes-or-no question, priced 1 to 99, whose true value is the probability of yes and which resolves to 0 or 100; news that moves it; scenarios and a challenge | Prices of informed markets are calibrated probabilities across many runs; volatility rises toward resolution; the value's process checked against its closed form | Next |
-| M18 | Calibration: the same statistics on real data, Polymarket's trades on its public blockchain first, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
+| M17 | Prediction markets: a market type on a yes-or-no question, priced 1 to 99, whose true value is the probability of yes and which resolves to 0 or 100; news that moves it; scenarios and a challenge | Prices of informed markets are calibrated probabilities across many runs; volatility rises toward resolution; the value's process checked against its closed form | Done |
+| M18 | Calibration: the same statistics on real data, Polymarket's trades on its public blockchain first, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Next |
 | M19 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Planned |
 | M20 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules | A learning agent's runs reproduce from their seeds; throughput benchmark | Planned |
 | M21 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |

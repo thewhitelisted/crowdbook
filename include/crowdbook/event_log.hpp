@@ -3,11 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "crowdbook/fundamental.hpp"
 #include "crowdbook/messages.hpp"
 #include "crowdbook/types.hpp"
 
@@ -73,8 +75,11 @@ private:
 // last_trade. A price is empty while there is none.
 class PriceSampler final : public IntervalSampler {
 public:
-    // Throws std::invalid_argument unless the interval is positive.
-    PriceSampler(std::ostream& out, Duration interval);
+    // With `value`, a true value started afresh for this run (makeFundamental), each row also has
+    // it in a last column, `value`, so that prices can be compared with it. Reading it changes
+    // nothing about the run. Throws std::invalid_argument unless the interval is positive.
+    PriceSampler(std::ostream& out, Duration interval,
+                 std::shared_ptr<Fundamental> value = nullptr);
 
 private:
     void update(const Event& event) override;
@@ -82,6 +87,7 @@ private:
 
     std::ostream& out_;
     MarketSnapshot market_;
+    std::shared_ptr<Fundamental> value_;
 };
 
 // Writes the exchange's depth feed, as CSV with the columns time, then bid_price_1,

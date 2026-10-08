@@ -3,6 +3,7 @@ any feature slower.
 
     python3 tools/bench_check.py                 # run, compare with bench/baseline.json
     python3 tools/bench_check.py --update        # run, and record the results as the baseline
+    python3 tools/bench_check.py --update --filter Prediction   # record only these
     python3 tools/bench_check.py --tolerance 15  # allow 15% instead of 10%
 
 It needs the release build (cmake --workflow --preset release). Each benchmark runs several times
@@ -72,8 +73,13 @@ def main() -> int:
 
     results = run(args.repetitions, args.filter)
     if args.update:
-        BASELINE.write_text(json.dumps({"machine": machine(), "ns": results}, indent=1) + "\n")
-        print(f"baseline of {len(results)} benchmarks written to {BASELINE.relative_to(REPO)}")
+        # With a filter, only the benchmarks run are recorded; the rest of the baseline stays.
+        recorded = {}
+        if args.filter != "." and BASELINE.exists():
+            recorded = json.loads(BASELINE.read_text())["ns"]
+        recorded.update(results)
+        BASELINE.write_text(json.dumps({"machine": machine(), "ns": recorded}, indent=1) + "\n")
+        print(f"{len(results)} benchmarks recorded in {BASELINE.relative_to(REPO)}")
         return 0
 
     baseline = json.loads(BASELINE.read_text())

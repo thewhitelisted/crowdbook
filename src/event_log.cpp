@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "overloaded.hpp"
@@ -289,9 +290,10 @@ std::string priceField(const std::optional<Price>& price) {
 
 } // namespace
 
-PriceSampler::PriceSampler(std::ostream& out, Duration interval)
-    : IntervalSampler(interval), out_(out) {
-    out_ << "time,bid,ask,last_trade\n";
+PriceSampler::PriceSampler(std::ostream& out, Duration interval,
+                           std::shared_ptr<Fundamental> value)
+    : IntervalSampler(interval), out_(out), value_(std::move(value)) {
+    out_ << (value_ ? "time,bid,ask,last_trade,value\n" : "time,bid,ask,last_trade\n");
 }
 
 void PriceSampler::update(const Event& event) {
@@ -308,7 +310,11 @@ void PriceSampler::writeRow(Timestamp time) {
         return priceField(level ? std::optional{level->price} : std::nullopt);
     };
     out_ << time << ',' << price(market_.bid) << ',' << price(market_.ask) << ','
-         << priceField(market_.lastTrade) << '\n';
+         << priceField(market_.lastTrade);
+    if (value_) {
+        out_ << ',' << std::format("{}", value_->valueAt(time));
+    }
+    out_ << '\n';
 }
 
 DepthSampler::DepthSampler(std::ostream& out, Duration interval, std::size_t levels)

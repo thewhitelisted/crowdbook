@@ -21,5 +21,8 @@ namespace crowdbook::math {
 [[nodiscard]] double log(double x) noexcept;
 // x^y, with the special cases of the C standard's pow.
 [[nodiscard]] double pow(double x, double y) noexcept;
+// The standard normal distribution function Φ(x): the probability that a standard normal draw is
+// at most x. Accurate to about 1e-16 everywhere; exactly 0 below -10 and 1 above 10.
+[[nodiscard]] double normalCdf(double x) noexcept;
 
 } // namespace crowdbook::math

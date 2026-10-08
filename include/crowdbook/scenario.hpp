@@ -60,6 +60,10 @@ struct Scenario {
     Duration duration = 60 * kSecond;
     Price referencePrice = 10'000;
     std::optional<FundamentalConfig> fundamental{};
+    // Makes the market a prediction market on one yes-or-no question, priced 1 to 99, whose true
+    // value is the probability of yes and which resolves at the end of the run. Excludes
+    // `fundamental`.
+    std::optional<PredictionConfig> prediction{};
     ExchangeConfig exchange{};
     // Without one, the market trades continuously from start to end.
     std::optional<TradingDay> tradingDay{};
@@ -145,6 +149,17 @@ private:
 // naming the agent group at fault.
 [[nodiscard]] RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
                                     EventSink* sink = nullptr);
+
+// A group's PnL with its positions valued at `value` instead of the last price, in tick-lots,
+// before fees: for a prediction market at resolution, what its trading made in the end.
+[[nodiscard]] double pnlAtValue(const GroupResult& group, double value);
+
+// The scenario's true value from the start of its run: its fundamental, or a prediction market's
+// probability of yes, resolving at the scenario's duration; null if it has neither. Every use of
+// the value, by the agents, the results or a report, starts it from here, on the run's own stream
+// of random numbers, so they all see the same path. Throws ScenarioError for settings no value
+// can be made from.
+[[nodiscard]] std::shared_ptr<Fundamental> makeFundamental(const Scenario& scenario);
 
 // Writes a run's settings and results as one JSON object, for analysis scripts. Each group lists
 // its agents' ids, which the event log's `agent` column refers to.

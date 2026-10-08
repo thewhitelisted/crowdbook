@@ -581,6 +581,7 @@ Welcome readWelcome(Fields& fields) {
                     .time = fields.integer("time", 0),
                     .duration = fields.integer("duration", 0),
                     .referencePrice = fields.integer("reference_price"),
+                    .maxPrice = fields.integer("max_price", 1),
                     .depthLevels = count(fields, "depth_levels"),
                     .makerFee = fields.integer("maker_fee"),
                     .takerFee = fields.integer("taker_fee"),
@@ -771,6 +772,7 @@ void encodeTo(std::string& out, const ServerMessage& message) {
                            .field("time", m.time)
                            .field("duration", m.duration)
                            .field("reference_price", m.referencePrice)
+                           .field("max_price", m.maxPrice)
                            .field("depth_levels", static_cast<std::uint64_t>(m.depthLevels))
                            .field("maker_fee", m.makerFee)
                            .field("taker_fee", m.takerFee)

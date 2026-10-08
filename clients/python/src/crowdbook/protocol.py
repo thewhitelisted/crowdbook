@@ -196,6 +196,7 @@ class Welcome:
     scoring: Optional[Scoring] = None
     auction_fee: int = 0
     phase: str = "continuous"
+    max_price: int = 1_000_000_000  # the highest limit price: 99 in a prediction market
 
 
 @dataclass(frozen=True)

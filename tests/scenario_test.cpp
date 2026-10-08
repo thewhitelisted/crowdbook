@@ -4,10 +4,14 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <variant>
 
 #include <gtest/gtest.h>
 
 #include "crowdbook/scenario.hpp"
+#include "test_agents.hpp"
+#include "crowdbook/scenario_file.hpp"
+#include "crowdbook/agent_registry.hpp"
 
 namespace crowdbook {
 namespace {
@@ -186,6 +190,39 @@ TEST(ScenarioTest, NamesTheGroupAtFault) {
     Scenario empty;
     EXPECT_THROW(static_cast<void>(runScenario(empty, AgentRegistry::withBuiltIns())),
                  ScenarioError);
+}
+
+// A prediction market from the example: every agent keeps within 1 to 99, so nothing is turned
+// away for its price, the market resolves to 0 or 100, and the results value positions there.
+TEST(PredictionMarketTest, TradesWithinItsPricesAndResolves) {
+    Scenario scenario = loadScenario(std::string{CROWDBOOK_SOURCE_DIR} +
+                                     "/examples/scenarios/prediction.toml");
+    scenario.duration = 300 * kSecond;
+    test::RecordingSink sink;
+    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), &sink);
+    std::size_t trades = 0;
+    for (const auto& [time, event] : sink.events) {
+        if (const auto* trade = std::get_if<Trade>(&event)) {
+            EXPECT_GE(trade->price, 1);
+            EXPECT_LE(trade->price, 99);
+            ++trades;
+        }
+        if (const auto* rejected = std::get_if<OrderRejected>(&event)) {
+            EXPECT_NE(rejected->reason, RejectReason::InvalidPrice);
+        }
+    }
+    EXPECT_GT(trades, 100U);
+    ASSERT_TRUE(result.finalValue);
+    EXPECT_TRUE(*result.finalValue == 0.0 || *result.finalValue == 100.0);
+    std::ostringstream json;
+    writeResultJson(json, scenario, result);
+    EXPECT_NE(json.str().find("\"pnl_at_value\": "), std::string::npos);
+    // What the market made in the end adds up to nothing: shares pay out what they cost.
+    double total = 0.0;
+    for (const GroupResult& group : result.groups) {
+        total += pnlAtValue(group, *result.finalValue);
+    }
+    EXPECT_NEAR(total, 0.0, 1e-9);
 }
 
 } // namespace

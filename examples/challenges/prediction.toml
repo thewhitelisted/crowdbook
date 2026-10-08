@@ -1,0 +1,89 @@
+# Challenge: call the question. A prediction market on one yes-or-no question that resolves in ten
+# minutes; traders who follow the news keep the price near the probability, and you don't see the
+# news.
+#
+#   crowdbook play examples/challenges/prediction.toml --record session.toml
+#   crowdbook serve examples/challenges/prediction.toml --seat trader
+
+seed = 24
+duration = "600s"
+
+[challenge]
+name = "Call the question"
+briefing = """
+This market is on one yes-or-no question, and it resolves in ten minutes. A share pays 100 if the
+answer is yes and nothing if it is no, so prices run from 1 to 99 and the price is the market's
+probability of yes, in cents. It starts at a coin flip.
+
+News arrives about every minute and a half, and moves the probability. You don't see it. Ten
+traders do, within a few cents, and trade until the price agrees with them; noise traders, a
+market maker and a few trend followers trade too. As the end nears, the same news moves the
+probability further, and the price heads for 0 or 100.
+
+You are scored at resolution: every share you hold is worth 100 or 0. You may hold 50 shares
+either way and send 10 at a time; a loss of 2,000 stops you."""
+
+[scoring]
+mark = "value"
+max_loss = 2000
+
+[prediction]
+probability = 0.5
+news_rate = 0.011         # news about every ninety seconds
+news_share = 0.6
+step = "1s"
+
+[exchange]
+depth_levels = 10
+
+[participant]
+latency = { to_exchange = "1ms", from_exchange = "1ms" }
+account = { max_position = 50, max_order_quantity = 10 }
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 40
+limit_rate = 0.5
+market_rate = 0.05
+cancel_rate = 0.1
+max_offset = 3
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 200, max_order_quantity = 10 }
+
+[[agents]]
+type = "market_maker"
+name = "maker"
+volatility = 1.5
+intensity = 1.0
+quote_size = 5
+max_inventory = 100
+requote_interval = "250ms"
+post_only = true
+latency = { to_exchange = "20us", from_exchange = "20us" }
+account = { max_position = 110, max_order_quantity = 10 }
+
+[[agents]]
+type = "informed"
+name = "informed"
+count = 10
+interval = "1s"
+noise = 3.0
+threshold = 2.0
+order_size = 5
+max_position = 3000
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 3005, max_order_quantity = 5 }
+
+[[agents]]
+type = "momentum"
+name = "trend"
+count = 3
+interval = "1s"
+fast_half_life = "5s"
+slow_half_life = "60s"
+threshold = 1.0
+order_size = 3
+max_position = 30
+latency = { to_exchange = "500us", from_exchange = "500us", jitter = "200us" }
+account = { max_position = 33, max_order_quantity = 3 }

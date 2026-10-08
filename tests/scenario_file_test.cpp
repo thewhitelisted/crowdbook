@@ -124,8 +124,8 @@ TEST(ScenarioFileTest, ReportsSyntaxErrorsWithTheirLine) {
 TEST(ScenarioFileTest, RejectsUnknownKeysWithTheirLine) {
     EXPECT_EQ(parseError("seed = 1\nduraton = \"5s\"\n[[agents]]\ntype = \"momentum\"\n"),
               "test.toml:2: unknown key 'duraton' at the top level; expected one of: "
-              "scenario_version, seed, duration, reference_price, fundamental, exchange, "
-              "trading_day, agents, participant, scoring, challenge");
+              "scenario_version, seed, duration, reference_price, fundamental, prediction, "
+              "exchange, trading_day, agents, participant, scoring, challenge");
     EXPECT_EQ(parseError("[[agents]]\ntype = \"momentum\"\n"
                          "latency = { to_exchange = \"1us\", jiter = \"1us\" }\n"),
               "test.toml:3: unknown key 'jiter' in latency; expected one of: to_exchange, "
@@ -155,7 +155,7 @@ TEST(ScenarioFileTest, RejectsValuesOfTheWrongKindOrRange) {
         {agent + "rate = -inf\n", "agent parameter 'rate' must be a finite number"},
         {"duration = \"1000000000s\"\n" + agent, "it must be shorter than 1000000000s"},
         {"[scoring]\nmark = \"value\"\n" + agent,
-         "scoring at the true value needs a [fundamental] section"},
+         "scoring at the true value needs a [fundamental] or [prediction] section"},
         {"[scoring]\nmark = \"mid\"\n" + agent, "'mark' must be \"last\" or \"value\""},
         {"[scoring]\ninventory_penalty = -0.1\n" + agent, "not negative"},
         {"[scoring]\nclose_penalty = 0.0001\n" + agent, "at most three decimals"},
@@ -228,6 +228,54 @@ TEST(ScenarioFileTest, LoadsFilesAndReportsMissingOnes) {
     EXPECT_EQ(loadScenario(path).seed, 9U);
     std::filesystem::remove(path);
     EXPECT_THROW(static_cast<void>(loadScenario(path)), ScenarioError);
+}
+
+TEST(ScenarioFileTest, ReadsAPredictionMarket) {
+    const Scenario scenario = parseScenario(R"(duration = "600s"
+[prediction]
+probability = 0.37
+news_rate = 0.02
+news_share = 0.6
+step = "500ms"
+[[agents]]
+type = "zero_intelligence"
+)");
+    ASSERT_TRUE(scenario.prediction);
+    EXPECT_EQ(*scenario.prediction, (PredictionConfig{.probability = 0.37,
+                                                      .newsRate = 0.02,
+                                                      .newsShare = 0.6,
+                                                      .step = 500 * kMillisecond}));
+    // Agents anchor at the starting probability, and the exchange takes prices up to 99.
+    EXPECT_EQ(scenario.referencePrice, 37);
+    EXPECT_EQ(exchangeConfig(scenario).maxPrice, 99);
+    const auto value = makeFundamental(scenario);
+    ASSERT_TRUE(value);
+    EXPECT_EQ(value->resolution(), 600 * kSecond);
+    EXPECT_NEAR(value->valueAt(0), 37.0, 1e-9);
+
+    const Scenario defaults = parseScenario("[prediction]\n[[agents]]\ntype = \"momentum\"\n");
+    EXPECT_EQ(*defaults.prediction, PredictionConfig{});
+    EXPECT_EQ(defaults.referencePrice, 50);
+    EXPECT_FALSE(makeFundamental(parseScenario("[[agents]]\ntype = \"momentum\"\n")));
+}
+
+TEST(ScenarioFileTest, RejectsPredictionMarketsThatMakeNoSense) {
+    const std::string agents = "\n[[agents]]\ntype = \"momentum\"\n";
+    for (const auto& [text, expected] : {
+             std::pair{"[prediction]\nprobability = 1.0", "test.toml:2: 'probability' must be"},
+             std::pair{"[prediction]\nnews_share = 0.5", "test.toml:2: 'news_share' needs news"},
+             std::pair{"[prediction]\nnews_rate = 1.0\nnews_share = 1.0",
+                       "test.toml:3: 'news_share' must be at least 0 and below 1"},
+             std::pair{"[prediction]\nstep = \"0s\"", "test.toml:2: 'step' must be positive"},
+             std::pair{"reference_price = 100\n[prediction]",
+                       "test.toml:1: a prediction market trades from 1 to 99"},
+             std::pair{"[fundamental]\n[prediction]", "test.toml:2: a prediction market's true"},
+             std::pair{"duration = \"100s\"\n[prediction]\nnews_rate = 10.0\nnews_share = 0.5",
+                       "prediction: at most 500 pieces of news"},
+         }) {
+        EXPECT_NE(parseError(std::string{text} + agents).find(expected), std::string::npos)
+            << text << "\n" << parseError(std::string{text} + agents);
+    }
 }
 
 } // namespace

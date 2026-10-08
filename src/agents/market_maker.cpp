@@ -112,6 +112,22 @@ void MarketMaker::requote(AgentContext& context) {
             target.ask = std::max(*target.ask, *market_.bestBid() + 1);
         }
     }
+    // Within the exchange's prices, with room for an ask above the bid. A post-only quote pushed
+    // against the limit would trade, and is left out instead.
+    const Price highest = context.maxPrice();
+    if (target.bid) {
+        target.bid = std::min(*target.bid, highest - 1);
+        if (*target.bid < 1 ||
+            (config_.postOnly && market_.bestAsk() && *target.bid >= *market_.bestAsk())) {
+            target.bid.reset();
+        }
+    }
+    if (target.ask) {
+        target.ask = std::min(*target.ask, highest);
+        if (config_.postOnly && market_.bestBid() && *target.ask <= *market_.bestBid()) {
+            target.ask.reset();
+        }
+    }
     maintain(context, bid_, Side::Buy, target.bid);
     maintain(context, ask_, Side::Sell, target.ask);
 }

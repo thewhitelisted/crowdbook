@@ -185,6 +185,18 @@ TEST(MarketMakerTest, FairPriceIsARunningAverageOfTrades) {
     EXPECT_DOUBLE_EQ(maker.fairPrice(), 108.0); // 20% of the way from 110 to 100
 }
 
+// In a prediction market, whose prices stop at 99, quotes that would go higher stay at the top,
+// and the bid leaves room above it for the ask.
+TEST(MarketMakerTest, QuotesWithinTheExchangesHighestPrice) {
+    MarketMaker maker{kConfig, kReference};
+    FakeContext context;
+    context.highest = 99;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(1, Side::Buy, 98, 5),
+                                                        limitOrder(2, Side::Sell, 99, 5)}));
+}
+
 TEST(MarketMakerTest, RejectsInvalidConfigs) {
     const auto withChange = [](auto change) {
         MarketMakerConfig config = kConfig;

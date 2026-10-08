@@ -115,9 +115,10 @@ def parent_orders(log: pl.DataFrame) -> pl.DataFrame:
 
 def read_prices(path: Path) -> pl.DataFrame:
     """Reads a price file written by `crowdbook run --prices`, adding the mid where both sides
-    are quoted."""
+    are quoted. A scenario with a true value has it in a `value` column too."""
     prices = pl.read_csv(
         path,
-        schema={"time": _NUMBER, "bid": _NUMBER, "ask": _NUMBER, "last_trade": _NUMBER},
+        schema_overrides={"time": _NUMBER, "bid": _NUMBER, "ask": _NUMBER,
+                          "last_trade": _NUMBER},
     )
     return prices.with_columns(mid=(pl.col("bid") + pl.col("ask")) / 2)

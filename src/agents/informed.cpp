@@ -41,12 +41,14 @@ void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
         // Its immediate-or-cancel orders cannot wait for an auction; it trades after.
     } else if (ask && estimate - static_cast<double>(*ask) >= config_.threshold &&
         ledger.position() + ledger.openQuantity(Side::Buy) + size <= config_.maxPosition) {
-        const Price limit = clampPrice(std::floor(estimate - config_.threshold));
+        const Price limit = clampPrice(std::floor(estimate - config_.threshold),
+                                       context.maxPrice());
         context.submitLimit(Side::Buy, limit, size, TimeInForce::ImmediateOrCancel);
     } else if (bid && static_cast<double>(*bid) - estimate >= config_.threshold &&
                ledger.position() - ledger.openQuantity(Side::Sell) - size >=
                    -config_.maxPosition) {
-        const Price limit = clampPrice(std::ceil(estimate + config_.threshold));
+        const Price limit = clampPrice(std::ceil(estimate + config_.threshold),
+                                       context.maxPrice());
         context.submitLimit(Side::Sell, limit, size, TimeInForce::ImmediateOrCancel);
     }
     context.wakeAfter(config_.interval);

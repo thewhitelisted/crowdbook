@@ -20,7 +20,9 @@ or writing a program in any language that trades over the network.
 > hour, and brokers working large orders give order flow long memory and price impact whose shape
 > depends on how long the book remembers. The engine is also a library, with versioned formats, a
 > package to install and a container image. Markets can trade a whole day, with opening and closing
-> auctions and halts. Next: calibration against real order books. See
+> auctions and halts, and a market can be a prediction market on a yes-or-no question, whose prices
+> come out as calibrated probabilities. Next: calibration against real markets, starting with
+> Polymarket's trades. See
 > [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
 > roadmap.
 
@@ -47,15 +49,16 @@ noise                     20          0          -1575        -1575
 
 A market maker with a fast connection earns the spread from twenty zero-intelligence traders.
 `run.csv` holds every order, cancel, fill, trade and top-of-book change. The same seed always
-reproduces the same run, byte for byte, on any platform. [examples/scenarios](examples/scenarios) has ten
-scenarios, from this one to thousand-trader markets with informed traders, memory, or brokers
-working large orders; [docs/scenarios.md](docs/scenarios.md) describes the file format and every
+reproduces the same run, byte for byte, on any platform.
+[examples/scenarios](examples/scenarios) has twelve scenarios, from this one to thousand-trader
+markets with informed traders, memory, or brokers working large orders, a trading day and a
+prediction market; [docs/scenarios.md](docs/scenarios.md) describes the file format and every
 agent parameter.
 
 ## Results
 
 A day of a 1,041-agent market — a thousand noise traders, a market maker, twenty trend followers
-and twenty informed traders who know the asset's true value — simulates in 41 seconds. Measured
+and twenty informed traders who know the asset's true value — simulates in 32 seconds. Measured
 over four such days and more than a thousand smaller markets ([docs/results.md](docs/results.md)):
 
 - **Who moves prices.** Noise traders' orders move the mid a tenth of a tick, and the move is gone
@@ -74,6 +77,11 @@ over four such days and more than a thousand smaller markets ([docs/results.md](
 - **Informed traders barely cost the market maker.** Its fills against them lose about 0.9 ticks
   per lot. But by pulling prices back to value they make its fills against noise traders worth
   one to two ticks more, and the noise traders pay for both.
+- **Prediction markets are calibrated, when the informed have capital.** In a market on a
+  yes-or-no question, of the moments the price said 70 to 80 cents, three quarters resolved yes,
+  and prices moved fastest in the last minutes of questions still open, as on election night. With
+  too little capital, the informed traders run out of room and the price stops following the
+  probability.
 - **What's missing.** Volatility clusters for an hour, not the weeks of real markets, and nothing
   is calibrated to real order books yet.
 
@@ -86,6 +94,8 @@ cmake --workflow --preset release
 uv run --project analysis crowdbook-facts
 uv run --project analysis crowdbook-experiments
 uv run --project analysis crowdbook-large-orders
+uv run --project analysis crowdbook-trading-day
+uv run --project analysis crowdbook-prediction
 ```
 
 ## Trade in it yourself
@@ -217,7 +227,7 @@ differently:
 
 ## Challenges
 
-A scenario can score whoever trades in it and brief them first. Four challenges come with the
+A scenario can score whoever trades in it and brief them first. Five challenges come with the
 project, each a market with a task:
 
 | Challenge | Task | Scored on |
@@ -226,6 +236,7 @@ project, each a market with a task:
 | [large_order.toml](examples/challenges/large_order.toml) | Buy 300 lots in ten minutes | Against the market's VWAP; unfinished lots cost 10 each |
 | [news.toml](examples/challenges/news.toml) | Trade jumps in the true value you cannot see | PnL at the true value |
 | [informed_flow.toml](examples/challenges/informed_flow.toml) | Make markets where a third of the flow is informed | PnL at the true value, less a charge for inventory held |
+| [prediction.toml](examples/challenges/prediction.toml) | Trade a yes-or-no question that resolves in ten minutes, without seeing the news | PnL at resolution, 100 or 0 a share |
 
 ```bash
 ./build/release/apps/crowdbook play examples/challenges/large_order.toml

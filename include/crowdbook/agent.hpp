@@ -35,6 +35,8 @@ public:
     // The public market as this agent can see it now: what the exchange had published one
     // fromExchange latency ago. Available whichever way the agent receives market data.
     [[nodiscard]] virtual MarketSnapshot market() const = 0;
+    // The highest limit price the exchange accepts: 99 in a prediction market. Prices go from 1.
+    [[nodiscard]] virtual Price maxPrice() const noexcept = 0;
 
     // Sends a new order and returns the client order id that names it in later events. The
     // order's own clientOrderId is ignored; the context assigns a fresh one.

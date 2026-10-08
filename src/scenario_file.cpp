@@ -131,6 +131,40 @@ private:
     std::string_view source_;
 };
 
+PredictionConfig readPrediction(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table, {"probability", "news_rate", "news_share", "step"},
+                     "in [prediction]");
+    PredictionConfig config;
+    if (const auto* node = table.get("probability")) {
+        config.probability = reader.number(*node, "probability");
+        if (!(config.probability > 0.0 && config.probability < 1.0)) {
+            reader.fail(*node, "'probability' must be between 0 and 1");
+        }
+    }
+    if (const auto* node = table.get("news_rate")) {
+        config.newsRate = reader.number(*node, "news_rate");
+        if (config.newsRate < 0.0) {
+            reader.fail(*node, "'news_rate' must not be negative");
+        }
+    }
+    if (const auto* node = table.get("news_share")) {
+        config.newsShare = reader.number(*node, "news_share");
+        if (!(config.newsShare >= 0.0 && config.newsShare < 1.0)) {
+            reader.fail(*node, "'news_share' must be at least 0 and below 1");
+        }
+        if (config.newsShare > 0.0 && config.newsRate == 0.0) {
+            reader.fail(*node, "'news_share' needs news: give a 'news_rate'");
+        }
+    }
+    if (const auto* node = table.get("step")) {
+        config.step = reader.duration(*node, "step");
+        if (config.step <= 0) {
+            reader.fail(*node, "'step' must be positive");
+        }
+    }
+    return config;
+}
+
 FundamentalConfig readFundamental(const Reader& reader, const toml::table& table,
                                   Price referencePrice) {
     reader.allowOnly(table,
@@ -396,7 +430,8 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     const Reader reader{source};
     reader.allowOnly(root,
                      {"scenario_version", "seed", "duration", "reference_price", "fundamental",
-                      "exchange", "trading_day", "agents", "participant", "scoring", "challenge"},
+                      "prediction", "exchange", "trading_day", "agents", "participant",
+                      "scoring", "challenge"},
                      "at the top level");
     if (const auto* node = root.get("scenario_version")) {
         const auto* value = node->as_integer();
@@ -425,6 +460,24 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
         scenario.fundamental =
             readFundamental(reader, reader.table(*node, "fundamental"), scenario.referencePrice);
     }
+    if (const auto* node = root.get("prediction")) {
+        if (scenario.fundamental) {
+            reader.fail(*node, "a prediction market's true value is its probability of yes: "
+                               "drop the [fundamental] section");
+        }
+        scenario.prediction = readPrediction(reader, reader.table(*node, "prediction"));
+        // Agents anchor at the starting probability, in cents, unless told otherwise.
+        if (const auto* price = root.get("reference_price")) {
+            if (scenario.referencePrice >= kPredictionPayout) {
+                reader.fail(*price, std::format("a prediction market trades from 1 to {}",
+                                                kPredictionPayout - 1));
+            }
+        } else {
+            scenario.referencePrice = std::clamp<Price>(
+                std::llround(scenario.prediction->probability * kPredictionPayout), 1,
+                kPredictionPayout - 1);
+        }
+    }
     if (const auto* node = root.get("exchange")) {
         scenario.exchange = readExchange(reader, reader.table(*node, "exchange"));
     }
@@ -440,12 +493,22 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     }
     if (const auto* node = root.get("scoring")) {
         scenario.scoring = readScoring(reader, reader.table(*node, "scoring"));
-        if (scenario.scoring->mark == Mark::Value && !scenario.fundamental) {
-            reader.fail(*node, "scoring at the true value needs a [fundamental] section");
+        if (scenario.scoring->mark == Mark::Value && !scenario.fundamental &&
+            !scenario.prediction) {
+            reader.fail(*node,
+                        "scoring at the true value needs a [fundamental] or [prediction] section");
         }
     }
     if (const auto* node = root.get("challenge")) {
         scenario.challenge = readChallenge(reader, reader.table(*node, "challenge"));
+    }
+    if (const auto* node = root.get("prediction")) {
+        // Some limits depend on the duration as well, such as how much news can come.
+        try {
+            static_cast<void>(makeFundamental(scenario));
+        } catch (const ScenarioError& error) {
+            reader.fail(*node, error.what());
+        }
     }
     if (const auto* node = root.get("agents")) {
         const auto* list = node->as_array();

@@ -245,4 +245,27 @@ double pow(double x, double y) noexcept {
     return x < 0.0 && odd ? -result : result;
 }
 
+double normalCdf(double x) noexcept {
+    if (x < -10.0) {
+        return 0.0;
+    }
+    if (x > 10.0) {
+        return 1.0;
+    }
+    // Marsaglia's series: Φ(x) = 1/2 + φ(x) (x + x^3/3 + x^5/(3·5) + ...), summed until a term
+    // no longer changes the total. Every term has the sign of x, so nothing cancels inside the
+    // sum, and within ±10 it settles in at most a few hundred terms.
+    const double square = x * x;
+    double sum = x;
+    double term = x;
+    double previous = 0.0;
+    for (double odd = 3.0; sum != previous; odd += 2.0) {
+        previous = sum;
+        term *= square / odd;
+        sum += term;
+    }
+    constexpr double kLogRootTwoPi = 0.91893853320467274178; // ln √(2π)
+    return 0.5 + sum * exp(-0.5 * square - kLogRootTwoPi);
+}
+
 } // namespace crowdbook::math

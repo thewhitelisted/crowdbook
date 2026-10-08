@@ -25,6 +25,8 @@
   "BM_ZeroIntelligenceMarket/agents:3000/streamed:1": 1091556957.922876,
   "BM_ZeroIntelligenceMarket/agents:100/streamed:0": 85140.17133687399,
   "BM_ZeroIntelligenceMarket/agents:1000/streamed:0": 1225844.9450596652,
-  "BM_ZeroIntelligenceMarket/agents:10000/streamed:0": 18089464.890133392
+  "BM_ZeroIntelligenceMarket/agents:10000/streamed:0": 18089464.890133392,
+  "BM_PredictionMarket": 11320016.81253314,
+  "BM_PredictionValue": 2116.9567307529323
  }
 }

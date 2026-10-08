@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <array>
+#include <utility>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -116,6 +119,135 @@ TEST(FundamentalTest, RejectsReadsBackInTimeAndInvalidConfigs) {
                  std::invalid_argument);
     EXPECT_THROW((Fundamental{{.jumpRate = kInfinity}, Random{1, 0}}), std::invalid_argument);
     EXPECT_THROW((Fundamental{{.jumpSize = kInfinity}, Random{1, 0}}), std::invalid_argument);
+}
+
+// A prediction market's value starts at its probability, stays a probability, and at resolution
+// is 100 or 0 for good.
+TEST(PredictionTest, StartsAtItsProbabilityAndResolvesToZeroOrOneHundred) {
+    for (const PredictionConfig& config :
+         {PredictionConfig{.probability = 0.5},
+          PredictionConfig{.probability = 0.2, .newsRate = 0.05, .newsShare = 0.6},
+          PredictionConfig{.probability = 0.93, .newsRate = 0.2, .newsShare = 0.3,
+                           .step = 250 * kMillisecond}}) {
+        Fundamental value{config, 100 * kSecond, Random{3, 0}};
+        EXPECT_EQ(value.resolution(), 100 * kSecond);
+        EXPECT_NEAR(value.valueAt(0), 100.0 * config.probability, 1e-9);
+        for (Timestamp time = 0; time < 100 * kSecond; time += 700 * kMillisecond) {
+            const double probability = value.valueAt(time);
+            EXPECT_GE(probability, 0.0);
+            EXPECT_LE(probability, 100.0);
+        }
+        const double outcome = value.valueAt(100 * kSecond);
+        EXPECT_TRUE(outcome == 0.0 || outcome == 100.0);
+        EXPECT_EQ(value.valueAt(200 * kSecond), outcome);
+    }
+    EXPECT_FALSE(Fundamental(FundamentalConfig{}, Random{3, 0}).resolution());
+}
+
+// The value is a fair price: whatever it says at any moment is how often the market resolves yes
+// from there. Checked over thousands of runs at the start and halfway, binned by the value then,
+// with news and without, and for a run that does not end on a whole step.
+TEST(PredictionTest, TheValueIsTheProbabilityOfYes) {
+    constexpr int kRuns = 4'000;
+    struct Case {
+        PredictionConfig config;
+        Duration resolution;
+        Timestamp readAt;
+    };
+    for (const auto& [config, resolution, readAt] :
+         {Case{PredictionConfig{.probability = 0.3, .step = kSecond}, 60 * kSecond, 30 * kSecond},
+          Case{PredictionConfig{.probability = 0.6, .newsRate = 0.1, .newsShare = 0.7,
+                                .step = kSecond},
+               60'500 * kMillisecond, 30 * kSecond},
+          // The last step is a third of the run, and only partly happens before resolution.
+          Case{PredictionConfig{.probability = 0.5, .step = 10 * kSecond}, 15 * kSecond,
+               10 * kSecond}}) {
+        std::array<double, 5> valued{};
+        std::array<double, 5> resolved{};
+        std::array<int, 5> count{};
+        double yes = 0.0;
+        for (int run = 0; run < kRuns; ++run) {
+            Fundamental value{config, resolution, Random{static_cast<std::uint64_t>(run), 0}};
+            const double halfway = value.valueAt(readAt);
+            const double outcome = value.valueAt(resolution);
+            const auto bin = std::min<std::size_t>(static_cast<std::size_t>(halfway / 20.0), 4);
+            valued[bin] += halfway;
+            resolved[bin] += outcome;
+            ++count[bin];
+            yes += outcome;
+        }
+        // A share of outcomes worth 0 or 100 has standard error 100 √(p (1 - p) / n) at most.
+        EXPECT_NEAR(yes / kRuns, 100.0 * config.probability, 4.0 * 50.0 / std::sqrt(kRuns));
+        for (std::size_t bin = 0; bin < 5; ++bin) {
+            if (count[bin] < 200) {
+                continue;
+            }
+            EXPECT_NEAR(resolved[bin] / count[bin], valued[bin] / count[bin],
+                        4.0 * 50.0 / std::sqrt(count[bin]))
+                << "values from " << 20 * bin << " to " << 20 * (bin + 1);
+        }
+    }
+}
+
+// The hidden quantity's change over the run has variance 1, and news carries its share of it.
+TEST(PredictionTest, TheHiddenQuantityMovesAsConfigured) {
+    constexpr int kRuns = 3'000;
+    const PredictionConfig config{.probability = 0.5, .newsRate = 0.1, .newsShare = 0.7};
+    double total = 0.0;
+    double fromNewsSteps = 0.0;
+    for (int run = 0; run < kRuns; ++run) {
+        Fundamental value{config, 60 * kSecond, Random{static_cast<std::uint64_t>(run), 7}};
+        const double start = value.walk();
+        double previous = start;
+        std::int64_t jumps = 0;
+        for (Timestamp time = kSecond; time <= 60 * kSecond; time += kSecond) {
+            static_cast<void>(value.valueAt(time));
+            const double move = value.walk() - previous;
+            if (value.jumps() > jumps) {
+                fromNewsSteps += move * move;
+            }
+            jumps = value.jumps();
+            previous = value.walk();
+        }
+        total += (value.walk() - start) * (value.walk() - start);
+    }
+    EXPECT_NEAR(total / kRuns, 1.0, 0.1);
+    // Steps with news carry the news's 70%, and the steady wandering of those tenth of the steps.
+    EXPECT_NEAR(fromNewsSteps / total, 0.7 + 0.1 * 0.3, 0.05);
+}
+
+// As resolution comes near, the same news moves the probability further: the value moves
+// slowly while much is unknown and fast at the end.
+TEST(PredictionTest, TheValueMovesFasterAsResolutionNears) {
+    double early = 0.0;
+    double late = 0.0;
+    for (std::uint64_t run = 0; run < 400; ++run) {
+        Fundamental value{PredictionConfig{.probability = 0.5}, 100 * kSecond, Random{run, 0}};
+        double previous = value.valueAt(0);
+        for (Timestamp time = kSecond; time < 100 * kSecond; time += kSecond) {
+            const double now = value.valueAt(time);
+            const double move = (now - previous) * (now - previous);
+            (time <= 10 * kSecond ? early : late) += time <= 10 * kSecond || time > 90 * kSecond
+                                                         ? move
+                                                         : 0.0;
+            previous = now;
+        }
+    }
+    EXPECT_GT(late, 3.0 * early);
+}
+
+TEST(PredictionTest, SettingsAreChecked) {
+    for (const PredictionConfig& config :
+         {PredictionConfig{.probability = 0.0}, PredictionConfig{.probability = 1.0},
+          PredictionConfig{.newsRate = -1.0}, PredictionConfig{.newsShare = 0.5},
+          PredictionConfig{.newsRate = 1.0, .newsShare = 1.0},
+          PredictionConfig{.step = 0}, PredictionConfig{.newsRate = 10.0, .newsShare = 0.5}}) {
+        EXPECT_THROW(Fundamental(config, 100 * kSecond, Random{1, 0}), std::invalid_argument);
+    }
+    EXPECT_THROW(Fundamental(PredictionConfig{}, 0, Random{1, 0}), std::invalid_argument);
+    Fundamental value{PredictionConfig{}, 100 * kSecond, Random{1, 0}};
+    static_cast<void>(value.valueAt(50 * kSecond));
+    EXPECT_THROW(static_cast<void>(value.valueAt(10 * kSecond)), std::invalid_argument);
 }
 
 } // namespace

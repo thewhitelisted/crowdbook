@@ -47,6 +47,7 @@ private:
     void order(Side side, OrderType type, std::vector<protocol::ClientMessage>& out);
     void cancel(bool everywhere, std::vector<protocol::ClientMessage>& out);
     void centerCursor();
+    [[nodiscard]] Price highest() const; // the highest price the exchange takes
 
     std::string seat_;
     std::optional<Controls> controls_;

@@ -201,7 +201,8 @@ TEST(Protocol, DecodesTheSpecificationsExamples) {
         R"({"type":"hello","protocol":1,"seat":"alice","token":"s3cret"})")));
     EXPECT_NO_THROW(static_cast<void>(decodeServer(
         R"({"type":"welcome","protocol":1,"seat":"alice","started":false,"time":0,)"
-        R"("duration":60000000000,"reference_price":10000,"depth_levels":10,"maker_fee":0,)"
+        R"("duration":60000000000,"reference_price":10000,"max_price":1000000000,)"
+        R"("depth_levels":10,"maker_fee":0,)"
         R"("taker_fee":0,"auction_fee":0,"phase":"continuous",)"
         R"("latency":{"to_exchange":1000000,"from_exchange":1000000,"jitter":0},)"
         R"("account":{"initial_cash":0,"initial_position":0,"cash":0,"position":0,"fees":0,)"

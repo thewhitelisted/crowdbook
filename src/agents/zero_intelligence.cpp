@@ -148,7 +148,8 @@ void ZeroIntelligenceTrader::sendLimit(AgentContext& context) const {
     const Price anchor = side == Side::Buy ? market_.bestAsk().value_or(fair + 1)
                                            : market_.bestBid().value_or(fair - 1);
     const Price price = side == Side::Buy ? anchor - offset : anchor + offset;
-    const ClientOrderId id = context.submitLimit(side, std::max<Price>(price, 1), size);
+    const ClientOrderId id =
+        context.submitLimit(side, std::clamp<Price>(price, 1, context.maxPrice()), size);
     if (config_.cancelRate > 0.0) {
         const double lifetime = random.exponential(config_.cancelRate);
         context.wakeAt(context.now() + secondsToDuration(lifetime), id);
@@ -165,7 +166,8 @@ void ZeroIntelligenceTrader::sendAuctionLimit(AgentContext& context,
                              ? market.indicative->price
                              : static_cast<Price>(std::llround(market_.fairPrice()));
     const Price price = side == Side::Buy ? anchor + offset : anchor - offset;
-    const ClientOrderId id = context.submitLimit(side, std::max<Price>(price, 1), size);
+    const ClientOrderId id =
+        context.submitLimit(side, std::clamp<Price>(price, 1, context.maxPrice()), size);
     if (config_.cancelRate > 0.0) {
         const double lifetime = random.exponential(config_.cancelRate);
         context.wakeAt(context.now() + secondsToDuration(lifetime), id);

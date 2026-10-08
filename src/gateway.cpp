@@ -417,6 +417,7 @@ struct Gateway::State {
             .time = sim.now(),
             .duration = scenario.duration,
             .referencePrice = scenario.referencePrice,
+            .maxPrice = exchangeConfig(scenario).maxPrice,
             .depthLevels = scenario.exchange.depthLevels,
             .makerFee = scenario.exchange.makerFee,
             .takerFee = scenario.exchange.takerFee,

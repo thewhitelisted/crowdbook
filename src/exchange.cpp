@@ -12,8 +12,6 @@ namespace crowdbook {
 
 namespace {
 
-bool validLimitPrice(Price price) { return price >= 1 && price <= kMaxPrice; }
-
 Quantity& openQuantity(Account& account, Side side) {
     return side == Side::Buy ? account.openBuyQuantity : account.openSellQuantity;
 }
@@ -63,6 +61,13 @@ Exchange::Exchange(const ExchangeConfig& config) : config_(config) {
     if (config.haltBand < 0 || config.haltDuration < 0 ||
         (config.haltBand > 0 && config.haltDuration == 0)) {
         throw std::invalid_argument("a halt band needs a positive halt duration");
+    }
+    if (config.maxPrice < 1 || config.maxPrice > kMaxPrice) {
+        throw std::invalid_argument(
+            std::format("the highest price must be from 1 to {}", kMaxPrice));
+    }
+    if (config.referencePrice > config.maxPrice) {
+        throw std::invalid_argument("the reference price is above the highest price");
     }
     reference_ = config.referencePrice;
 }
@@ -605,6 +610,10 @@ void Exchange::publishDepth(std::vector<Event>& events) {
     if (changed) {
         events.emplace_back(publishedDepth_);
     }
+}
+
+bool Exchange::validLimitPrice(Price price) const noexcept {
+    return price >= 1 && price <= config_.maxPrice;
 }
 
 bool Exchange::wouldTrade(Side side, Price price) const noexcept {

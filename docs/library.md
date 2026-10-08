@@ -33,7 +33,8 @@ package in CI.
 | To | Use | Header |
 |---|---|---|
 | Run a market to the end | `runScenario`, or `ScenarioRun` to run it in steps and add agents of your own | `scenario.hpp` |
-| Write an agent | Subclass `Agent`; register it in an `AgentRegistry` to name it in scenario files | `agent.hpp`, `agent_registry.hpp` |
+| Write an agent | Subclass `Agent`; register it in an `AgentRegistry` to name it in scenario files. Keep prices within 1 to `context.maxPrice()` | `agent.hpp`, `agent_registry.hpp` |
+| Follow a scenario's true value, or a prediction market's probability | `makeFundamental` | `scenario.hpp`, `fundamental.hpp` |
 | Read scenario and session files | `parseScenario`, `loadScenario`, `parseSession`, `loadSession`, `writeSession` | `scenario_file.hpp`, `session.hpp` |
 | Put people or programs in a market you drive | `openSession`, then `Simulation::act` or `perform` between calls to `runUntil` | `session.hpp`, `live.hpp` |
 | Replay, leave seats out, or rewind | `replaySession`, `rewindSession` | `session.hpp` |

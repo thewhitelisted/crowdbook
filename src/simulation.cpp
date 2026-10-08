@@ -41,6 +41,9 @@ public:
     [[nodiscard]] MarketSnapshot market() const override {
         return simulation_.visibleMarket(agent_);
     }
+    [[nodiscard]] Price maxPrice() const noexcept override {
+        return simulation_.exchange_.config().maxPrice;
+    }
 
     ClientOrderId submit(NewOrder order) override {
         order.clientOrderId = simulation_.slot(agent_).nextClientOrderId++;

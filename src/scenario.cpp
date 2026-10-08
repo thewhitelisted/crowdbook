@@ -83,6 +83,17 @@ void validate(const Scenario& scenario) {
     if (scenario.groups.empty()) {
         throw ScenarioError("the scenario has no agents");
     }
+    if (scenario.prediction) {
+        if (scenario.fundamental) {
+            throw ScenarioError("a prediction market's true value is its probability of yes: "
+                                "it takes no [fundamental] section");
+        }
+        if (scenario.referencePrice >= kPredictionPayout) {
+            throw ScenarioError(std::format(
+                "a prediction market trades from 1 to {}: the reference price must be too",
+                kPredictionPayout - 1));
+        }
+    }
     if (const auto& day = scenario.tradingDay) {
         if (day->openingAuction < 0 || day->closingAuction < 0 ||
             day->openingAuction + day->closingAuction > scenario.duration) {
@@ -101,12 +112,16 @@ void validate(const Scenario& scenario) {
     } catch (const std::invalid_argument& error) {
         throw ScenarioError(std::format("exchange: {}", error.what()));
     }
+    static_cast<void>(makeFundamental(scenario));
 }
 
 } // namespace
 
 ExchangeConfig exchangeConfig(const Scenario& scenario) {
     ExchangeConfig config = scenario.exchange;
+    if (scenario.prediction) {
+        config.maxPrice = kPredictionPayout - 1;
+    }
     if (const auto& day = scenario.tradingDay) {
         config.referencePrice = scenario.referencePrice;
         config.haltBand = day->haltBand;
@@ -149,15 +164,7 @@ ScenarioRun::ScenarioRun(const Scenario& scenario, const AgentRegistry& registry
         simulation.schedulePhase(scenario.duration, Phase::Closed);
         environment.activity = {.amplitude = day->activity, .day = scenario.duration};
     }
-    if (scenario.fundamental) {
-        try {
-            // Stream 0 belongs to no agent: agent n draws from streams 2n and 2n + 1.
-            environment.fundamental =
-                std::make_shared<Fundamental>(*scenario.fundamental, Random{scenario.seed, 0});
-        } catch (const std::invalid_argument& error) {
-            throw ScenarioError(std::format("fundamental: {}", error.what()));
-        }
-    }
+    environment.fundamental = makeFundamental(scenario);
     state_->fundamental = environment.fundamental;
 
     state_->groups.reserve(scenario.groups.size());
@@ -238,6 +245,28 @@ RunResult runScenario(const Scenario& scenario, const AgentRegistry& registry,
     return run.result();
 }
 
+double pnlAtValue(const GroupResult& group, double value) {
+    return static_cast<double>(group.cash - group.initialCash) +
+           static_cast<double>(group.position - group.initialPosition) * value;
+}
+
+std::shared_ptr<Fundamental> makeFundamental(const Scenario& scenario) {
+    // Stream 0 belongs to no agent: agent n draws from streams 2n and 2n + 1.
+    try {
+        if (scenario.prediction) {
+            return std::make_shared<Fundamental>(*scenario.prediction, scenario.duration,
+                                                 Random{scenario.seed, 0});
+        }
+        if (scenario.fundamental) {
+            return std::make_shared<Fundamental>(*scenario.fundamental, Random{scenario.seed, 0});
+        }
+    } catch (const std::invalid_argument& error) {
+        throw ScenarioError(std::format(
+            "{}: {}", scenario.prediction ? "prediction" : "fundamental", error.what()));
+    }
+    return nullptr;
+}
+
 void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResult& result) {
     out << std::format("{{\n  \"seed\": {},\n  \"duration_ns\": {},\n  \"reference_price\": {},\n",
                        scenario.seed, scenario.duration, scenario.referencePrice);
@@ -255,10 +284,15 @@ void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResul
         out << (index == 0 ? "\n" : ",\n");
         out << std::format("    {{\"name\": {}, \"type\": {}, \"agents\": {}, \"agent_ids\": [{}], "
                            "\"traded\": {}, \"initial_cash\": {}, \"initial_position\": {}, "
-                           "\"cash\": {}, \"position\": {}, \"pnl\": {}, \"fees\": {}}}",
+                           "\"cash\": {}, \"position\": {}, \"pnl\": {}, \"fees\": {}",
                            jsonString(group.name), jsonString(group.type), group.agents.size(),
                            ids, group.traded, group.initialCash, group.initialPosition,
                            group.cash, group.position, group.pnl, formatFee(group.fees));
+        if (scenario.prediction && result.finalValue) {
+            out << std::format(", \"pnl_at_value\": {}",
+                               pnlAtValue(group, *result.finalValue));
+        }
+        out << "}";
     }
     out << "\n  ]";
     if (!result.scores.empty()) {

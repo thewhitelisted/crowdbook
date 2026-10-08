@@ -35,6 +35,8 @@ struct ExchangeConfig {
     // auction for haltDuration; 0 never halts.
     Price haltBand = 0;
     Duration haltDuration = 0;
+    // The highest limit price accepted: 99 for a prediction market, whose shares pay 100 at most.
+    Price maxPrice = kMaxPrice;
 };
 
 struct AccountConfig {
@@ -148,6 +150,7 @@ private:
                 std::vector<Event>& events);
     void publishTopOfBook(std::vector<Event>& events);
     void publishDepth(std::vector<Event>& events);
+    [[nodiscard]] bool validLimitPrice(Price price) const noexcept;
     // In an auction, publishes the indicative price if it changed, or anyway when `always`.
     void publishIndicative(std::vector<Event>& events, bool always = false);
     // Uncrosses the book and reports it; returns the first round's price, if anything traded.
