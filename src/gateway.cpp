@@ -31,6 +31,24 @@ struct SeatState {
     std::unordered_map<ClientOrderId, std::int64_t> unanswered{};
 };
 
+// The client's id for the order a request names, and what kind of request it is.
+std::pair<ClientOrderId, RequestKind> orderOf(const protocol::ClientMessage& message) {
+    return std::visit(
+        [](const auto& body) -> std::pair<ClientOrderId, RequestKind> {
+            using Body = std::decay_t<decltype(body)>;
+            if constexpr (std::is_same_v<Body, NewOrder>) {
+                return {body.clientOrderId, RequestKind::New};
+            } else if constexpr (std::is_same_v<Body, ModifyOrder>) {
+                return {body.clientOrderId, RequestKind::Modify};
+            } else if constexpr (std::is_same_v<Body, CancelOrder>) {
+                return {body.clientOrderId, RequestKind::Cancel};
+            } else {
+                return {0, RequestKind::New};
+            }
+        },
+        message);
+}
+
 struct Connection {
     std::int64_t connectedAt = 0;
     std::optional<std::size_t> seat{};
@@ -227,18 +245,7 @@ struct Gateway::State {
                std::int64_t wallNow) {
         SeatState& state = seats[seat];
         if (state.stopped && !std::holds_alternative<CancelOrder>(message)) {
-            const auto [wire, kind] = std::visit(
-                [](const auto& body) -> std::pair<ClientOrderId, RequestKind> {
-                    using Body = std::decay_t<decltype(body)>;
-                    if constexpr (std::is_same_v<Body, NewOrder>) {
-                        return {body.clientOrderId, RequestKind::New};
-                    } else if constexpr (std::is_same_v<Body, ModifyOrder>) {
-                        return {body.clientOrderId, RequestKind::Modify};
-                    } else {
-                        return {0, RequestKind::Cancel};
-                    }
-                },
-                message);
+            const auto [wire, kind] = orderOf(message);
             rejectAtOnce(connection, wire, kind, RejectReason::LossLimit, wallNow);
             return;
         }
@@ -395,10 +402,22 @@ struct Gateway::State {
             return;
         }
         if (!withinRate(connection, wallNow)) {
-            complain(connection,
-                     std::format("over the limit of {} messages a second; message dropped",
-                                 options.maxMessagesPerSecond),
-                     wallNow);
+            // An order request over the limit is rejected by its id, so that the client's books
+            // stay right; anything else gets an error.
+            std::optional<protocol::ClientMessage> dropped;
+            try {
+                dropped = protocol::decodeClient(line);
+            } catch (const protocol::ProtocolError&) {
+            }
+            if (dropped && connection.seat && !std::holds_alternative<protocol::Hello>(*dropped)) {
+                const auto [wire, kind] = orderOf(*dropped);
+                rejectAtOnce(connection, wire, kind, RejectReason::RateLimit, wallNow);
+            } else {
+                complain(connection,
+                         std::format("over the limit of {} messages a second; message dropped",
+                                     options.maxMessagesPerSecond),
+                         wallNow);
+            }
             return;
         }
         protocol::ClientMessage message;

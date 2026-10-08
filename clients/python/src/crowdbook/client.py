@@ -125,8 +125,17 @@ class Connection:
         self._buffer = b""
         self.closed = False
 
-    def send(self, message: ClientMessage) -> None:
-        self._socket.sendall(protocol.encode(message).encode("ascii"))
+    def send(self, message: ClientMessage) -> bool:
+        """Sends a message. Returns False, and marks the connection closed, if the server has
+        gone."""
+        if self.closed:
+            return False
+        try:
+            self._socket.sendall(protocol.encode(message).encode("ascii"))
+        except (BrokenPipeError, ConnectionResetError):
+            self.closed = True
+            return False
+        return True
 
     def receive(self, timeout: float) -> list[ServerMessage]:
         """The messages that arrive within `timeout` seconds, as soon as there is at least one;
@@ -136,7 +145,10 @@ class Connection:
             ready, _, _ = select.select([self._socket], [], [], timeout)
             if not ready:
                 break
-            chunk = self._socket.recv(65536)
+            try:
+                chunk = self._socket.recv(65536)
+            except ConnectionResetError:
+                chunk = b""
             if not chunk:
                 self.closed = True
                 break
@@ -230,8 +242,9 @@ class Bot:
     def _send(self, message: ClientMessage) -> None:
         if self._connection is None or not self.started or self.ended is not None:
             raise RuntimeError("orders can only be sent while the market is open")
-        self._connection.send(message)
-        self.ledger.record(message)
+        # Once the server has gone nothing more reaches the market, so nothing is recorded.
+        if self._connection.send(message):
+            self.ledger.record(message)
 
     def _dispatch(self, message: ServerMessage) -> None:
         if isinstance(message, Welcome):

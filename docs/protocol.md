@@ -29,8 +29,9 @@ ending in `\n`. Every message has a `"type"`.
    that claims its seat after the start gets `"started": true` in its welcome instead.
 4. The client sends orders, cancels and modifies; the server sends its own order events and the
    public market data.
-5. When the market's time is up, or the server is stopped, it sends `end` and closes the
-   connection.
+5. When the market's time is up, or the server is stopped, it sends `end` and stops writing.
+   It reads and discards whatever the client still sends, for a couple of seconds, and closes
+   the connection when the client does.
 
 If a connection closes, every open order of its seat is cancelled. The seat can be claimed again
 with a new `hello`.
@@ -141,10 +142,11 @@ no limit), and `target`, if not `null`, is
 
 `request` is `new`, `cancel` or `modify`. `reason` is one of `non-positive-quantity`,
 `invalid-price`, `order-size-limit`, `position-limit`, `duplicate-client-order-id`,
-`unknown-order-id`, `post-only-would-trade` or `loss-limit`. The gateway itself rejects a new order whose id is
+`unknown-order-id`, `post-only-would-trade`, `loss-limit` or `rate-limit`. The gateway itself rejects a new order whose id is
 live and a cancel or modify whose id is not, at once and without the latency, and once a seat's
-loss limit has stopped it, every new order and modify with `loss-limit`; the exchange rejects
-everything else.
+loss limit has stopped it, every new order and modify with `loss-limit`, and any new order,
+cancel or modify over the connection's limit of messages per second with `rate-limit`; the
+exchange rejects everything else.
 
 ### modified
 
@@ -222,6 +224,6 @@ seat is scored; its amounts are in points, `total` is `pnl` less the other parts
 {"type":"error","message":"unknown field 'qty'","fatal":false}
 ```
 
-A message the server could not use, which it dropped: malformed, too long, or over the
-connection's limit of messages per second. With `"fatal": true` the server closes the connection
+A message the server could not use, which it dropped: malformed, too long, or, unless it was an
+order request, over the connection's limit of messages per second. With `"fatal": true` the server closes the connection
 after it: for a bad or missing `hello`, or a client too slow to read what it is sent.

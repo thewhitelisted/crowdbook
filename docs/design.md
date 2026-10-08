@@ -270,10 +270,15 @@ byte for byte. [protocol.md](protocol.md) specifies the messages.
   trading in real time; the learning environment (M19) will step the market in lockstep instead.
 - **Untrusted input:** a line longer than 4 KiB, a malformed message, an unknown field or a value
   out of range gets an error message and is dropped. Each connection may send a limited number of
-  messages per second of wall-clock time; messages over the limit get an error and are dropped
-  before they reach the market, so the limit never affects a replay. A client that does not read
-  its messages fast enough is disconnected once 8 MiB are waiting for it, and a connection that
-  does not claim a seat within five seconds is closed.
+  messages per second of wall-clock time; messages over the limit are dropped before they reach
+  the market, so the limit never affects a replay. An order request over the limit is rejected
+  by its id, so the client's books stay right, and anything else gets an error. A client that does
+  not read its messages fast enough is disconnected once 8 MiB are waiting for it, and a
+  connection that does not claim a seat within five seconds is closed.
+- **Closing politely:** a connection the server is done with is shut for writing, then read and
+  discarded until the client hangs up or two seconds pass. Closing it with the client's messages
+  still unread would reset it, and a reset can discard the last messages sent to the client, the
+  session's end among them.
 - **Disconnecting** cancels every open order of the seat, as cancel-on-disconnect does on real
   exchanges; the cancels are recorded like any other request. The seat can be claimed again, and
   the welcome message then carries its cash, position, fees and open orders.

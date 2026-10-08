@@ -232,6 +232,7 @@ TEST(Protocol, RejectReasonsHaveWireNames) {
     EXPECT_EQ(wireName(RejectReason::PositionLimit), "position-limit");
     EXPECT_EQ(wireName(RejectReason::DuplicateClientOrderId), "duplicate-client-order-id");
     EXPECT_EQ(wireName(RejectReason::LossLimit), "loss-limit");
+    EXPECT_EQ(wireName(RejectReason::RateLimit), "rate-limit");
 }
 
 // Malformed input from the network must be decoded or rejected with ProtocolError, never crash,

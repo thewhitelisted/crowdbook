@@ -102,6 +102,8 @@ std::string_view toString(RejectReason reason) noexcept {
         return "post-only would trade";
     case RejectReason::LossLimit:
         return "loss limit";
+    case RejectReason::RateLimit:
+        return "rate limit";
     }
     return "unknown";
 }

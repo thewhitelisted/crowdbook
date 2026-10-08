@@ -8,6 +8,7 @@
 #include <map>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <arpa/inet.h>
@@ -137,6 +138,10 @@ void serve(Gateway& gateway, const ServerOptions& options, const std::atomic<boo
         onListening(port);
     }
     std::map<ConnectionId, Socket> connections;
+    // Connections the gateway is done with, closed for writing, read and discarded until the
+    // client hangs up or the grace runs out. Closing a socket with the client's messages still
+    // unread would reset the connection, and a reset can lose the last messages sent to it.
+    std::vector<std::pair<Socket, std::int64_t>> lingering;
     std::optional<std::int64_t> finishedAt;
     std::vector<pollfd> polled;
     std::vector<ConnectionId> polledIds;
@@ -145,6 +150,13 @@ void serve(Gateway& gateway, const ServerOptions& options, const std::atomic<boo
     const auto drop = [&](ConnectionId id, std::int64_t wall) {
         connections.erase(id);
         gateway.disconnect(id, wall);
+    };
+    // Lets the gateway go of a connection whose last messages are sent, and lingers on it.
+    const auto finish = [&](ConnectionId id, std::int64_t wall) {
+        const auto found = connections.find(id);
+        ::shutdown(found->second.fd(), SHUT_WR);
+        lingering.emplace_back(std::move(found->second), wall + options.closeGrace);
+        drop(id, wall);
     };
 
     while (true) {
@@ -159,7 +171,8 @@ void serve(Gateway& gateway, const ServerOptions& options, const std::atomic<boo
         }
 
         // Send what is waiting, and close what should be closed.
-        std::vector<ConnectionId> closing;
+        std::vector<ConnectionId> broken;
+        std::vector<ConnectionId> done;
         for (auto& [id, socket] : connections) {
             const std::string_view pending = gateway.pendingOutput(id);
             if (!pending.empty()) {
@@ -168,19 +181,35 @@ void serve(Gateway& gateway, const ServerOptions& options, const std::atomic<boo
                 if (sent > 0) {
                     gateway.consumeOutput(id, static_cast<std::size_t>(sent));
                 } else if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-                    closing.push_back(id);
+                    broken.push_back(id);
                     continue;
                 }
             }
             if (gateway.shouldClose(id) ||
                 (finishedAt && wall - *finishedAt >= options.closeGrace)) {
-                closing.push_back(id);
+                done.push_back(id);
             }
         }
-        for (const ConnectionId id : closing) {
+        for (const ConnectionId id : broken) {
             drop(id, wall);
         }
-        if (finishedAt && connections.empty()) {
+        for (const ConnectionId id : done) {
+            finish(id, wall);
+        }
+        // Read and discard what lingering clients still send, until they hang up.
+        std::erase_if(lingering, [&](std::pair<Socket, std::int64_t>& entry) {
+            while (true) {
+                const ssize_t received = ::recv(entry.first.fd(), buffer.data(), buffer.size(), 0);
+                if (received > 0) {
+                    continue;
+                }
+                if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+                    return wall >= entry.second;
+                }
+                return true; // hung up, or the connection broke
+            }
+        });
+        if (finishedAt && connections.empty() && lingering.empty()) {
             return;
         }
 

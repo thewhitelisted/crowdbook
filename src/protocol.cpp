@@ -38,7 +38,8 @@ constexpr std::array kRejectReasons{
     std::pair{std::string_view{"unknown-order-id"}, RejectReason::UnknownOrderId},
     std::pair{std::string_view{"unknown-agent"}, RejectReason::UnknownAgent},
     std::pair{std::string_view{"post-only-would-trade"}, RejectReason::PostOnlyWouldTrade},
-    std::pair{std::string_view{"loss-limit"}, RejectReason::LossLimit}};
+    std::pair{std::string_view{"loss-limit"}, RejectReason::LossLimit},
+    std::pair{std::string_view{"rate-limit"}, RejectReason::RateLimit}};
 constexpr std::array kCancelReasons{
     std::pair{std::string_view{"requested"}, CancelReason::Requested},
     std::pair{std::string_view{"immediate-or-cancel"}, CancelReason::ImmediateOrCancel},

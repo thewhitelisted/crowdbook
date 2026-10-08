@@ -41,6 +41,11 @@ public:
     explicit LineClient(std::uint16_t port) : fd_(::socket(AF_INET, SOCK_STREAM, 0)) {
         timeval timeout{.tv_sec = 5, .tv_usec = 0};
         ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
+        ::setsockopt(fd_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout);
+#ifdef SO_NOSIGPIPE
+        const int on = 1;
+        ::setsockopt(fd_, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on);
+#endif
         sockaddr_in address{};
         address.sin_family = AF_INET;
         address.sin_port = htons(port);
@@ -57,6 +62,17 @@ public:
     void send(const protocol::ClientMessage& message) const {
         const std::string line = protocol::encode(message);
         ASSERT_EQ(::send(fd_, line.data(), line.size(), 0), static_cast<ssize_t>(line.size()));
+    }
+
+    // Sends without checking that it went, for a server that may have stopped listening.
+    void sendQuietly(const protocol::ClientMessage& message) const {
+#ifdef MSG_NOSIGNAL
+        constexpr int flags = MSG_NOSIGNAL;
+#else
+        constexpr int flags = 0;
+#endif
+        const std::string line = protocol::encode(message);
+        static_cast<void>(::send(fd_, line.data(), line.size(), flags));
     }
 
     // The next message, or nullopt if the connection closed or nothing came in time.
@@ -210,6 +226,36 @@ TEST(ServerTest, ASessionOverSocketsReplaysByteForByte) {
     CsvEventLog replaySink{replayed};
     static_cast<void>(replaySession(gateway.session(), AgentRegistry::withBuiltIns(), &replaySink));
     EXPECT_EQ(replayed.str(), live.str());
+}
+
+// A client still sending when the session ends gets its last messages all the same: the server
+// stops writing but goes on reading, so the client's unsent orders never reset the connection.
+TEST(ServerTest, AClientStillSendingWhenTheSessionEndsGetsTheEnd) {
+    const Scenario scenario = parseScenario(kScenario);
+    Gateway gateway{scenario, std::string{kScenario}, AgentRegistry::withBuiltIns(), {}};
+    std::atomic<bool> stop{false};
+    std::promise<std::uint16_t> listening;
+    std::thread server{[&] {
+        serve(gateway, {.host = "127.0.0.1", .port = 0}, stop,
+              [&](std::uint16_t port) { listening.set_value(port); });
+    }};
+    const std::uint16_t port = listening.get_future().get();
+    {
+        LineClient client{port};
+        client.send(protocol::Hello{.seat = "you"});
+        ASSERT_TRUE(client.readUntil<protocol::Start>());
+        stop = true;
+        // Hundreds of kilobytes the server will not act on, sent without reading anything.
+        for (ClientOrderId id = 1; id <= 3'000; ++id) {
+            client.sendQuietly(NewOrder{.clientOrderId = id,
+                                        .side = Side::Buy,
+                                        .type = OrderType::Limit,
+                                        .price = 900,
+                                        .quantity = 1});
+        }
+        EXPECT_TRUE(client.readUntil<protocol::End>());
+    }
+    server.join();
 }
 
 TEST(ServerTest, ListeningOnABadAddressFails) {

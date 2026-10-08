@@ -501,8 +501,18 @@ TEST(GatewayTest, MessagesOverTheRateLimitAreDropped) {
     for (ClientOrderId id = 6; id <= 8; ++id) {
         market.alice.send(bid(id, 900, 1), kSecond / 2);
     }
-    EXPECT_EQ(errors(market.alice.read()).size(), 3U);
+    // Each order over the limit is rejected by its id, at once.
+    const auto refused = events<OrderRejected>(market.alice.read());
+    ASSERT_EQ(refused.size(), 3U);
+    EXPECT_EQ(refused[0].clientOrderId, 4U);
+    EXPECT_EQ(refused[0].reason, RejectReason::RateLimit);
+    EXPECT_EQ(refused[2].clientOrderId, 8U);
     EXPECT_EQ(market.gateway.session().actions.size(), 5U);
+    // A line over the limit that is not an order gets an error.
+    for (int i = 0; i < 5; ++i) {
+        market.alice.send("not json", kSecond / 2);
+    }
+    EXPECT_FALSE(errors(market.alice.read()).empty());
 }
 
 TEST(GatewayTest, AClientThatFallsBehindIsDropped) {

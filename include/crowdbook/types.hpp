@@ -119,6 +119,7 @@ enum class RejectReason : std::uint8_t {
     UnknownAgent,           // the agent has no account
     PostOnlyWouldTrade,     // a post-only order or modify would have traded on arrival
     LossLimit,              // a live participant stopped by its loss limit; never the exchange
+    RateLimit,              // over a gateway's limit of messages per second; never the exchange
 };
 
 struct OrderResult {
