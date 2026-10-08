@@ -43,6 +43,8 @@ public:
     void onTrade(AgentContext& context, const Trade& trade) override;
     void onTopOfBook(AgentContext& context, const TopOfBook& top) override;
     void onDepth(AgentContext& context, const BookDepth& depth) override;
+    void onPhase(AgentContext& context, const PhaseChanged& phase) override;
+    void onIndicative(AgentContext& context, const Indicative& indicative) override;
 
     // The latest trades, newest first, at most tapeLength of them.
     [[nodiscard]] const std::deque<TapeEntry>& tape() const noexcept { return tape_; }

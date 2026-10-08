@@ -1,5 +1,6 @@
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 
 #include <gtest/gtest.h>
@@ -37,14 +38,31 @@ type = "market_maker"
 name = "maker"
 )";
 
+// The same market with a trading day: a 2 s opening auction and a 2 s closing auction.
+const std::string kDay = std::string{kScenario} + R"(
+[trading_day]
+opening_auction = "2s"
+closing_auction = "2s"
+)";
+
+// The market, 12 s long.
+Scenario twelveSeconds(std::string_view text) {
+    Scenario scenario = parseScenario(text);
+    scenario.duration = 12 * kSecond;
+    return scenario;
+}
+
 // A gateway with one seat and a client model of it, connected in-process.
 struct Connected {
-    Gateway gateway{parseScenario(kScenario), std::string{kScenario},
-                    AgentRegistry::withBuiltIns(), GatewayOptions{}};
+    explicit Connected(std::string_view scenario = kScenario)
+        : gateway{twelveSeconds(scenario), std::string{scenario}, AgentRegistry::withBuiltIns(),
+                  GatewayOptions{}} {
+        send(protocol::Hello{.seat = "you"}, 0);
+    }
+
+    Gateway gateway;
     ConnectionId connection = gateway.connect(0);
     RemoteMarket remote;
-
-    Connected() { send(protocol::Hello{.seat = "you"}, 0); }
 
     void send(const protocol::ClientMessage& message, std::int64_t wall) {
         gateway.receive(connection, protocol::encode(message), wall);
@@ -90,16 +108,10 @@ void expectSameLedger(const Ledger& remote, const Ledger& server) {
     }
 }
 
-TEST(RemoteMarketTest, TheClientSeesWhatTheServerKnows) {
-    Connected client;
-    ASSERT_TRUE(client.remote.welcomed());
-    EXPECT_TRUE(client.remote.started());
-    EXPECT_EQ(client.remote.ledger().cash(), 500);
-    EXPECT_EQ(client.remote.ledger().position(), 3);
-
-    // Trade for a while: resting orders on both sides, market orders, cancels and a modify.
-    std::int64_t wall = 0;
-    for (int step = 0; step < 200; ++step) {
+// Trades for `steps` steps of 37 ms from `wall`: resting orders on both sides, market orders,
+// cancels and a modify. Returns the wall-clock time it got to.
+std::int64_t tradeFor(Connected& client, std::int64_t wall, int steps) {
+    for (int step = 0; step < steps; ++step) {
         wall += 37 * kMillisecond;
         RemoteMarket& remote = client.remote;
         const Price mid = remote.market().lastTrade.value_or(1'000);
@@ -135,6 +147,17 @@ TEST(RemoteMarketTest, TheClientSeesWhatTheServerKnows) {
             client.advance(wall);
         }
     }
+    return wall;
+}
+
+TEST(RemoteMarketTest, TheClientSeesWhatTheServerKnows) {
+    Connected client;
+    ASSERT_TRUE(client.remote.welcomed());
+    EXPECT_TRUE(client.remote.started());
+    EXPECT_EQ(client.remote.ledger().cash(), 500);
+    EXPECT_EQ(client.remote.ledger().position(), 3);
+
+    const std::int64_t wall = tradeFor(client, 0, 200);
     // Let everything in flight land.
     client.advance(wall + 50 * kMillisecond);
     ASSERT_FALSE(client.gateway.finished());
@@ -142,6 +165,25 @@ TEST(RemoteMarketTest, TheClientSeesWhatTheServerKnows) {
     EXPECT_LE(client.remote.now(), client.simulation().now()); // the last message it got
     expectSameLedger(client.remote.ledger(), client.simulation().ledger(client.seat().agent));
     EXPECT_EQ(client.remote.market(), client.simulation().marketSeenBy(client.seat().agent));
+}
+
+// Through a trading day too: auctions, where market orders are turned away, and the phase and
+// the indicative price, which the client must see as the server does.
+TEST(RemoteMarketTest, TheClientSeesTheTradingDayAsTheServerDoes) {
+    Connected client{kDay};
+    std::int64_t wall = 0;
+    for (const auto& [steps, expected] :
+         {std::pair{30, Phase::OpeningAuction}, std::pair{200, Phase::Continuous},
+          std::pair{50, Phase::ClosingAuction}}) {
+        wall = tradeFor(client, wall, steps) + 50 * kMillisecond;
+        client.advance(wall);
+        EXPECT_EQ(client.remote.market().phase, expected);
+        expectSameLedger(client.remote.ledger(),
+                         client.simulation().ledger(client.seat().agent));
+        EXPECT_EQ(client.remote.market(),
+                  client.simulation().marketSeenBy(client.seat().agent));
+    }
+    EXPECT_TRUE(client.remote.market().indicative.has_value());
 }
 
 TEST(RemoteMarketTest, AClientClaimingTheSeatAgainCarriesOn) {

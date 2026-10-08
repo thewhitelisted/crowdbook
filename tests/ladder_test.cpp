@@ -135,6 +135,17 @@ TEST(LadderTest, AScreenConnectedToAServedMarketShowsItsSeat) {
     EXPECT_EQ(lines[lines.size() - 2], "c cancel here  C cancel all  q quit");
 }
 
+TEST(LadderTest, ShowsWhereTheDayIsAndWhereAnAuctionStands) {
+    Fixture fixture;
+    fixture.screen.market.phase = Phase::OpeningAuction;
+    fixture.screen.market.indicative = Uncross{.price = 100, .volume = 12};
+    EXPECT_EQ(ladder::render(fixture.screen)[0],
+              "crowdbook  01:05.3 of 10:00.0  speed 2x  running  opening auction: 12 at 100");
+    fixture.screen.market.phase = Phase::Closed;
+    fixture.screen.market.indicative.reset();
+    EXPECT_TRUE(ladder::render(fixture.screen)[0].ends_with("running  closed"));
+}
+
 TEST(LadderTest, ShowsTheBestPricesWithoutADepthFeed) {
     Fixture fixture;
     fixture.screen.market.bids.clear();

@@ -34,8 +34,8 @@ class Momentum(crowdbook.Bot):
 
     def on_wakeup(self, tag):
         self.wake_after(self.interval)
-        if self.fast is None:
-            return
+        if self.fast is None or self.book.phase != "continuous":
+            return  # market orders cannot wait for an auction
         # Orders in flight count, so that a burst of decisions cannot overshoot the limit.
         held = (self.ledger.position + self.ledger.open_quantity("buy")
                 - self.ledger.open_quantity("sell"))

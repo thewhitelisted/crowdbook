@@ -41,4 +41,12 @@ void Participant::onDepth(AgentContext& context, const BookDepth& depth) {
     relay(context, depth);
 }
 
+void Participant::onPhase(AgentContext& context, const PhaseChanged& phase) {
+    relay(context, phase);
+}
+
+void Participant::onIndicative(AgentContext& context, const Indicative& indicative) {
+    relay(context, indicative);
+}
+
 } // namespace crowdbook

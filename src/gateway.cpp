@@ -323,6 +323,8 @@ struct Gateway::State {
             .depthLevels = scenario.exchange.depthLevels,
             .makerFee = scenario.exchange.makerFee,
             .takerFee = scenario.exchange.takerFee,
+            .auctionFee = scenario.exchange.auctionFee,
+            .phase = sim.marketSeenBy(market.seats[seat].agent).phase,
             .latency = scenario.participant.latency,
             .account = {.initialCash = account.initialCash,
                         .initialPosition = account.initialPosition,
@@ -477,12 +479,13 @@ struct Gateway::State {
             return;
         }
         if (pacer) {
-            const Timestamp target = std::min(pacer->simulatedAt(wallNow), scenario.duration);
+            const Timestamp end = sessionEnd(scenario);
+            const Timestamp target = std::min(pacer->simulatedAt(wallNow), end);
             if (target > simulation().now()) {
                 market.run.runUntil(target);
             }
             stopLosers(wallNow);
-            if (simulation().now() >= scenario.duration) {
+            if (simulation().now() >= end) {
                 finish(wallNow);
                 return;
             }

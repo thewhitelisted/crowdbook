@@ -109,14 +109,22 @@ std::vector<std::string> render(const Screen& screen) {
     std::vector<std::string> lines;
     const std::size_t width = screen.columns;
 
+    // In a market with a trading day, where the day is, and in an auction where it stands.
+    std::string day;
+    if (screen.market.phase != Phase::Continuous) {
+        day = std::format("  {}", toString(screen.market.phase));
+        if (const auto& indicative = screen.market.indicative) {
+            day += std::format(": {} at {}", indicative->volume, indicative->price);
+        }
+    }
     if (screen.seat.empty()) {
-        lines.push_back(fit(std::format("crowdbook  {} of {}  speed {}x  {}", clock(screen.now),
+        lines.push_back(fit(std::format("crowdbook  {} of {}  speed {}x  {}{}", clock(screen.now),
                                         clock(screen.end), screen.speed,
-                                        screen.paused ? "PAUSED" : "running"),
+                                        screen.paused ? "PAUSED" : "running", day),
                             width));
     } else {
-        lines.push_back(fit(std::format("crowdbook  {} of {}  seat {}", clock(screen.now),
-                                        clock(screen.end), screen.seat),
+        lines.push_back(fit(std::format("crowdbook  {} of {}  seat {}{}", clock(screen.now),
+                                        clock(screen.end), screen.seat, day),
                             width));
     }
     if (screen.ledger != nullptr) {

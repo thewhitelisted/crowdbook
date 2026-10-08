@@ -546,6 +546,8 @@ Welcome readWelcome(Fields& fields) {
                     .depthLevels = count(fields, "depth_levels"),
                     .makerFee = fields.integer("maker_fee"),
                     .takerFee = fields.integer("taker_fee"),
+                    .auctionFee = fields.integer("auction_fee", 0),
+                    .phase = fields.choice("phase", kPhases),
                     .latency = readLatency(fields.required("latency")),
                     .account = readAccount(fields.required("account"))};
     for (const json::Value& value : fields.array("orders")) {
@@ -724,7 +726,9 @@ std::string encode(const ServerMessage& message) {
                            .field("reference_price", m.referencePrice)
                            .field("depth_levels", static_cast<std::uint64_t>(m.depthLevels))
                            .field("maker_fee", m.makerFee)
-                           .field("taker_fee", m.takerFee);
+                           .field("taker_fee", m.takerFee)
+                           .field("auction_fee", m.auctionFee)
+                           .field("phase", nameOf(m.phase, kPhases));
                        ObjectWriter{writer.open("latency")}
                            .field("to_exchange", m.latency.toExchange)
                            .field("from_exchange", m.latency.fromExchange)

@@ -102,6 +102,16 @@ class DecodeTest(unittest.TestCase):
                                 '"pnl":0,"score":null}')
         self.assertIsNone(plain.score)
 
+    def test_the_trading_day(self):
+        self.assertEqual(
+            protocol.decode('{"type":"phase","time":5,"phase":"continuous","price":10002}'),
+            protocol.PhaseChange(time=5, phase="continuous", price=10002))
+        self.assertEqual(
+            protocol.decode('{"type":"indicative","time":6,"price":null,"volume":0,'
+                            '"imbalance":0}').price, None)
+        self.assertTrue(protocol.decode('{"type":"trade","time":7,"price":1,"quantity":2,'
+                                        '"aggressor":"buy","auction":true}').auction)
+
     def test_fields_a_newer_server_adds_are_ignored(self):
         self.assertEqual(protocol.decode('{"type":"clock","time":5,"sequence":12}').time, 5)
 

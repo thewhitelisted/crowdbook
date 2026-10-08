@@ -13,6 +13,7 @@ void RemoteMarket::apply(const protocol::ServerMessage& message) {
         welcome_ = *welcome;
         started_ = welcome->started;
         now_ = welcome->time;
+        market_.phase = welcome->phase;
         // A seat claimed again carries on with the balances and orders it had.
         ledger_ = Ledger{welcome->account.cash, welcome->account.position, welcome->account.fees};
         for (const OwnOrder& own : welcome->orders) {
@@ -55,6 +56,13 @@ void RemoteMarket::apply(const protocol::ServerMessage& message) {
         } else if (const auto* depth = std::get_if<BookDepth>(&market->event)) {
             market_.bids = depth->bids;
             market_.asks = depth->asks;
+        } else if (const auto* phase = std::get_if<PhaseChanged>(&market->event)) {
+            market_.phase = phase->phase;
+            if (!isAuction(phase->phase)) {
+                market_.indicative.reset();
+            }
+        } else if (const auto* indicative = std::get_if<Indicative>(&market->event)) {
+            market_.indicative = indicative->uncross;
         }
     } else if (const auto* end = std::get_if<protocol::End>(&message)) {
         end_ = *end;

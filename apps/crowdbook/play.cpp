@@ -80,7 +80,7 @@ public:
         Simulation& simulation = market_.run.simulation();
         Pacer pacer{wallNow(), simulation.now(), speed};
         while (true) {
-            const Timestamp target = std::min(pacer.simulatedAt(wallNow()), scenario_.duration);
+            const Timestamp target = std::min(pacer.simulatedAt(wallNow()), sessionEnd(scenario_));
             if (target > simulation.now()) {
                 market_.run.runUntil(target);
             }
@@ -127,7 +127,7 @@ private:
     }
 
     [[nodiscard]] bool over() const {
-        return market_.run.simulation().now() >= scenario_.duration;
+        return market_.run.simulation().now() >= sessionEnd(scenario_);
     }
 
     // With a loss limit, a seat whose loss reached it has its orders cancelled and trades no

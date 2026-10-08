@@ -10,9 +10,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 from . import protocol
-from .protocol import (Accepted, Cancel, Cancelled, ClientMessage, Clock, Depth, End, Error,
-                       Filled, Hello, Level, Modified, Modify, NewOrder, OrderEvent, Rejected,
-                       ServerMessage, Side, Start, TimeInForce, Top, Trade, Welcome)
+from .protocol import (AUCTIONS, Accepted, Cancel, Cancelled, ClientMessage, Clock, Depth, End,
+                       Error, Filled, Hello, Indicative, Level, Modified, Modify, NewOrder,
+                       OrderEvent, PhaseChange, Rejected, ServerMessage, Side, Start,
+                       TimeInForce, Top, Trade, Welcome)
 
 
 @dataclass
@@ -88,7 +89,8 @@ class Ledger:
 
 
 class Book:
-    """The public market as the client has heard it: best prices, depth, the last trade."""
+    """The public market as the client has heard it: best prices, depth, the last trade, and in
+    a market with a trading day its phase and, during an auction, the indicative price."""
 
     def __init__(self) -> None:
         self.bid: Optional[Level] = None
@@ -98,9 +100,21 @@ class Book:
         self.last_price: Optional[int] = None
         self.trades = 0
         self.volume = 0
+        self.phase = "continuous"
+        self.indicative: Optional[Indicative] = None
+
+    @property
+    def in_auction(self) -> bool:
+        return self.phase in AUCTIONS
 
     def apply(self, message: ServerMessage) -> None:
-        if isinstance(message, Trade):
+        if isinstance(message, PhaseChange):
+            self.phase = message.phase
+            if not self.in_auction:
+                self.indicative = None
+        elif isinstance(message, Indicative):
+            self.indicative = message if message.price is not None else None
+        elif isinstance(message, Trade):
             self.last_price = message.price
             self.trades += 1
             self.volume += message.quantity
@@ -188,6 +202,8 @@ class Bot:
     def on_trade(self, trade: Trade) -> None: ...
     def on_top(self, top: Top) -> None: ...
     def on_depth(self, depth: Depth) -> None: ...
+    def on_phase(self, phase: PhaseChange) -> None: ...
+    def on_indicative(self, indicative: Indicative) -> None: ...
     def on_accepted(self, event: Accepted) -> None: ...
     def on_rejected(self, event: Rejected) -> None: ...
     def on_modified(self, event: Modified) -> None: ...
@@ -258,6 +274,7 @@ class Bot:
                     acknowledged=order.acknowledged, cancel_requested=order.cancel_requested)
                 self._next_id = max(self._next_id, order.id + 1)
             self.now = message.time
+            self.book.phase = message.phase
             if message.started:
                 self.started = True
                 self.on_start()
@@ -279,14 +296,18 @@ class Bot:
                        Modified: self.on_modified, Filled: self.on_filled,
                        Cancelled: self.on_cancelled}[type(message)]
             handler(message)  # type: ignore[operator]
-        elif isinstance(message, (Trade, Top, Depth)):
+        elif isinstance(message, (Trade, Top, Depth, PhaseChange, Indicative)):
             self.book.apply(message)
             if isinstance(message, Trade):
                 self.on_trade(message)
             elif isinstance(message, Top):
                 self.on_top(message)
-            else:
+            elif isinstance(message, Depth):
                 self.on_depth(message)
+            elif isinstance(message, PhaseChange):
+                self.on_phase(message)
+            else:
+                self.on_indicative(message)
         while self._timers and self._timers[0][0] <= self.now and self.ended is None:
             _, _, tag = heapq.heappop(self._timers)
             self.on_wakeup(tag)

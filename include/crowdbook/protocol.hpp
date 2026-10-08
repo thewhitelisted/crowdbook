@@ -78,6 +78,8 @@ struct Welcome {
     std::size_t depthLevels = 0;
     Fee makerFee = 0;
     Fee takerFee = 0;
+    Fee auctionFee = 0;
+    Phase phase = Phase::Continuous; // the market's phase as the seat sees it now
     Latency latency{};
     AccountState account{};
     std::vector<OwnOrder> orders{}; // the seat's live orders, by the client's ids

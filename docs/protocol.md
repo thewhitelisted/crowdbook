@@ -96,7 +96,8 @@ exchange produced them, in the order the exchange produced them.
 
 ```json
 {"type":"welcome","protocol":1,"seat":"alice","started":false,"time":0,"duration":60000000000,
- "reference_price":10000,"depth_levels":10,"maker_fee":0,"taker_fee":0,
+ "reference_price":10000,"depth_levels":10,"maker_fee":0,"taker_fee":0,"auction_fee":0,
+ "phase":"continuous",
  "latency":{"to_exchange":1000000,"from_exchange":1000000,"jitter":0},
  "account":{"initial_cash":0,"initial_position":0,"cash":0,"position":0,"fees":0,
             "max_position":50,"max_order_quantity":10},
@@ -107,7 +108,8 @@ exchange produced them, in the order the exchange produced them.
 ```
 
 Sent on one line. `duration` is the market's length, `depth_levels` the levels per side in
-`depth` messages (0 for none), and `maker_fee` and `taker_fee` are per lot. `account` gives the
+`depth` messages (0 for none), and `maker_fee`, `taker_fee` and `auction_fee` are per lot.
+`phase` is where the market is in its trading day, as `phase` messages name it. `account` gives the
 seat's starting balances, its balances now and its limits, and `orders` its live orders, each as
 `{"id","order_id","side","order_type","price","leaves","acknowledged","cancel_requested"}`, so a
 client claiming a seat again can carry on.
@@ -142,7 +144,8 @@ no limit), and `target`, if not `null`, is
 
 `request` is `new`, `cancel` or `modify`. `reason` is one of `non-positive-quantity`,
 `invalid-price`, `order-size-limit`, `position-limit`, `duplicate-client-order-id`,
-`unknown-order-id`, `post-only-would-trade`, `loss-limit` or `rate-limit`. The gateway itself rejects a new order whose id is
+`unknown-order-id`, `post-only-would-trade`, `loss-limit`, `rate-limit`, `auction-order-type`
+(a market, immediate-or-cancel or post-only order in an auction) or `market-closed`. The gateway itself rejects a new order whose id is
 live and a cancel or modify whose id is not, at once and without the latency, and once a seat's
 loss limit has stopped it, every new order and modify with `loss-limit`, and any new order,
 cancel or modify over the connection's limit of messages per second with `rate-limit`; the
@@ -160,7 +163,8 @@ exchange rejects everything else.
 {"type":"filled","time":3000000,"id":17,"order_id":4211,"side":"buy","price":10004,"quantity":2,"leaves":1,"liquidity":"maker","fee":0}
 ```
 
-`leaves` is what is still open; `liquidity` is `maker` or `taker`; `fee` is charged for this fill,
+`leaves` is what is still open; `liquidity` is `maker`, `taker` or `auction`, for a fill in an
+auction's uncross; `fee` is charged for this fill,
 negative for a rebate.
 
 ### cancelled
@@ -178,7 +182,9 @@ that could not trade) or `self-trade`.
 {"type":"trade","time":3000000,"price":10004,"quantity":2,"aggressor":"sell"}
 ```
 
-Every trade in the market, anonymous.
+Every trade in the market, anonymous. A trade in an auction's uncross also has
+`"auction": true`; its `aggressor` is then the side of the newer of the two orders, since
+nobody crossed the spread.
 
 ### top
 
@@ -196,6 +202,26 @@ The best bid and ask, sent when either changes; `null` for an empty side.
 
 The best `depth_levels` levels on each side, best first, sent when any of them changes. Only for
 markets with a depth feed.
+
+### phase
+
+```json
+{"type":"phase","time":60000000000,"phase":"continuous","price":10002}
+```
+
+The market moved to another phase of its trading day: `opening-auction`, `continuous`, `halt`,
+`closing-auction` or `closed`. Leaving an auction, `price` is where it uncrossed, or `null` if
+nothing traded; otherwise `null`. Only markets with a trading day send these.
+
+### indicative
+
+```json
+{"type":"indicative","time":30000000000,"price":10001,"volume":40,"imbalance":-7}
+```
+
+During an auction, sent whenever it changes and once as the auction starts: the price the book
+would uncross at now, the lots that would trade, and the imbalance, positive when more is bid than
+offered at that price. `price` is `null`, and the others 0, while nothing would trade.
 
 ### clock
 

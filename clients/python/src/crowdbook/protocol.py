@@ -194,6 +194,8 @@ class Welcome:
     orders: tuple[OpenOrder, ...] = ()
     challenge: Optional[Challenge] = None
     scoring: Optional[Scoring] = None
+    auction_fee: int = 0
+    phase: str = "continuous"
 
 
 @dataclass(frozen=True)
@@ -263,6 +265,32 @@ class Trade:
     price: int
     quantity: int
     aggressor: Side
+    auction: bool = False  # part of an auction's uncross
+
+
+Phase = Literal["opening-auction", "continuous", "halt", "closing-auction", "closed"]
+AUCTIONS = ("opening-auction", "halt", "closing-auction")
+
+
+@dataclass(frozen=True)
+class PhaseChange:
+    """The market moved to another phase of its trading day; leaving an auction, `price` is
+    where it uncrossed."""
+
+    time: int
+    phase: Phase
+    price: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class Indicative:
+    """During an auction: where the book would uncross now; `price` is None while nothing
+    would trade."""
+
+    time: int
+    price: Optional[int]
+    volume: int
+    imbalance: int
 
 
 @dataclass(frozen=True)
@@ -297,7 +325,7 @@ class Error:
 
 OrderEvent = Union[Accepted, Rejected, Modified, Filled, Cancelled]
 ServerMessage = Union[Welcome, Start, Clock, Accepted, Rejected, Modified, Filled, Cancelled,
-                      Trade, Top, Depth, End, Error]
+                      Trade, Top, Depth, PhaseChange, Indicative, End, Error]
 
 
 def _fields(cls, body: dict) -> dict:
@@ -325,7 +353,7 @@ def _scoring(body: Optional[dict]) -> Optional[Scoring]:
 _SIMPLE = {
     "start": Start, "clock": Clock, "accepted": Accepted, "rejected": Rejected,
     "modified": Modified, "filled": Filled, "cancelled": Cancelled, "trade": Trade,
-    "error": Error,
+    "phase": PhaseChange, "indicative": Indicative, "error": Error,
 }
 
 

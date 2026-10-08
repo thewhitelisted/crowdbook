@@ -29,6 +29,8 @@ class Twap(crowdbook.Bot):
 
     def on_wakeup(self, tag):
         self.wake_after(self.interval)
+        if self.book.phase != "continuous":
+            return  # its market orders cannot wait for an auction; the order waits
         span = self.finish_early * (self.settings.duration - self.start)
         due = min(self.quantity, round(self.quantity * (self.now - self.start) / span))
         sign = 1 if self.side == "buy" else -1

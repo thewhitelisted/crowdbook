@@ -1,8 +1,8 @@
 import unittest
 
 from crowdbook import Book, Ledger
-from crowdbook.protocol import (Accepted, Cancel, Cancelled, Depth, Filled, Level, Modified,
-                                NewOrder, Rejected, Top, Trade)
+from crowdbook.protocol import (Accepted, Cancel, Cancelled, Depth, Filled, Indicative, Level,
+                                Modified, NewOrder, PhaseChange, Rejected, Top, Trade)
 
 
 def bid(order_id, price, quantity):
@@ -63,6 +63,16 @@ class LedgerTest(unittest.TestCase):
 
 
 class BookTest(unittest.TestCase):
+    def test_keeps_the_phase_and_the_indicative_price(self):
+        book = Book()
+        book.apply(PhaseChange(time=0, phase="opening-auction"))
+        self.assertTrue(book.in_auction)
+        book.apply(Indicative(time=1, price=100, volume=5, imbalance=2))
+        self.assertEqual(book.indicative.price, 100)
+        book.apply(PhaseChange(time=2, phase="continuous", price=100))
+        self.assertFalse(book.in_auction)
+        self.assertIsNone(book.indicative)
+
     def test_keeps_the_best_prices_the_depth_and_the_last_trade(self):
         book = Book()
         self.assertIsNone(book.mid)

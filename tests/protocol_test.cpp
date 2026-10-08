@@ -55,6 +55,8 @@ std::vector<ServerMessage> serverMessages() {
                                 .fees = 1'000,
                                 .maxPosition = 50,
                                 .maxOrderQuantity = 10}};
+    welcome.phase = Phase::HaltAuction;
+    welcome.auctionFee = 50;
     welcome.orders.push_back({.clientOrderId = 4,
                               .orderId = 99,
                               .side = Side::Sell,
@@ -140,6 +142,27 @@ std::vector<ServerMessage> serverMessages() {
                            .unfinishedLots = 3,
                            .stoppedAt = 77}},
         End{.time = 2, .score = Score{}},
+        MarketMessage{.time = 12,
+                      .event = PhaseChanged{.phase = Phase::OpeningAuction}},
+        MarketMessage{.time = 13,
+                      .event = PhaseChanged{.phase = Phase::Continuous, .price = 10'002}},
+        MarketMessage{.time = 14, .event = Indicative{}},
+        MarketMessage{.time = 15,
+                      .event = Indicative{.uncross = Uncross{
+                                              .price = 10'001, .volume = 40, .imbalance = -7}}},
+        MarketMessage{.time = 16,
+                      .event = Trade{.price = 10'001,
+                                     .quantity = 3,
+                                     .aggressorSide = Side::Sell,
+                                     .auction = true}},
+        MarketMessage{.time = 17,
+                      .event = OrderFilled{.clientOrderId = 2,
+                                           .orderId = 9,
+                                           .side = Side::Buy,
+                                           .price = 10'001,
+                                           .quantity = 3,
+                                           .liquidity = Liquidity::Auction,
+                                           .fee = 150}},
         Error{.message = "unknown field 'qty'\n\"quoted\"", .fatal = true},
     };
 }
@@ -179,7 +202,8 @@ TEST(Protocol, DecodesTheSpecificationsExamples) {
     EXPECT_NO_THROW(static_cast<void>(decodeServer(
         R"({"type":"welcome","protocol":1,"seat":"alice","started":false,"time":0,)"
         R"("duration":60000000000,"reference_price":10000,"depth_levels":10,"maker_fee":0,)"
-        R"("taker_fee":0,"latency":{"to_exchange":1000000,"from_exchange":1000000,"jitter":0},)"
+        R"("taker_fee":0,"auction_fee":0,"phase":"continuous",)"
+        R"("latency":{"to_exchange":1000000,"from_exchange":1000000,"jitter":0},)"
         R"("account":{"initial_cash":0,"initial_position":0,"cash":0,"position":0,"fees":0,)"
         R"("max_position":50,"max_order_quantity":10},"orders":[],"challenge":null,)"
         R"("scoring":null})")));

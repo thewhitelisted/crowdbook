@@ -105,6 +105,49 @@ class Tester(crowdbook.Bot):
     on_accepted = on_rejected = on_filled = on_cancelled = on_modified = record
 
 
+DAY = """
+duration = "30s"
+reference_price = 1000
+
+[trading_day]
+opening_auction = "5s"
+closing_auction = "5s"
+
+[participant]
+latency = { to_exchange = "1ms", from_exchange = "1ms" }
+account = { max_position = 50, max_order_quantity = 10 }
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 20
+limit_rate = 3.0
+market_rate = 1.0
+"""
+
+
+class AuctionBuyer(crowdbook.Bot):
+    """Bids through the indicative price in each auction, and notes the day as it goes."""
+
+    def __init__(self):
+        super().__init__()
+        self.phases = []
+        self.fills = []
+        self.bid_in = set()
+
+    def on_phase(self, phase):
+        self.phases.append(phase.phase)
+
+    def on_indicative(self, indicative):
+        phase = self.book.phase
+        if indicative.price is not None and phase not in self.bid_in:
+            self.bid_in.add(phase)
+            self.buy(indicative.price + 5, 2)
+
+    def on_filled(self, fill):
+        self.fills.append(fill)
+
+
 def example(name):
     """One of the example bots' modules."""
     spec = importlib.util.spec_from_file_location(name, EXAMPLES / f"{name}.py")
@@ -178,6 +221,19 @@ class LiveTest(unittest.TestCase):
             self.assertEqual((bot.ledger.position, bot.ledger.cash),
                              (ends[seat].position, ends[seat].cash), seat)
         self.assertGreater(bots["maker2"].book.trades, 0)
+
+    def test_a_bot_trades_through_a_trading_day(self):
+        bot = AuctionBuyer()
+        with served(self.directory, DAY, "--speed", "15") as port:
+            end = crowdbook.run(bot, port=port)
+        self.assertIsNotNone(end)
+        self.assertEqual(bot.phases, ["opening-auction", "continuous", "closing-auction",
+                                      "closed"])
+        self.assertTrue(any(fill.liquidity == "auction" for fill in bot.fills))
+        self.assertEqual((bot.ledger.position, bot.ledger.cash), (end.position, end.cash))
+        replay = subprocess.run([CROWDBOOK, "replay", str(self.directory / "session.toml")],
+                                capture_output=True, text=True)
+        self.assertEqual(replay.returncode, 0, replay.stderr)
 
     def test_the_example_bots_play_every_challenge(self):
         players = {"market_making": lambda: example("market_maker").MarketMaker(),

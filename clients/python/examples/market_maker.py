@@ -27,6 +27,9 @@ class MarketMaker(crowdbook.Bot):
         self.quote()
 
     def quote(self):
+        self.wake_after(self.requote)
+        if self.book.phase != "continuous":
+            return  # post-only quotes cannot rest in an auction, and nothing trades after the close
         self.cancel_all()
         middle = self.book.mid or self.book.last_price or self.settings.reference_price
         # Lean against the position: holding shares lowers both quotes, to sell more and buy less.
@@ -41,7 +44,6 @@ class MarketMaker(crowdbook.Bot):
             self.buy(center - self.half_spread, self.size, "post-only")
         if self.ledger.position - selling - self.size >= -limit:
             self.sell(center + self.half_spread, self.size, "post-only")
-        self.wake_after(self.requote)
 
 
 def main():

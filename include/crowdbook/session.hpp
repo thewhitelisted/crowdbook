@@ -69,6 +69,11 @@ struct Session {
     friend bool operator==(const Session&, const Session&) = default;
 };
 
+// When a live session of the scenario ends: at its duration, or with a trading day once the
+// close and the closing auction's fills, made at the duration, have reached the participants.
+// The market is closed by then, so nothing more trades.
+[[nodiscard]] Timestamp sessionEnd(const Scenario& scenario) noexcept;
+
 // The scenario a session ran: its text, with the session's seed and duration.
 [[nodiscard]] Scenario sessionScenario(const Session& session);
 
