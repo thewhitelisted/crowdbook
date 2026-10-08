@@ -25,7 +25,7 @@ own bot, and that tells you the truth afterwards. One engine serves four uses:
   reproducible from its seed and its recorded inputs.
 
 "Realistic" has a finish line: a scorecard of statistics measured the same way on the simulated
-market and on a real one (M17).
+market and on a real one (M18).
 
 Out of scope: connecting to real exchanges or trading real money, and multiple instruments or
 venues until the single-instrument market is calibrated.
@@ -197,6 +197,31 @@ without one, the market trades continuously from start to end, as before.
 - **VWAP:** a third execution style paces a parent order by the same curve, so it trades more
   when the market is expected to be busy, which is what tracking the day's VWAP means.
 
+## Prediction markets
+
+A scenario with a `[prediction]` section is a market on one yes-or-no question, such as an
+election or a game, the kind Polymarket and Kalshi run. Everything else about the market is the
+same: the exchange, the agents, the trading day, scoring and reports.
+
+- **Prices** are cents, 1 to 99: a share pays 100 if the answer is yes and nothing if it is no.
+  The exchange takes no limit price above 99.
+- **The true value is the probability of yes**, in cents. The question's answer is decided by a
+  hidden quantity that wanders, with news that moves it in jumps, and the answer is yes if it
+  ends above zero. The true value at any moment is the probability, given everything so far, that
+  it will: Φ(x / √(remaining share of the run)), with x the hidden quantity measured in units of
+  the whole run's uncertainty. That makes the value a fair price that moves the way real ones do:
+  slowly while much is unknown, and in larger and larger steps as resolution comes near, until at
+  the end it is 0 or 100. The run starts with the hidden quantity where the probability is the
+  scenario's starting one.
+- **Resolution is the end of the run.** Positions are worth 100 or 0 a share from then on, which
+  is how scoring at the true value and the reports already value them; the results add each
+  group's PnL at resolution beside its PnL at the last price.
+- **Agents need nothing new.** Informed traders see the probability with noise, as they see any
+  true value; every agent keeps its prices within the exchange's limits.
+- **Normal probabilities** are computed with Marsaglia's series for Φ and the deterministic
+  `math::exp`, and its inverse, needed once for the starting point, by bisection, so the path is
+  the same on every platform.
+
 ## Simulation
 
 `Simulation` is the discrete-event kernel. It owns the exchange and the agents, and works through
@@ -294,7 +319,7 @@ byte for byte. [protocol.md](protocol.md) specifies the messages.
   every seat is claimed.
 - **Messages and their encoding are separate.** The protocol is a set of message types, and the
   encoding turns them into bytes. The first encoding is JSON, one message per line: any language
-  can speak it, and a person can read it. A binary encoding and FIX come later (M18) as other
+  can speak it, and a person can read it. A binary encoding and FIX come later (M19) as other
   encodings of the same messages. Every number on the wire is an integer, as in the engine.
 - **Order ids:** a client names its orders with its own ids, as with FIX's ClOrdID, so it can
   cancel an order it has only just sent. The gateway gives each new order a fresh client order id
@@ -307,7 +332,7 @@ byte for byte. [protocol.md](protocol.md) specifies the messages.
   The recording keeps that time and the seat, so a replay sends it at the same moment from the
   same agent. Real network delay therefore adds to the simulated one, scaled by the speed: at 50
   times real time, a millisecond on the wire is 50 simulated milliseconds. That is inherent to
-  trading in real time; the learning environment (M19) will step the market in lockstep instead.
+  trading in real time; the learning environment (M20) will step the market in lockstep instead.
 - **Untrusted input:** a line longer than 4 KiB, a malformed message, an unknown field or a value
   out of range gets an error message and is dropped. Each connection may send a limited number of
   messages per second of wall-clock time; messages over the limit are dropped before they reach
@@ -746,6 +771,9 @@ Choices for later milestones may change once they are implemented; changes are r
 | Library | Four CMake targets, installed with a package config; formats versioned apart from the library | A host links only what it uses; a file's version changes only when its format does |
 | Compatibility | Old session files replay in CI with their logs and scores pinned | A change to how markets behave has to be made on purpose |
 | Container | A two-stage image with the command linked to its C++ runtime, run as a non-root user | Small, and the same everywhere it runs |
+| Prediction markets | One YES book priced 1 to 99, resolving to 0 or 100; no separate NO book | A YES bid is a NO offer: one book trades the same way, without the machinery of complementary shares |
+| A prediction's true value | The probability that a hidden walk with news ends above zero | A fair price by construction, which converges as resolution nears, so prices can be checked for calibration |
+| Calibration data | Free for commercial use: Polymarket's trades from its public blockchain first | Data a product built on crowdbook can use; exchange feeds' terms limit them to personal or research use |
 | Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |
 | Zero-intelligence cancellation | Each resting order has its own exponential lifetime | A fixed rate per trader let the book grow without limit and pinned the price |
 | Timers | Agents on a fixed timer start it at a random point in the first interval | Agents started together otherwise act in lockstep for the whole run |
@@ -790,18 +818,19 @@ Choices for later milestones may change once they are implemented; changes are r
 | M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Done |
 | M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Planned (hosted product) |
 | M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Done |
-| M17 | Calibration: the same statistics on real order-book data, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Next |
-| M18 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Planned |
-| M19 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules | A learning agent's runs reproduce from their seeds; throughput benchmark | Planned |
-| M20 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
-| M21 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |
-| M22 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Planned |
-| M23 | Options research and challenges: whether a volatility smile emerges from supply and demand, dealers' hedging feeding back into the stock, pinning at expiry; an options market-making challenge | Results in results.md; the challenge playable through the gateway | Planned |
+| M17 | Prediction markets: a market type on a yes-or-no question, priced 1 to 99, whose true value is the probability of yes and which resolves to 0 or 100; news that moves it; scenarios and a challenge | Prices of informed markets are calibrated probabilities across many runs; volatility rises toward resolution; the value's process checked against its closed form | Next |
+| M18 | Calibration: the same statistics on real data, Polymarket's trades on its public blockchain first, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Planned |
+| M19 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Planned |
+| M20 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules | A learning agent's runs reproduce from their seeds; throughput benchmark | Planned |
+| M21 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
+| M22 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |
+| M23 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Planned |
+| M24 | Options research and challenges: whether a volatility smile emerges from supply and demand, dealers' hedging feeding back into the stock, pinning at expiry; an options market-making challenge | Results in results.md; the challenge playable through the gateway | Planned |
 | Later | One stock on several exchanges, ETFs and their constituents, rule-based agents | | |
 
 The order puts outside participants, scores and reports before more realism: every use above
 needs people and programs from outside to trade and get a result, and the realism work that
-follows (M16, M17) is then measured on the markets people actually use.
+follows (M16, M18) is then measured on the markets people actually use.
 
 ## Code conventions
 
