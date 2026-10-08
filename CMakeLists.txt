@@ -24,6 +24,9 @@ if(PROJECT_IS_TOP_LEVEL)
     set(CMAKE_CXX_EXTENSIONS OFF)
 endif()
 
+# Before any target: the installed headers' directory is part of the libraries' interface.
+include(GNUInstallDirs)
+
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(CrowdbookWarnings)
 include(CrowdbookSanitizers)

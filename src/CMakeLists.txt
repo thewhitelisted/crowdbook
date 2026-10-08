@@ -76,7 +76,6 @@ endif()
 # The installed package: the libraries, their headers, and a CMake config so that another project
 # can find_package(crowdbook) and link crowdbook::crowdbook, crowdbook::protocol and, with scenario
 # files, crowdbook::scenario and crowdbook::gateway.
-include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 set(installed crowdbook crowdbook_protocol)
 if(CROWDBOOK_BUILD_SCENARIOS)
