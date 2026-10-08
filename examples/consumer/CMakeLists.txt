@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.25)
 project(crowdbook_consumer LANGUAGES CXX)
 
-find_package(crowdbook 0.10 REQUIRED)
+find_package(crowdbook 0.11 REQUIRED)
 
 add_executable(consumer main.cpp)
 target_link_libraries(consumer PRIVATE crowdbook::gateway)
