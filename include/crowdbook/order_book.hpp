@@ -14,17 +14,6 @@
 
 namespace crowdbook {
 
-// The single price an auction's book trades at when it uncrosses, and what trades there.
-struct Uncross {
-    Price price = 0;
-    Quantity volume = 0; // lots that trade
-    // Lots bid at the price or better less lots offered at the price or better: what is left
-    // over on the buying side when positive, on the selling side when negative.
-    Quantity imbalance = 0;
-
-    friend bool operator==(const Uncross&, const Uncross&) = default;
-};
-
 // Limit order book for one instrument, matching with price-time priority.
 //
 // The book does not assign order ids or decide who may cancel what; the exchange does both before

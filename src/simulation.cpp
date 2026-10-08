@@ -193,12 +193,33 @@ void Simulation::process(const Wakeup& wakeup) {
     slot(wakeup.agent).agent->onWakeup(context, wakeup.tag);
 }
 
+void Simulation::schedulePhase(Timestamp time, Phase phase) {
+    if (time < now_) {
+        throw std::invalid_argument(
+            std::format("a phase change at {} ns is in the past: it is {} ns", time, now_));
+    }
+    schedule(time).emplace<PhaseAction>(PhaseAction{.phase = phase});
+}
+
+void Simulation::process(const PhaseAction& action) {
+    if (action.endsHalt && exchange_.phase() != Phase::HaltAuction) {
+        return; // the closing auction, or the close, came first
+    }
+    events_.clear();
+    exchange_.setPhase(action.phase, events_);
+    dispatch();
+}
+
 void Simulation::process(const Arrival& arrival) {
     if (sink_ != nullptr) {
         sink_->onRequest(now_, arrival.sender, arrival.request);
     }
     events_.clear();
     exchange_.handle(arrival.sender, arrival.request, events_);
+    dispatch();
+}
+
+void Simulation::dispatch() {
     bool marketChanged = false;
     for (const Event& event : events_) {
         if (sink_ != nullptr) {
@@ -218,6 +239,18 @@ void Simulation::process(const Arrival& arrival) {
         } else if (const auto* depth = std::get_if<BookDepth>(&event)) {
             published_.bids = depth->bids;
             published_.asks = depth->asks;
+        } else if (const auto* phase = std::get_if<PhaseChanged>(&event)) {
+            published_.phase = phase->phase;
+            if (!isAuction(phase->phase)) {
+                published_.indicative.reset();
+            }
+            if (phase->phase == Phase::HaltAuction) {
+                schedule(now_ + exchange_.config().haltDuration)
+                    .emplace<PhaseAction>(
+                        PhaseAction{.phase = Phase::Continuous, .endsHalt = true});
+            }
+        } else if (const auto* indicative = std::get_if<Indicative>(&event)) {
+            published_.indicative = indicative->uncross;
         }
         marketChanged = true;
         for (const AgentId id : streamed_) {
@@ -267,6 +300,8 @@ void Simulation::process(const Delivery& delivery) {
             [&](const Trade& trade) { agent.onTrade(context, trade); },
             [&](const TopOfBook& top) { agent.onTopOfBook(context, top); },
             [&](const BookDepth& depth) { agent.onDepth(context, depth); },
+            [&](const PhaseChanged& phase) { agent.onPhase(context, phase); },
+            [&](const Indicative& indicative) { agent.onIndicative(context, indicative); },
         },
         delivery.event);
 }

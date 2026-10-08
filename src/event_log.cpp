@@ -88,14 +88,15 @@ void describeOrder(Row& row, OrderType type, TimeInForce timeInForce, Price pric
 } // namespace
 
 CsvEventLog::CsvEventLog(std::ostream& out, const std::vector<std::string>& kinds) : out_(out) {
-    constexpr std::array<std::string_view, 10> kKinds = {
-        "new",      "cancel",    "modify", "accepted", "rejected",
-        "modified", "cancelled", "filled", "trade",    "top_of_book"};
+    constexpr std::array<std::string_view, 12> kKinds = {
+        "new",      "cancel",    "modify", "accepted", "rejected",    "modified",
+        "cancelled", "filled",   "trade",  "top_of_book", "phase",    "indicative"};
     for (const std::string& kind : kinds) {
         if (std::ranges::find(kKinds, kind) == kKinds.end()) {
             throw std::invalid_argument(std::format(
                 "unknown log row kind '{}'; the kinds are new, cancel, modify, accepted, "
-                "rejected, modified, cancelled, filled, trade and top_of_book",
+                "rejected, modified, cancelled, filled, trade, top_of_book, phase and "
+                "indicative",
                 kind));
         }
         kinds_.insert(kind);
@@ -192,7 +193,23 @@ void CsvEventLog::onEvent(Timestamp time, const Event& event) {
                            .kind = "trade",
                            .side = toString(trade.aggressorSide),
                            .price = trade.price,
-                           .quantity = trade.quantity};
+                           .quantity = trade.quantity,
+                           .liquidity = trade.auction ? "auction" : ""};
+            },
+            [time](const PhaseChanged& phase) {
+                return Row{.time = time,
+                           .kind = "phase",
+                           .price = phase.price,
+                           .reason = toString(phase.phase)};
+            },
+            [time](const Indicative& indicative) {
+                Row result{.time = time, .kind = "indicative"};
+                if (indicative.uncross) {
+                    result.price = indicative.uncross->price;
+                    result.quantity = indicative.uncross->volume;
+                    result.leaves = indicative.uncross->imbalance;
+                }
+                return result;
             },
             [time](const TopOfBook& top) {
                 Row result{.time = time, .kind = "top_of_book"};

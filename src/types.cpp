@@ -104,6 +104,26 @@ std::string_view toString(RejectReason reason) noexcept {
         return "loss limit";
     case RejectReason::RateLimit:
         return "rate limit";
+    case RejectReason::AuctionOrderType:
+        return "auction order type";
+    case RejectReason::MarketClosed:
+        return "market closed";
+    }
+    return "unknown";
+}
+
+std::string_view toString(Phase phase) noexcept {
+    switch (phase) {
+    case Phase::Continuous:
+        return "continuous";
+    case Phase::OpeningAuction:
+        return "opening auction";
+    case Phase::HaltAuction:
+        return "halt";
+    case Phase::ClosingAuction:
+        return "closing auction";
+    case Phase::Closed:
+        return "closed";
     }
     return "unknown";
 }

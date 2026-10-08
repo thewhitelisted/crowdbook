@@ -53,6 +53,12 @@ public:
     // not owned. Pass nullptr to stop.
     void setEventSink(EventSink* sink) noexcept { sink_ = sink; }
 
+    // Moves the exchange to `phase` at `time`, as a scheduled action like any other: everything
+    // it produces is published and logged then. A halt schedules its own end, after the
+    // exchange's halt duration, which takes effect only if the market is still halted then.
+    // Throws std::invalid_argument for a time in the past.
+    void schedulePhase(Timestamp time, Phase phase);
+
     // Processes everything scheduled up to and including `endTime`, then moves the clock there.
     void runUntil(Timestamp endTime);
 
@@ -104,7 +110,12 @@ private:
         AgentId recipient = 0;
         Event event{};
     };
-    using Action = std::variant<Start, Wakeup, Arrival, Delivery>;
+    // The exchange moving to another phase. The end of a halt applies only to a halted market.
+    struct PhaseAction {
+        Phase phase = Phase::Continuous;
+        bool endsHalt = false;
+    };
+    using Action = std::variant<Start, Wakeup, Arrival, Delivery, PhaseAction>;
 
     // An entry in the queue: when, in what order among equal times, and where its action is kept.
     // The heap moves entries constantly, so they stay small and trivially copyable, and the
@@ -131,6 +142,10 @@ private:
     void process(const Wakeup& wakeup);
     void process(const Arrival& arrival);
     void process(const Delivery& delivery);
+    void process(const PhaseAction& action);
+    // Logs, delivers and publishes the events in events_, and schedules the end of a halt that
+    // one of them starts.
+    void dispatch();
     void recordPublicState();
     [[nodiscard]] MarketSnapshot visibleMarket(AgentId id) const;
 

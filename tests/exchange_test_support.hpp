@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 #include <ostream>
+#include <string>
 #include <vector>
 
 #include "crowdbook/exchange.hpp"
@@ -58,6 +59,20 @@ inline void PrintTo(const TopOfBook& event, std::ostream* os) {
     *os << ", ask ";
     printLevel(event.ask);
     *os << "}";
+}
+
+inline void PrintTo(const PhaseChanged& event, std::ostream* os) {
+    *os << "PhaseChanged{" << toString(event.phase) << " price ";
+    *os << (event.price ? std::to_string(*event.price) : std::string{"none"}) << '}';
+}
+
+inline void PrintTo(const Indicative& event, std::ostream* os) {
+    *os << "Indicative{";
+    if (event.uncross) {
+        *os << event.uncross->volume << " at " << event.uncross->price << " imbalance "
+            << event.uncross->imbalance;
+    }
+    *os << '}';
 }
 
 inline void PrintTo(const BookDepth& depth, std::ostream* os) {

@@ -97,6 +97,9 @@ public:
     virtual void onTopOfBook(AgentContext& /*context*/, const TopOfBook& /*top*/) {}
     // Streamed only when the exchange publishes a depth feed.
     virtual void onDepth(AgentContext& /*context*/, const BookDepth& /*depth*/) {}
+    // Streamed only in a market with a trading day.
+    virtual void onPhase(AgentContext& /*context*/, const PhaseChanged& /*phase*/) {}
+    virtual void onIndicative(AgentContext& /*context*/, const Indicative& /*indicative*/) {}
 };
 
 } // namespace crowdbook

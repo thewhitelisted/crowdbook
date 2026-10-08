@@ -229,3 +229,171 @@ INSTANTIATE_TEST_SUITE_P(Seeds, ExchangeRandomTest, ::testing::Range<std::uint64
 
 } // namespace
 } // namespace crowdbook
+
+namespace crowdbook {
+namespace {
+
+class TradingDayRandomTest : public ::testing::TestWithParam<std::uint64_t> {};
+
+// The same random requests through a trading day that changes phase at random: auctions in which
+// orders rest crossed and the book uncrosses, the close, and halts set off by trades outside a
+// narrow band. After every step and every phase change the exchange must pass its audit, the
+// public feed must agree with the book, the indicative price with a fresh calculation, and every
+// agent's ledger with its account.
+TEST_P(TradingDayRandomTest, AccountsBooksAndEventsStayConsistentThroughTheDay) {
+    std::mt19937_64 rng{GetParam()};
+    const auto below = [&rng](std::uint64_t bound) { return rng() % bound; };
+    const auto between = [&below](std::int64_t low, std::int64_t high) {
+        return low + static_cast<std::int64_t>(below(static_cast<std::uint64_t>(high - low + 1)));
+    };
+
+    Exchange exchange{{.depthLevels = 3,
+                       .makerFee = -150,
+                       .takerFee = 400,
+                       .auctionFee = 200,
+                       .referencePrice = 100,
+                       .haltBand = 3,
+                       .haltDuration = kSecond}};
+    std::map<AgentId, Ledger> ledgers;
+    std::map<AgentId, ClientOrderId> nextClientOrderId;
+    for (std::size_t i = 0; i < kConfigs.size(); ++i) {
+        const auto agent = static_cast<AgentId>(i + 1);
+        exchange.addAgent(agent, kConfigs[i]);
+        ledgers.emplace(agent, Ledger{kConfigs[i]});
+        nextClientOrderId[agent] = 1;
+    }
+    TopOfBook feed;
+    BookDepth depth;
+    std::optional<Uncross> indicative;
+    std::vector<Event> events;
+    int uncrosses = 0;
+    int halts = 0;
+
+    // Checks a batch of events and applies them to the subscribers' views.
+    const auto take = [&](const std::vector<Event>& batch) {
+        Quantity traded = 0;
+        Quantity takerFilled = 0;
+        Quantity auctionTraded = 0;
+        Quantity auctionFilled = 0;
+        for (const Event& event : batch) {
+            if (const std::optional<AgentId> to = recipient(event)) {
+                if (*to == kUnknownAgent) {
+                    continue;
+                }
+                ASSERT_NO_THROW(ledgers.at(*to).apply(event));
+                if (const auto* filled = std::get_if<OrderFilled>(&event)) {
+                    (filled->liquidity == Liquidity::Auction ? auctionFilled : takerFilled) +=
+                        filled->liquidity == Liquidity::Maker ? 0 : filled->quantity;
+                }
+            } else if (const auto* trade = std::get_if<Trade>(&event)) {
+                (trade->auction ? auctionTraded : traded) += trade->quantity;
+            } else if (const auto* top = std::get_if<TopOfBook>(&event)) {
+                feed = *top;
+            } else if (const auto* published = std::get_if<BookDepth>(&event)) {
+                depth = *published;
+            } else if (const auto* phase = std::get_if<PhaseChanged>(&event)) {
+                ASSERT_EQ(phase->phase, exchange.phase());
+                halts += phase->phase == Phase::HaltAuction ? 1 : 0;
+                if (!isAuction(phase->phase)) {
+                    indicative.reset();
+                }
+            } else {
+                indicative = std::get<Indicative>(event).uncross;
+            }
+        }
+        ASSERT_EQ(traded, takerFilled);
+        ASSERT_EQ(2 * auctionTraded, auctionFilled); // both sides of every auction trade
+        ASSERT_EQ(feed, exchange.topOfBook());
+        ASSERT_EQ(depth.bids, exchange.book().depth(Side::Buy, 3));
+        ASSERT_EQ(depth.asks, exchange.book().depth(Side::Sell, 3));
+        if (isAuction(exchange.phase())) {
+            ASSERT_EQ(indicative, exchange.book().indicative(exchange.reference()));
+        }
+        ASSERT_EQ(exchange.audit(), std::nullopt);
+        ASSERT_NO_FATAL_FAILURE(expectLedgersMatch(exchange, ledgers));
+    };
+
+    for (int step = 0; step < kStepsPerSeed; ++step) {
+        SCOPED_TRACE(std::format("seed {} step {} in {}", GetParam(), step,
+                                 toString(exchange.phase())));
+        if (below(30) == 0) {
+            constexpr std::array kPhases{Phase::Continuous, Phase::OpeningAuction,
+                                         Phase::HaltAuction, Phase::ClosingAuction,
+                                         Phase::Closed};
+            const Phase before = exchange.phase();
+            events.clear();
+            exchange.setPhase(kPhases[below(kPhases.size())], events);
+            ASSERT_NO_FATAL_FAILURE(take(events));
+            if (isAuction(before) && !isAuction(exchange.phase())) {
+                ++uncrosses;
+                ASSERT_EQ(exchange.book().indicative(exchange.reference()), std::nullopt)
+                    << "the book is still crossed after the uncross";
+            }
+            continue;
+        }
+
+        const AgentId agent =
+            below(50) == 0 ? kUnknownAgent : static_cast<AgentId>(1 + below(kConfigs.size()));
+        const auto pickClientOrderId = [&]() -> ClientOrderId {
+            const auto ledger = ledgers.find(agent);
+            if (ledger != ledgers.end() && !ledger->second.open().empty() && below(10) < 8) {
+                auto order = ledger->second.open().begin();
+                std::advance(order,
+                             static_cast<std::ptrdiff_t>(below(ledger->second.open().size())));
+                return order->first;
+            }
+            return 1'000'000 + below(1'000);
+        };
+
+        Request request;
+        const std::uint64_t action = below(100);
+        if (action < 60) {
+            NewOrder order{.clientOrderId = nextClientOrderId[agent]++,
+                           .side = below(2) == 0 ? Side::Buy : Side::Sell};
+            const std::uint64_t kind = below(10);
+            if (kind < 2) {
+                order.timeInForce = TimeInForce::ImmediateOrCancel;
+            } else if (kind < 4) {
+                order.type = OrderType::Market;
+            } else if (kind < 5) {
+                order.timeInForce = TimeInForce::PostOnly;
+            }
+            order.price = between(95, 105);
+            order.quantity = between(1, 30);
+            request = order;
+        } else if (action < 80) {
+            request = CancelOrder{.clientOrderId = pickClientOrderId()};
+        } else {
+            request = ModifyOrder{.clientOrderId = pickClientOrderId(),
+                                  .price = between(95, 105),
+                                  .quantity = between(1, 30)};
+        }
+
+        const Phase phase = exchange.phase();
+        events.clear();
+        exchange.handle(agent, request, events);
+        ASSERT_FALSE(events.empty());
+        ASSERT_EQ(recipient(events.front()), agent);
+        if (agent != kUnknownAgent) {
+            const auto* rejected = std::get_if<OrderRejected>(&events.front());
+            const auto* order = std::get_if<NewOrder>(&request);
+            if (phase == Phase::Closed && !std::holds_alternative<CancelOrder>(request)) {
+                ASSERT_TRUE(rejected != nullptr);
+                ASSERT_EQ(rejected->reason, RejectReason::MarketClosed);
+            } else if (isAuction(phase) && order != nullptr &&
+                       (order->type == OrderType::Market ||
+                        order->timeInForce != TimeInForce::GoodTillCancel)) {
+                ASSERT_TRUE(rejected != nullptr);
+                ASSERT_EQ(rejected->reason, RejectReason::AuctionOrderType);
+            }
+        }
+        ASSERT_NO_FATAL_FAILURE(take(events));
+    }
+    EXPECT_GT(uncrosses, 5);
+    EXPECT_GT(halts, 0);
+}
+
+INSTANTIATE_TEST_SUITE_P(Seeds, TradingDayRandomTest, ::testing::Range<std::uint64_t>(1, 31));
+
+} // namespace
+} // namespace crowdbook

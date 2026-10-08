@@ -120,6 +120,33 @@ enum class RejectReason : std::uint8_t {
     PostOnlyWouldTrade,     // a post-only order or modify would have traded on arrival
     LossLimit,              // a live participant stopped by its loss limit; never the exchange
     RateLimit,              // over a gateway's limit of messages per second; never the exchange
+    AuctionOrderType,       // a market, immediate-or-cancel or post-only order in an auction
+    MarketClosed,           // a new order or modify after the close
+};
+
+// Where the market is in its trading day.
+enum class Phase : std::uint8_t {
+    Continuous,     // orders trade as they arrive
+    OpeningAuction, // a call auction before the open
+    HaltAuction,    // a call auction after a halt
+    ClosingAuction, // a call auction before the close
+    Closed,         // nothing trades; only cancels are taken
+};
+
+[[nodiscard]] constexpr bool isAuction(Phase phase) noexcept {
+    return phase == Phase::OpeningAuction || phase == Phase::HaltAuction ||
+           phase == Phase::ClosingAuction;
+}
+
+// The single price an auction's book trades at when it uncrosses, and what trades there.
+struct Uncross {
+    Price price = 0;
+    Quantity volume = 0; // lots that trade
+    // Lots bid at the price or better less lots offered at the price or better: what is left
+    // over on the buying side when positive, on the selling side when negative.
+    Quantity imbalance = 0;
+
+    friend bool operator==(const Uncross&, const Uncross&) = default;
 };
 
 struct OrderResult {
@@ -158,6 +185,7 @@ struct LevelSummary {
 [[nodiscard]] std::string_view toString(OrderStatus status) noexcept;
 [[nodiscard]] std::string_view toString(CancelReason reason) noexcept;
 [[nodiscard]] std::string_view toString(RejectReason reason) noexcept;
+[[nodiscard]] std::string_view toString(Phase phase) noexcept;
 // A fee in tick-lots, written exactly: 1500 fee units is "1.5" and -250 is "-0.25".
 [[nodiscard]] std::string formatFee(Fee fee);
 

@@ -85,8 +85,9 @@ struct OrderModified {
 };
 
 enum class Liquidity : std::uint8_t {
-    Maker, // the order was resting
-    Taker, // the order was incoming
+    Maker,   // the order was resting
+    Taker,   // the order was incoming
+    Auction, // the order traded when an auction uncrossed
 };
 
 struct OrderFilled {
@@ -118,9 +119,29 @@ struct OrderCancelled {
 struct Trade {
     Price price = 0;
     Quantity quantity = 0;
+    // The incoming order's side; for a trade in an auction's uncross, which has none, the side
+    // of the newer of the two orders.
     Side aggressorSide = Side::Buy;
+    bool auction = false; // part of an auction's uncross
 
     friend bool operator==(const Trade&, const Trade&) = default;
+};
+
+// The market has moved to another phase of its trading day. Leaving an auction, `price` is the
+// price it uncrossed at, if anything traded.
+struct PhaseChanged {
+    Phase phase = Phase::Continuous;
+    std::optional<Price> price{};
+
+    friend bool operator==(const PhaseChanged&, const PhaseChanged&) = default;
+};
+
+// During an auction: where the book would uncross now, or nothing if nothing would trade.
+// Published whenever it changes.
+struct Indicative {
+    std::optional<Uncross> uncross{};
+
+    friend bool operator==(const Indicative&, const Indicative&) = default;
 };
 
 struct TopOfBook {
@@ -150,12 +171,15 @@ struct MarketSnapshot {
     std::vector<LevelSummary> asks{};
     std::uint64_t trades = 0; // trades published since the start of the run
     Quantity volume = 0;      // and the lots they traded
+    Phase phase = Phase::Continuous;
+    std::optional<Uncross> indicative{}; // during an auction, where it would uncross
 
     friend bool operator==(const MarketSnapshot&, const MarketSnapshot&) = default;
 };
 
 using Event = std::variant<OrderAccepted, OrderRejected, OrderModified, OrderFilled,
-                           OrderCancelled, Trade, TopOfBook, BookDepth>;
+                           OrderCancelled, Trade, TopOfBook, BookDepth, PhaseChanged,
+                           Indicative>;
 
 // The agent a private event is addressed to, or nullopt for public market data.
 [[nodiscard]] std::optional<AgentId> recipient(const Event& event);

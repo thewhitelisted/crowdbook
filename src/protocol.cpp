@@ -39,7 +39,15 @@ constexpr std::array kRejectReasons{
     std::pair{std::string_view{"unknown-agent"}, RejectReason::UnknownAgent},
     std::pair{std::string_view{"post-only-would-trade"}, RejectReason::PostOnlyWouldTrade},
     std::pair{std::string_view{"loss-limit"}, RejectReason::LossLimit},
-    std::pair{std::string_view{"rate-limit"}, RejectReason::RateLimit}};
+    std::pair{std::string_view{"rate-limit"}, RejectReason::RateLimit},
+    std::pair{std::string_view{"auction-order-type"}, RejectReason::AuctionOrderType},
+    std::pair{std::string_view{"market-closed"}, RejectReason::MarketClosed}};
+constexpr std::array kPhases{
+    std::pair{std::string_view{"continuous"}, Phase::Continuous},
+    std::pair{std::string_view{"opening-auction"}, Phase::OpeningAuction},
+    std::pair{std::string_view{"halt"}, Phase::HaltAuction},
+    std::pair{std::string_view{"closing-auction"}, Phase::ClosingAuction},
+    std::pair{std::string_view{"closed"}, Phase::Closed}};
 constexpr std::array kCancelReasons{
     std::pair{std::string_view{"requested"}, CancelReason::Requested},
     std::pair{std::string_view{"immediate-or-cancel"}, CancelReason::ImmediateOrCancel},
@@ -49,7 +57,8 @@ constexpr std::array kMarks{std::pair{std::string_view{"last"}, Mark::LastTrade}
 constexpr std::array kBenchmarks{std::pair{std::string_view{"vwap"}, Benchmark::Vwap},
                                  std::pair{std::string_view{"reference"}, Benchmark::Reference}};
 constexpr std::array kLiquidities{std::pair{std::string_view{"maker"}, Liquidity::Maker},
-                                  std::pair{std::string_view{"taker"}, Liquidity::Taker}};
+                                  std::pair{std::string_view{"taker"}, Liquidity::Taker},
+                                  std::pair{std::string_view{"auction"}, Liquidity::Auction}};
 
 template <typename Enum, std::size_t N>
 std::string_view nameOf(Enum value,
@@ -254,6 +263,21 @@ void writeEvent(ObjectWriter& writer, Timestamp time, const Event& event) {
                     .field("price", e.price)
                     .field("quantity", e.quantity)
                     .field("aggressor", nameOf(e.aggressorSide, kSides));
+                if (e.auction) {
+                    writer.field("auction", true);
+                }
+            },
+            [&](const PhaseChanged& e) {
+                head("phase").field("phase", nameOf(e.phase, kPhases));
+                std::string& price = writer.open("price");
+                price += e.price ? std::format("{}", *e.price) : "null";
+            },
+            [&](const Indicative& e) {
+                head("indicative");
+                std::string& price = writer.open("price");
+                price += e.uncross ? std::format("{}", e.uncross->price) : "null";
+                writer.field("volume", e.uncross ? e.uncross->volume : 0)
+                    .field("imbalance", e.uncross ? e.uncross->imbalance : 0);
             },
             [&](const TopOfBook& e) {
                 head("top");
@@ -573,9 +597,32 @@ Event readEvent(std::string_view type, Fields& fields) {
                               .reason = fields.choice("reason", kCancelReasons)};
     }
     if (type == "trade") {
-        return Trade{.price = fields.integer("price"),
-                     .quantity = fields.integer("quantity"),
-                     .aggressorSide = fields.choice("aggressor", kSides)};
+        Trade trade{.price = fields.integer("price"),
+                    .quantity = fields.integer("quantity"),
+                    .aggressorSide = fields.choice("aggressor", kSides)};
+        if (fields.has("auction")) {
+            trade.auction = fields.boolean("auction");
+        }
+        return trade;
+    }
+    if (type == "phase") {
+        PhaseChanged phase{.phase = fields.choice("phase", kPhases)};
+        if (const json::Value& price = fields.required("price"); !isNull(price)) {
+            phase.price = Fields::integerOf(price, "price", kMinInt, kMaxInt);
+        }
+        return phase;
+    }
+    if (type == "indicative") {
+        Indicative indicative;
+        const json::Value& price = fields.required("price");
+        const Quantity volume = fields.integer("volume");
+        const Quantity imbalance = fields.integer("imbalance");
+        if (!isNull(price)) {
+            indicative.uncross = Uncross{.price = Fields::integerOf(price, "price", kMinInt, kMaxInt),
+                                         .volume = volume,
+                                         .imbalance = imbalance};
+        }
+        return indicative;
     }
     if (type == "top") {
         TopOfBook top;

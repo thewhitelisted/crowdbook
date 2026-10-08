@@ -24,6 +24,14 @@ struct ExchangeConfig {
     // makerFee and the owner of the incoming order takerFee. A negative fee is a rebate.
     Fee makerFee = 0;
     Fee takerFee = 0;
+    // Charged to both sides, per lot, of a trade in an auction's uncross; not negative.
+    Fee auctionFee = 0;
+    // Where auctions break ties and halts measure from until the first auction sets a price.
+    Price referencePrice = 0;
+    // A continuous trade more than this many ticks from the reference halts the market into an
+    // auction for haltDuration; 0 never halts.
+    Price haltBand = 0;
+    Duration haltDuration = 0;
 };
 
 struct AccountConfig {
@@ -57,7 +65,8 @@ struct Account {
 class Exchange {
 public:
     // Throws std::invalid_argument for a fee rate beyond kMaxFeeRate, fees that would pay out
-    // more in rebates than they collect on a trade, or a depth feed deeper than kMaxDepthLevels.
+    // more in rebates than they collect on a trade, a negative auction fee, a depth feed deeper
+    // than kMaxDepthLevels, or a halt band without a positive halt duration.
     explicit Exchange(const ExchangeConfig& config = {});
 
     // Opens an account. Throws std::invalid_argument if the agent already has one or a limit is out
@@ -67,9 +76,21 @@ public:
     // Processes one request and appends its events in this order: the requesting agent's
     // acceptance, modification, cancellation or rejection; then, for each execution, the maker's
     // fill, the taker's fill and the public trade; then the cancellation of any quantity that could
-    // not rest; then a top-of-book update if the best bid or ask changed; and last, with a depth
-    // feed, a depth update if any published level changed.
+    // not rest; then a top-of-book update if the best bid or ask changed; then, with a depth
+    // feed, a depth update if any published level changed; in an auction, the indicative price
+    // if it changed; and last, if a trade went past the halt band, the halt's PhaseChanged.
     void handle(AgentId agent, const Request& request, std::vector<Event>& events);
+
+    // Moves the market to another phase of its trading day and appends what happened. Leaving
+    // an auction for continuous trading or the close uncrosses the book, round after round while
+    // a round cancels self-trades, and reports each execution as two fills and an auction trade,
+    // then the self-trades cancelled, then PhaseChanged with the price of the first round, then
+    // the best prices and depth if they changed. Entering an auction reports PhaseChanged and
+    // then the indicative price.
+    void setPhase(Phase phase, std::vector<Event>& events);
+    [[nodiscard]] Phase phase() const noexcept { return phase_; }
+    // The last auction's price, or the configured reference price before any auction.
+    [[nodiscard]] Price reference() const noexcept { return reference_; }
 
     // Throws std::out_of_range for an agent without an account.
     [[nodiscard]] const Account& account(AgentId agent) const;
@@ -124,6 +145,13 @@ private:
                 std::vector<Event>& events);
     void publishTopOfBook(std::vector<Event>& events);
     void publishDepth(std::vector<Event>& events);
+    // In an auction, publishes the indicative price if it changed, or anyway when `always`.
+    void publishIndicative(std::vector<Event>& events, bool always = false);
+    // Uncrosses the book and reports it; returns the first round's price, if anything traded.
+    std::optional<Price> uncross(std::vector<Event>& events);
+    // Settles the executions of an uncross round in fills_, of which `selfTrades` were cancelled
+    // afterwards, and reports them.
+    void settleAuction(const std::vector<RestingOrder>& selfTrades, std::vector<Event>& events);
     // Whether a limit order on `side` at `price` would trade against the book now.
     [[nodiscard]] bool wouldTrade(Side side, Price price) const noexcept;
 
@@ -139,6 +167,9 @@ private:
     BookDepth currentDepth_; // reused for every request
     Fee feesCollected_ = 0;
     std::vector<Fill> fills_; // reused for every request
+    Phase phase_ = Phase::Continuous;
+    Price reference_ = 0;
+    std::optional<Uncross> publishedIndicative_;
 };
 
 } // namespace crowdbook

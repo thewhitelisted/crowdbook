@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <format>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 namespace crowdbook {
@@ -53,6 +54,15 @@ Exchange::Exchange(const ExchangeConfig& config) : config_(config) {
         throw std::invalid_argument(
             std::format("the depth feed can publish at most {} levels a side", kMaxDepthLevels));
     }
+    if (config.auctionFee < 0 || config.auctionFee > kMaxFeeRate) {
+        throw std::invalid_argument(
+            std::format("the auction fee must be from 0 to {} fee units per lot", kMaxFeeRate));
+    }
+    if (config.haltBand < 0 || config.haltDuration < 0 ||
+        (config.haltBand > 0 && config.haltDuration == 0)) {
+        throw std::invalid_argument("a halt band needs a positive halt duration");
+    }
+    reference_ = config.referencePrice;
 }
 
 void Exchange::addAgent(AgentId agent, const AccountConfig& config) {
@@ -85,6 +95,7 @@ void Exchange::handle(AgentId agent, const Request& request, std::vector<Event>&
     }
 
     AgentState& state = found->second;
+    const std::size_t first = events.size();
     if (const auto* newOrder = std::get_if<NewOrder>(&request)) {
         submit(agent, state, *newOrder, events);
     } else if (const auto* cancelOrder = std::get_if<CancelOrder>(&request)) {
@@ -94,6 +105,162 @@ void Exchange::handle(AgentId agent, const Request& request, std::vector<Event>&
     }
     publishTopOfBook(events);
     publishDepth(events);
+    publishIndicative(events);
+    if (phase_ == Phase::Continuous && config_.haltBand > 0) {
+        for (std::size_t i = first; i < events.size(); ++i) {
+            const auto* trade = std::get_if<Trade>(&events[i]);
+            if (trade != nullptr && (trade->price > reference_ + config_.haltBand ||
+                                     trade->price < reference_ - config_.haltBand)) {
+                setPhase(Phase::HaltAuction, events);
+                break;
+            }
+        }
+    }
+}
+
+void Exchange::setPhase(Phase phase, std::vector<Event>& events) {
+    if (phase == phase_) {
+        return;
+    }
+    std::optional<Price> price;
+    if (isAuction(phase_) && !isAuction(phase)) {
+        price = uncross(events);
+    }
+    phase_ = phase;
+    book_.setMatching(phase == Phase::Continuous);
+    events.push_back(PhaseChanged{.phase = phase, .price = price});
+    publishTopOfBook(events);
+    publishDepth(events);
+    if (isAuction(phase)) {
+        publishIndicative(events, true);
+    } else {
+        publishedIndicative_.reset();
+    }
+}
+
+std::optional<Price> Exchange::uncross(std::vector<Event>& events) {
+    std::optional<Price> first;
+    std::vector<RestingOrder> selfTrades;
+    while (true) {
+        fills_.clear();
+        selfTrades.clear();
+        const std::optional<Uncross> round = book_.uncross(reference_, fills_, selfTrades);
+        if (!round) {
+            break;
+        }
+        if (!first && !fills_.empty()) {
+            first = round->price;
+        }
+        settleAuction(selfTrades, events);
+        for (const RestingOrder& order : selfTrades) {
+            const LiveOrder live = liveOrders_.at(order.id);
+            AgentState& state = agents_.at(order.owner);
+            openQuantity(state.account, order.side) -= order.remaining;
+            state.liveOrders.erase(live.clientOrderId);
+            liveOrders_.erase(order.id);
+            events.push_back(OrderCancelled{.agent = order.owner,
+                                            .clientOrderId = live.clientOrderId,
+                                            .orderId = order.id,
+                                            .quantity = order.remaining,
+                                            .reason = CancelReason::SelfTrade});
+        }
+        // A round without self-trades leaves the book uncrossed.
+        if (selfTrades.empty()) {
+            break;
+        }
+    }
+    if (first) {
+        reference_ = *first;
+    }
+    return first;
+}
+
+void Exchange::settleAuction(const std::vector<RestingOrder>& selfTrades,
+                             std::vector<Event>& events) {
+    // What each order has open after each of its fills: its open quantity after the uncross,
+    // with the fills that came after added back, working backwards. An order can be the older of
+    // one pair and the newer of the next, so both sides of every fill count; and an order that
+    // traded and was then cancelled as a self-trade ends with what was cancelled.
+    std::unordered_map<OrderId, Quantity> open;
+    for (const RestingOrder& order : selfTrades) {
+        open.emplace(order.id, order.remaining);
+    }
+    const auto openAfter = [&](OrderId id) -> Quantity& {
+        auto [entry, added] = open.try_emplace(id, 0);
+        if (added) {
+            const std::optional<RestingOrder> resting = book_.find(id);
+            entry->second = resting ? resting->remaining : 0;
+        }
+        return entry->second;
+    };
+    std::vector<Quantity> takerLeaves(fills_.size());
+    for (std::size_t i = fills_.size(); i-- > 0;) {
+        const Fill& fill = fills_[i];
+        Quantity& taker = openAfter(fill.takerOrderId);
+        takerLeaves[i] = taker;
+        taker += fill.quantity;
+        openAfter(fill.makerOrderId) += fill.quantity;
+    }
+    for (std::size_t i = 0; i < fills_.size(); ++i) {
+        const Fill& fill = fills_[i];
+        const LiveOrder maker = liveOrders_.at(fill.makerOrderId);
+        const LiveOrder taker = liveOrders_.at(fill.takerOrderId);
+        AgentState& makerState = agents_.at(fill.makerOwner);
+        AgentState& takerState = agents_.at(fill.takerOwner);
+        const Side makerSide = opposite(fill.takerSide);
+        const Cash notional = fill.price * fill.quantity;
+        const Fee fee = config_.auctionFee * fill.quantity;
+
+        settleSide(makerState.account, makerSide, fill.quantity, notional);
+        settleSide(takerState.account, fill.takerSide, fill.quantity, notional);
+        makerState.account.fees += fee;
+        takerState.account.fees += fee;
+        feesCollected_ += 2 * fee;
+        openQuantity(makerState.account, makerSide) -= fill.quantity;
+        openQuantity(takerState.account, fill.takerSide) -= fill.quantity;
+        if (fill.makerRemaining == 0) {
+            makerState.liveOrders.erase(maker.clientOrderId);
+            liveOrders_.erase(fill.makerOrderId);
+        }
+        if (takerLeaves[i] == 0) {
+            takerState.liveOrders.erase(taker.clientOrderId);
+            liveOrders_.erase(fill.takerOrderId);
+        }
+
+        events.push_back(OrderFilled{.agent = fill.makerOwner,
+                                     .clientOrderId = maker.clientOrderId,
+                                     .orderId = fill.makerOrderId,
+                                     .side = makerSide,
+                                     .price = fill.price,
+                                     .quantity = fill.quantity,
+                                     .leavesQuantity = fill.makerRemaining,
+                                     .liquidity = Liquidity::Auction,
+                                     .fee = fee});
+        events.push_back(OrderFilled{.agent = fill.takerOwner,
+                                     .clientOrderId = taker.clientOrderId,
+                                     .orderId = fill.takerOrderId,
+                                     .side = fill.takerSide,
+                                     .price = fill.price,
+                                     .quantity = fill.quantity,
+                                     .leavesQuantity = takerLeaves[i],
+                                     .liquidity = Liquidity::Auction,
+                                     .fee = fee});
+        events.push_back(Trade{.price = fill.price,
+                               .quantity = fill.quantity,
+                               .aggressorSide = fill.takerSide,
+                               .auction = true});
+    }
+}
+
+void Exchange::publishIndicative(std::vector<Event>& events, bool always) {
+    if (!isAuction(phase_)) {
+        return;
+    }
+    const std::optional<Uncross> indicative = book_.indicative(reference_);
+    if (always || indicative != publishedIndicative_) {
+        publishedIndicative_ = indicative;
+        events.push_back(Indicative{.uncross = indicative});
+    }
 }
 
 const Account& Exchange::account(AgentId agent) const { return agents_.at(agent).account; }
@@ -191,6 +358,13 @@ void Exchange::submit(AgentId agent, AgentState& state, const NewOrder& order,
                                        .request = RequestKind::New,
                                        .reason = reason});
     };
+    if (phase_ == Phase::Closed) {
+        return reject(RejectReason::MarketClosed);
+    }
+    if (isAuction(phase_) &&
+        (order.type == OrderType::Market || order.timeInForce != TimeInForce::GoodTillCancel)) {
+        return reject(RejectReason::AuctionOrderType);
+    }
     if (order.quantity <= 0) {
         return reject(RejectReason::NonPositiveQuantity);
     }
@@ -275,6 +449,9 @@ void Exchange::modify(AgentId agent, AgentState& state, const ModifyOrder& reque
                                        .request = RequestKind::Modify,
                                        .reason = reason});
     };
+    if (phase_ == Phase::Closed) {
+        return reject(RejectReason::MarketClosed);
+    }
     const auto live = state.liveOrders.find(request.clientOrderId);
     if (live == state.liveOrders.end()) {
         return reject(RejectReason::UnknownOrderId);
@@ -299,8 +476,9 @@ void Exchange::modify(AgentId agent, AgentState& state, const ModifyOrder& reque
                               request.quantity - current->remaining)) {
         return reject(RejectReason::PositionLimit);
     }
+    // Nothing trades on arrival in an auction, so a post-only order's modify cannot either.
     const bool postOnly = liveOrders_.at(id).postOnly;
-    if (postOnly && wouldTrade(current->side, request.price)) {
+    if (postOnly && !isAuction(phase_) && wouldTrade(current->side, request.price)) {
         return reject(RejectReason::PostOnlyWouldTrade);
     }
 

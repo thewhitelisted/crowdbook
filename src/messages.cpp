@@ -46,6 +46,8 @@ std::string_view toString(Liquidity liquidity) noexcept {
         return "maker";
     case Liquidity::Taker:
         return "taker";
+    case Liquidity::Auction:
+        return "auction";
     }
     return "unknown";
 }
