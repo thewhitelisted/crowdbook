@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 
+#include "crowdbook/activity.hpp"
 #include "crowdbook/agent.hpp"
 #include "crowdbook/fundamental.hpp"
 #include "crowdbook/parameters.hpp"
@@ -18,6 +19,7 @@ namespace crowdbook {
 struct Environment {
     Price referencePrice = 10'000; // where agents anchor before they have seen any quotes
     std::shared_ptr<Fundamental> fundamental{}; // the asset's value, if the scenario models one
+    ActivityCurve activity{}; // how busy the day is expected to be, flat without a trading day
 };
 
 using AgentFactory =

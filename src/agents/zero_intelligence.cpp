@@ -115,9 +115,13 @@ void ZeroIntelligenceTrader::onWakeup(AgentContext& context, std::uint64_t tag) 
     // Picking limit or market in proportion to its rate, with one exponential timer for both, is
     // the same as running two independent Poisson processes.
     if (context.random().uniform() * orderRate() < config_.limitRate) {
-        sendLimit(context);
-    } else {
+        if (market.phase != Phase::Closed) {
+            sendLimit(context);
+        }
+    } else if (market.phase == Phase::Continuous) {
         sendMarket(context);
+    } else if (isAuction(market.phase)) {
+        sendAuctionLimit(context, market);
     }
     scheduleNextOrder(context);
 }
@@ -127,9 +131,9 @@ double ZeroIntelligenceTrader::orderRate() const noexcept {
 }
 
 void ZeroIntelligenceTrader::scheduleNextOrder(AgentContext& context) const {
-    context.wakeAt(
-        context.now() + secondsToDuration(context.random().exponential(orderRate() * pace_)),
-        kNextOrder);
+    const double rate = orderRate() * pace_ * config_.activity.at(context.now());
+    context.wakeAt(context.now() + secondsToDuration(context.random().exponential(rate)),
+                   kNextOrder);
 }
 
 void ZeroIntelligenceTrader::sendLimit(AgentContext& context) const {
@@ -144,6 +148,23 @@ void ZeroIntelligenceTrader::sendLimit(AgentContext& context) const {
     const Price anchor = side == Side::Buy ? market_.bestAsk().value_or(fair + 1)
                                            : market_.bestBid().value_or(fair - 1);
     const Price price = side == Side::Buy ? anchor - offset : anchor + offset;
+    const ClientOrderId id = context.submitLimit(side, std::max<Price>(price, 1), size);
+    if (config_.cancelRate > 0.0) {
+        const double lifetime = random.exponential(config_.cancelRate);
+        context.wakeAt(context.now() + secondsToDuration(lifetime), id);
+    }
+}
+
+void ZeroIntelligenceTrader::sendAuctionLimit(AgentContext& context,
+                                              const MarketSnapshot& market) const {
+    Random& random = context.random();
+    const Side side = randomSide(random);
+    const Quantity size = random.uniformInt(config_.minSize, config_.maxSize);
+    const Price offset = random.uniformInt(1, config_.maxOffset);
+    const Price anchor = market.indicative
+                             ? market.indicative->price
+                             : static_cast<Price>(std::llround(market_.fairPrice()));
+    const Price price = side == Side::Buy ? anchor + offset : anchor - offset;
     const ClientOrderId id = context.submitLimit(side, std::max<Price>(price, 1), size);
     if (config_.cancelRate > 0.0) {
         const double lifetime = random.exponential(config_.cancelRate);

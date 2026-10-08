@@ -260,7 +260,11 @@ void writeSession(std::ostream& out, const Session& session) {
     if (!session.recordedBy.empty()) {
         out << std::format("recorded_by = {}\n", tomlString("crowdbook " + session.recordedBy));
     }
-    out << std::format("seed = {}\nend_ns = {}\nseats = [", session.seed, session.end);
+    out << std::format("seed = {}\n", session.seed);
+    if (session.duration) {
+        out << std::format("duration_ns = {}\n", *session.duration);
+    }
+    out << std::format("end_ns = {}\nseats = [", session.end);
     for (std::size_t i = 0; i < session.seats.size(); ++i) {
         out << (i > 0 ? ", " : "") << tomlString(session.seats[i]);
     }
@@ -290,6 +294,9 @@ Session parseSession(std::string_view text, std::string_view source) {
             reader.integer(reader.required(root, "seed"), "seed", 0, kMaxInt)),
         .end = reader.integer(reader.required(root, "end_ns"), "end_ns", 0, kMaxInt)};
     static_cast<void>(parseScenario(session.scenario, std::format("{} (its scenario)", source)));
+    if (const toml::node* node = root.get("duration_ns")) {
+        session.duration = reader.integer(*node, "duration_ns", 0, kMaxInt);
+    }
     session.recordedBy.clear();
     if (const toml::node* node = root.get("recorded_by")) {
         const std::string recorded = reader.text(*node, "recorded_by");
@@ -349,6 +356,15 @@ Session loadSession(const std::filesystem::path& path) {
     return parseSession(text.str(), path.string());
 }
 
+Scenario sessionScenario(const Session& session) {
+    Scenario scenario = parseScenario(session.scenario, "the session's scenario");
+    scenario.seed = session.seed;
+    if (session.duration) {
+        scenario.duration = *session.duration;
+    }
+    return scenario;
+}
+
 RewoundSession rewindSession(const Session& session, Timestamp at,
                              const AgentRegistry& registry, EventSink* sink) {
     if (at < 0 || at > session.end) {
@@ -356,12 +372,12 @@ RewoundSession rewindSession(const Session& session, Timestamp at,
                                         "rewound to {} ns",
                                         session.end, at));
     }
-    Scenario scenario = parseScenario(session.scenario, "the session's scenario");
-    scenario.seed = session.seed;
+    const Scenario scenario = sessionScenario(session);
     RewoundSession rewound{.market = openSession(scenario, registry, sink, session.seats),
                            .record = {.scenario = session.scenario,
                                       .seed = session.seed,
-                                      .seats = session.seats}};
+                                      .seats = session.seats,
+                                      .duration = session.duration}};
     for (const SessionAction& action : session.actions) {
         if (action.time > at) {
             break;
@@ -377,8 +393,7 @@ RewoundSession rewindSession(const Session& session, Timestamp at,
 
 RunResult replaySession(const Session& session, const AgentRegistry& registry, EventSink* sink,
                         const std::vector<std::uint32_t>& without) {
-    Scenario scenario = parseScenario(session.scenario, "the session's scenario");
-    scenario.seed = session.seed;
+    const Scenario scenario = sessionScenario(session);
     SessionMarket market = openSession(scenario, registry, sink, session.seats);
     for (const SessionAction& action : session.actions) {
         if (std::ranges::find(without, action.seat) != without.end()) {

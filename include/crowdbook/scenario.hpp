@@ -33,6 +33,19 @@ struct AgentGroup {
     Parameters parameters{};  // everything else, handed to the agent type's factory
 };
 
+// A market that trades the way a stock exchange's day goes, in phases.
+struct TradingDay {
+    Duration openingAuction = 0; // a call auction from the start; none if 0
+    Duration closingAuction = 0; // a call auction before the end, uncrossed at the end; none if 0
+    // A continuous trade more than haltBand ticks from the last auction's price, or the reference
+    // price before any, halts the market into an auction for `halt`. 0 never halts.
+    Price haltBand = 0;
+    Duration halt = 0;
+    double activity = 0.0; // the amplitude of the U-shaped activity curve; flat if 0
+
+    friend bool operator==(const TradingDay&, const TradingDay&) = default;
+};
+
 // A scenario offered as a challenge: its name, and what the participant is asked to do.
 struct Challenge {
     std::string name{};
@@ -48,6 +61,8 @@ struct Scenario {
     Price referencePrice = 10'000;
     std::optional<FundamentalConfig> fundamental{};
     ExchangeConfig exchange{};
+    // Without one, the market trades continuously from start to end.
+    std::optional<TradingDay> tradingDay{};
     std::vector<AgentGroup> groups{};
     // The account and latency of a person trading in the market live; unused by runScenario.
     AgentOptions participant{};
@@ -120,6 +135,10 @@ private:
     struct State;
     std::unique_ptr<State> state_;
 };
+
+// The exchange's settings for the scenario: those of its [exchange] section, with the reference
+// price and the halts of its trading day.
+[[nodiscard]] ExchangeConfig exchangeConfig(const Scenario& scenario);
 
 // Builds the scenario's market and runs it for its duration. Every request and event also goes
 // to `sink`, if there is one. Throws ScenarioError for settings no market can be built from,

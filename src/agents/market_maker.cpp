@@ -94,7 +94,15 @@ double MarketMaker::fairPrice() const noexcept {
     return tradeAverage_.value_or(market_.fairPrice());
 }
 
+void MarketMaker::onPhase(AgentContext& context, const PhaseChanged& phase) {
+    phase_ = phase.phase;
+    requote(context);
+}
+
 void MarketMaker::requote(AgentContext& context) {
+    if (phase_ != Phase::Continuous) {
+        return;
+    }
     Quotes target = avellanedaStoikovQuotes(config_, fairPrice(), context.ledger().position());
     if (config_.postOnly) {
         if (target.bid && market_.bestAsk()) {

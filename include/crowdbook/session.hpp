@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -61,9 +62,15 @@ struct Session {
     std::vector<SessionAction> actions{}; // each names its seat by index
     // The crowdbook that recorded it: this one for a new session, empty when a file does not say.
     std::string recordedBy{version()};
+    // The scenario's length as the session ran it, which a trading day's schedule depends on,
+    // when the session was started with a duration of its own; otherwise the scenario's.
+    std::optional<Duration> duration{};
 
     friend bool operator==(const Session&, const Session&) = default;
 };
+
+// The scenario a session ran: its text, with the session's seed and duration.
+[[nodiscard]] Scenario sessionScenario(const Session& session);
 
 // Writes a session as TOML; docs/scenarios.md describes the format.
 void writeSession(std::ostream& out, const Session& session);

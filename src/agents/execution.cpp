@@ -58,6 +58,7 @@ void ExecutionTrader::start(AgentContext& context) {
     side_ = random.below(2) == 0 ? Side::Buy : Side::Sell;
     size_ = drawParentSize(random, config_.minParent, config_.parentTail, config_.maxParent);
     unsent_ = size_;
+    filled_ = 0;
     abandoned_ = false;
     startVolume_ = context.market().volume;
 }
@@ -65,6 +66,11 @@ void ExecutionTrader::start(AgentContext& context) {
 Quantity ExecutionTrader::due(AgentContext& context) const {
     if (config_.style == ExecutionStyle::Twap) {
         return std::min(config_.childSize, unsent_);
+    }
+    if (config_.style == ExecutionStyle::Vwap) {
+        const auto paced = static_cast<Quantity>(std::llround(
+            static_cast<double>(config_.childSize) * config_.activity.at(context.now())));
+        return std::min(paced, unsent_);
     }
     const Quantity traded = context.market().volume - startVolume_;
     const auto allowed =
@@ -82,7 +88,9 @@ void ExecutionTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
         pauseThenStart(context);
         return;
     }
-    if (const Quantity lots = due(context); lots > 0) {
+    if (context.market().phase != Phase::Continuous) {
+        // Its children are market orders, which cannot wait for an auction: the parent waits.
+    } else if (const Quantity lots = due(context); lots > 0) {
         unsent_ -= lots;
         context.submit(
             {.side = side_, .type = OrderType::Market, .quantity = lots, .parent = parent_});
@@ -90,9 +98,20 @@ void ExecutionTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     context.wakeAfter(config_.interval);
 }
 
-void ExecutionTrader::onRejected(AgentContext& /*context*/, const OrderRejected& /*event*/) {
+void ExecutionTrader::onRejected(AgentContext& context, const OrderRejected& event) {
+    if (!abandoned_ && (event.reason == RejectReason::AuctionOrderType ||
+                        event.reason == RejectReason::MarketClosed)) {
+        // The child reached the exchange in an auction or after the close; its lots go back to
+        // the parent, to be sent when trading is continuous again.
+        unsent_ = size_ - filled_ - context.ledger().openQuantity(side_);
+        return;
+    }
     unsent_ = 0; // give up on the rest of the parent
     abandoned_ = true;
+}
+
+void ExecutionTrader::onFilled(AgentContext& /*context*/, const OrderFilled& event) {
+    filled_ += event.quantity;
 }
 
 void ExecutionTrader::onCancelled(AgentContext& /*context*/, const OrderCancelled& event) {

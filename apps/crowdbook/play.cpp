@@ -293,10 +293,7 @@ int play(const PlayOptions& options) {
         }
     }
     const std::string text = from ? from->scenario : readFile(options.scenarioPath);
-    Scenario scenario = parseScenario(text, options.scenarioPath);
-    if (from) {
-        scenario.seed = from->seed;
-    }
+    Scenario scenario = from ? sessionScenario(*from) : parseScenario(text, options.scenarioPath);
     if (options.seed) {
         scenario.seed = *options.seed;
     }
@@ -329,7 +326,9 @@ int play(const PlayOptions& options) {
                                  outputs.sink());
         }
         return {.market = openSession(scenario, AgentRegistry::withBuiltIns(), outputs.sink()),
-                .record = {.scenario = text, .seed = scenario.seed}};
+                .record = {.scenario = text,
+                           .seed = scenario.seed,
+                           .duration = scenario.duration}};
     }();
     if (scenario.challenge) {
         printBriefing(std::cout, scenario);

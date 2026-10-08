@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 
+#include "crowdbook/activity.hpp"
 #include "crowdbook/agent.hpp"
 #include "crowdbook/agents/market_view.hpp"
 #include "crowdbook/messages.hpp"
@@ -34,6 +35,9 @@ struct ZeroIntelligenceConfig {
     // activity. Traders who stand back when prices jump thin the book, and a thinner book makes
     // prices jump further.
     double volatilityResponse = 0.0;
+    // The day's expected activity, which multiplies both order rates; flat unless the scenario
+    // has a trading day with an activity curve.
+    ActivityCurve activity{};
 };
 
 // A zero-intelligence trader after Farmer, Patelli and Zovko (2005). It sends limit and market
@@ -42,6 +46,12 @@ struct ZeroIntelligenceConfig {
 // lifetime. A limit price is drawn uniformly from 1 to maxOffset ticks inside the opposite best
 // quote, so it never crosses the book as the trader last saw it. With no strategy at all, such
 // order flow already explains much of how spreads and volatility vary across real stocks.
+//
+// In an auction, where market orders cannot wait for the call, it sends a limit order instead of
+// each market order it would have sent, 1 to maxOffset ticks through the indicative price (or its
+// fair price while nothing would trade), as orders to buy or sell at the auction's price do on real
+// exchanges; these are what make an auction's book cross. Once the market has closed it sends
+// nothing.
 //
 // Cancelling per order, rather than at a fixed rate per trader, matters: total cancellations then
 // grow with the number of resting orders, so the book settles at a steady size. With a fixed rate
@@ -84,6 +94,7 @@ private:
     void scheduleNextOrder(AgentContext& context) const;
     void sendLimit(AgentContext& context) const;
     void sendMarket(AgentContext& context) const;
+    void sendAuctionLimit(AgentContext& context, const MarketSnapshot& market) const;
 
     ZeroIntelligenceConfig config_;
     MarketView market_;

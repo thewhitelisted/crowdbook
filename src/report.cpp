@@ -155,8 +155,7 @@ SessionReport makeReport(const Session& session, const AgentRegistry& registry,
     if (interval <= 0) {
         throw std::invalid_argument("the report's interval must be positive");
     }
-    Scenario scenario = parseScenario(session.scenario, "the session's scenario");
-    scenario.seed = session.seed;
+    const Scenario scenario = sessionScenario(session);
     const AccountConfig& account = scenario.participant.account;
 
     // The session, watching every seat. Seats join after the scenario's agents, in order.

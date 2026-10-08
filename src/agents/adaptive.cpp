@@ -55,7 +55,8 @@ int AdaptiveTrader::call(double signal) const noexcept {
 }
 
 void AdaptiveTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
-    market_.update(context.market());
+    const MarketSnapshot market = context.market();
+    market_.update(market);
     const double price = market_.fairPrice();
     Random& random = context.random();
     const double noise = random.normal(0.0, config_.noise);
@@ -87,7 +88,9 @@ void AdaptiveTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     const Quantity exposure =
         ledger.position() + ledger.openQuantity(Side::Buy) - ledger.openQuantity(Side::Sell);
     const Quantity target = direction * config_.maxPosition;
-    if (target > exposure) {
+    if (market.phase != Phase::Continuous) {
+        // Market orders cannot wait for an auction; it trades after.
+    } else if (target > exposure) {
         context.submitMarket(Side::Buy, std::min(config_.orderSize, target - exposure));
     } else if (target < exposure) {
         context.submitMarket(Side::Sell, std::min(config_.orderSize, exposure - target));

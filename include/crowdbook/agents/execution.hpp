@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "crowdbook/activity.hpp"
 #include "crowdbook/agent.hpp"
 #include "crowdbook/messages.hpp"
 #include "crowdbook/random.hpp"
@@ -13,6 +14,7 @@ namespace crowdbook {
 enum class ExecutionStyle : std::uint8_t {
     Twap, // a child order of childSize every interval: an even pace in time
     Pov,  // every interval, enough to keep its trading at `participation` of all the volume
+    Vwap, // every interval, childSize scaled by the day's expected activity then
 };
 
 struct ExecutionConfig {
@@ -26,6 +28,7 @@ struct ExecutionConfig {
     Duration interval = kSecond;    // between child orders
     Quantity childSize = 5;         // lots per child order; for POV, the most per child
     double participation = 0.1;     // POV: its share of all the volume while it works a parent
+    ActivityCurve activity{};       // VWAP: the day's expected activity
 };
 
 // A parent size drawn from the distribution ExecutionConfig describes.
@@ -38,9 +41,12 @@ struct ExecutionConfig {
 // agent) so that an analysis of the event log can put a parent back together. TWAP sends a child
 // of childSize every interval; POV checks the market's volume every interval and sends what keeps
 // its own lots at `participation` of all those traded since the parent started, up to childSize
-// at a time. Lots a child leaves unfilled, when the book runs out, are sent again. If the exchange
-// rejects a child, such as at the account's position limit, the agent gives up on the rest of the
-// parent. The next pause starts once every child of the parent has been resolved.
+// at a time; VWAP sends childSize scaled by the day's expected activity, so it trades more when
+// the market is expected to be busy. Lots a child leaves unfilled, when the book runs out, are
+// sent again. In an auction it sends nothing, and a child that reaches the exchange in an auction
+// or after the close is sent again later. If the exchange rejects a child for any other reason,
+// such as at the account's position limit, the agent gives up on the rest of the parent. The next
+// pause starts once every child of the parent has been resolved.
 //
 // With parent sizes this heavy-tailed, the signs of the market orders a crowd of these agents
 // sends stay correlated over long stretches: a long parent keeps sending the same sign. Lillo,
@@ -61,6 +67,7 @@ public:
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
     void onRejected(AgentContext& context, const OrderRejected& event) override;
     void onCancelled(AgentContext& context, const OrderCancelled& event) override;
+    void onFilled(AgentContext& context, const OrderFilled& event) override;
 
     // The parent being worked, or 0 between parents; its side and size; and its lots not yet sent.
     [[nodiscard]] std::uint64_t parent() const noexcept { return parent_; }
@@ -81,6 +88,7 @@ private:
     Quantity size_ = 0;
     Quantity unsent_ = 0;
     bool abandoned_ = false;   // after a rejection, until the next parent
+    Quantity filled_ = 0;      // lots of this parent filled so far
     Quantity startVolume_ = 0; // POV: the market's volume when the parent started
 };
 

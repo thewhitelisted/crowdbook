@@ -85,7 +85,8 @@ struct Gateway::State {
           market(openSession(scenario, registry, sink, options.seats)),
           record{.scenario = std::move(scenarioText),
                  .seed = scenario.seed,
-                 .seats = options.seats},
+                 .seats = options.seats,
+                 .duration = scenario.duration},
           seats(options.seats.size()) {
         for (std::size_t i = 0; i < market.seats.size(); ++i) {
             market.seats[i].participant->setListener(

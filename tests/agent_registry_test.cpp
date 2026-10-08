@@ -82,8 +82,9 @@ TEST(AgentRegistryTest, RejectsInvalidValues) {
     EXPECT_NE(creationError(registry, "zero_intelligence", wrongType), "");
 
     Parameters badStyle;
-    badStyle.set("style", std::string{"vwap"});
-    EXPECT_NE(creationError(registry, "execution", badStyle).find("\"twap\" or \"pov\""),
+    badStyle.set("style", std::string{"iceberg"});
+    EXPECT_NE(creationError(registry, "execution", badStyle)
+                  .find("\"twap\", \"pov\" or \"vwap\""),
               std::string::npos);
 
     // Informed traders need the scenario to model a fundamental value.

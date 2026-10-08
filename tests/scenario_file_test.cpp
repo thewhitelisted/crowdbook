@@ -124,8 +124,8 @@ TEST(ScenarioFileTest, ReportsSyntaxErrorsWithTheirLine) {
 TEST(ScenarioFileTest, RejectsUnknownKeysWithTheirLine) {
     EXPECT_EQ(parseError("seed = 1\nduraton = \"5s\"\n[[agents]]\ntype = \"momentum\"\n"),
               "test.toml:2: unknown key 'duraton' at the top level; expected one of: "
-              "scenario_version, seed, duration, reference_price, fundamental, exchange, agents, "
-              "participant, scoring, challenge");
+              "scenario_version, seed, duration, reference_price, fundamental, exchange, "
+              "trading_day, agents, participant, scoring, challenge");
     EXPECT_EQ(parseError("[[agents]]\ntype = \"momentum\"\n"
                          "latency = { to_exchange = \"1us\", jiter = \"1us\" }\n"),
               "test.toml:3: unknown key 'jiter' in latency; expected one of: to_exchange, "

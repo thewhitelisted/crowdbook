@@ -174,6 +174,55 @@ TEST(ExecutionTest, GivesUpOnAParentWhenAChildIsRejected) {
     EXPECT_EQ(trader.unsent() + child(context).quantity, 12);
 }
 
+TEST(ExecutionTest, PausesInAnAuctionAndCarriesOnAfter) {
+    ExecutionTrader trader{kTwap};
+    FakeContext context;
+    context.snapshot.phase = Phase::OpeningAuction;
+    trader.onStart(context);
+    wake(trader, context);
+    wake(trader, context);
+    EXPECT_TRUE(context.takeSent().empty()); // a parent, but no children in the auction
+    EXPECT_NE(trader.parent(), 0U);
+    context.snapshot.phase = Phase::Continuous;
+    wake(trader, context);
+    EXPECT_EQ(child(context).quantity, 5);
+}
+
+TEST(ExecutionTest, AChildTurnedAwayByAnAuctionIsSentAgain) {
+    ExecutionTrader trader{kTwap};
+    FakeContext context;
+    trader.onStart(context);
+    wake(trader, context);
+    const NewOrder first = child(context);
+    fillAll(context, first);
+    trader.onFilled(context, OrderFilled{.quantity = first.quantity});
+    wake(trader, context);
+    const NewOrder second = child(context);
+    // The market went into a halt while the second child was on its way.
+    trader.onRejected(context,
+                      context.reject(second.clientOrderId, RejectReason::AuctionOrderType));
+    EXPECT_EQ(trader.unsent(), 7); // twelve, less the five filled
+    wake(trader, context);
+    EXPECT_EQ(child(context).quantity, 5);
+}
+
+TEST(ExecutionTest, VwapPacesItsChildrenByTheDaysCurve) {
+    ExecutionConfig config = kTwap;
+    config.style = ExecutionStyle::Vwap;
+    config.minParent = config.maxParent = 100;
+    config.childSize = 10;
+    config.activity = {.amplitude = 2.0, .day = 100 * kSecond};
+    ExecutionTrader trader{config};
+    FakeContext context;
+    trader.onStart(context);
+    context.setNow(0);
+    trader.onWakeup(context, 0);
+    EXPECT_EQ(child(context).quantity, 18); // 1.8 times the pace at the open
+    context.setNow(50 * kSecond);
+    trader.onWakeup(context, 0);
+    EXPECT_EQ(child(context).quantity, 6); // and 0.6 times at midday
+}
+
 TEST(ExecutionTest, PovKeepsItsShareOfTheVolume) {
     ExecutionTrader trader{{.style = ExecutionStyle::Pov,
                             .minParent = 1'000,

@@ -125,6 +125,7 @@ constexpr std::uint64_t kMarketResult = 0xebf5b0556bf4bf09;
 constexpr std::uint64_t kDemoReplayLog = 0xaad3c9d2f37beeed;
 constexpr std::uint64_t kServedReplayLog = 0xa2936e8ff2d3b17b;
 constexpr std::uint64_t kChallengeReplayLog = 0x38ec4ed46b3cc470;
+constexpr std::uint64_t kTradingDayLog = 0x2fd2bd8755b72152;
 
 TEST(GoldenTest, AMarketsOutputsAreTheSameOnEveryPlatform) {
     const Scenario scenario = parseScenario(kMarket, "golden");
@@ -172,6 +173,18 @@ TEST(GoldenTest, TheServedSessionReplaysTheSameOnEveryPlatform) {
     CsvEventLog sink{log};
     static_cast<void>(replaySession(session, AgentRegistry::withBuiltIns(), &sink));
     EXPECT_EQ(hex(hashOf(log.str())), hex(kServedReplayLog));
+}
+
+// A trading day: auctions, halts if any, an activity curve and VWAP brokers.
+TEST(GoldenTest, ATradingDayIsTheSameOnEveryPlatform) {
+    Scenario scenario = loadScenario(std::string{CROWDBOOK_SOURCE_DIR} +
+                                     "/examples/scenarios/trading_day.toml");
+    scenario.tradingDay->haltBand = 6; // narrow enough to halt now and then
+    std::ostringstream log;
+    CsvEventLog sink{log};
+    static_cast<void>(runScenario(scenario, AgentRegistry::withBuiltIns(), &sink));
+    EXPECT_NE(log.str().find(",halt,"), std::string::npos);
+    EXPECT_EQ(hex(hashOf(log.str())), hex(kTradingDayLog));
 }
 
 // A scored challenge, recorded by an earlier crowdbook: its replay and its score must not move.

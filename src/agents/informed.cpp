@@ -28,7 +28,8 @@ InformedTrader::InformedTrader(const InformedConfig& config,
 void InformedTrader::onStart(AgentContext& context) { context.wakeWithin(config_.interval); }
 
 void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
-    market_.update(context.market());
+    const MarketSnapshot market = context.market();
+    market_.update(market);
     const double noise = context.random().normal(0.0, config_.noise);
     const double estimate = fundamental_->valueAt(context.now()) + noise;
 
@@ -36,7 +37,9 @@ void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     const Quantity size = config_.orderSize;
     const auto ask = market_.bestAsk();
     const auto bid = market_.bestBid();
-    if (ask && estimate - static_cast<double>(*ask) >= config_.threshold &&
+    if (market.phase != Phase::Continuous) {
+        // Its immediate-or-cancel orders cannot wait for an auction; it trades after.
+    } else if (ask && estimate - static_cast<double>(*ask) >= config_.threshold &&
         ledger.position() + ledger.openQuantity(Side::Buy) + size <= config_.maxPosition) {
         const Price limit = clampPrice(std::floor(estimate - config_.threshold));
         context.submitLimit(Side::Buy, limit, size, TimeInForce::ImmediateOrCancel);

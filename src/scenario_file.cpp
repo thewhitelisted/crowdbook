@@ -249,8 +249,38 @@ Challenge readChallenge(const Reader& reader, const toml::table& table) {
     return challenge;
 }
 
+TradingDay readTradingDay(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table,
+                     {"opening_auction", "closing_auction", "halt_band", "halt", "activity"},
+                     "in [trading_day]");
+    TradingDay day;
+    if (const auto* node = table.get("opening_auction")) {
+        day.openingAuction = reader.duration(*node, "opening_auction");
+    }
+    if (const auto* node = table.get("closing_auction")) {
+        day.closingAuction = reader.duration(*node, "closing_auction");
+    }
+    if (const auto* node = table.get("halt_band")) {
+        day.haltBand = reader.integer(*node, "halt_band", 0, kMaxPrice);
+    }
+    if (const auto* node = table.get("halt")) {
+        day.halt = reader.duration(*node, "halt");
+    }
+    if (day.haltBand > 0 && day.halt == 0) {
+        reader.fail(table, "a halt_band needs a halt, such as halt = \"30s\"");
+    }
+    if (const auto* node = table.get("activity")) {
+        day.activity = reader.number(*node, "activity");
+        if (day.activity < 0.0) {
+            reader.fail(*node, "'activity' must not be negative");
+        }
+    }
+    return day;
+}
+
 ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"depth_levels", "maker_fee", "taker_fee"}, "in [exchange]");
+    reader.allowOnly(table, {"depth_levels", "maker_fee", "taker_fee", "auction_fee"},
+                     "in [exchange]");
     ExchangeConfig config;
     if (const auto* node = table.get("depth_levels")) {
         config.depthLevels = static_cast<std::size_t>(reader.integer(
@@ -261,6 +291,13 @@ ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
     }
     if (const auto* node = table.get("taker_fee")) {
         config.takerFee = readFeeRate(reader, *node, "taker_fee");
+    }
+    if (const auto* node = table.get("auction_fee")) {
+        config.auctionFee = readFeeRate(reader, *node, "auction_fee");
+        if (config.auctionFee < 0) {
+            reader.fail(*node, "'auction_fee' must not be negative: both sides of an auction "
+                               "trade pay it");
+        }
     }
     if (config.makerFee + config.takerFee < 0) {
         reader.fail(table, "maker_fee plus taker_fee must not be negative, or the exchange would "
@@ -359,7 +396,7 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     const Reader reader{source};
     reader.allowOnly(root,
                      {"scenario_version", "seed", "duration", "reference_price", "fundamental",
-                      "exchange", "agents", "participant", "scoring", "challenge"},
+                      "exchange", "trading_day", "agents", "participant", "scoring", "challenge"},
                      "at the top level");
     if (const auto* node = root.get("scenario_version")) {
         const auto* value = node->as_integer();
@@ -390,6 +427,13 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     }
     if (const auto* node = root.get("exchange")) {
         scenario.exchange = readExchange(reader, reader.table(*node, "exchange"));
+    }
+    if (const auto* node = root.get("trading_day")) {
+        scenario.tradingDay = readTradingDay(reader, reader.table(*node, "trading_day"));
+        if (scenario.tradingDay->openingAuction + scenario.tradingDay->closingAuction >
+            scenario.duration) {
+            reader.fail(*node, "the opening and closing auctions must fit in the duration");
+        }
     }
     if (const auto* node = root.get("participant")) {
         scenario.participant = readParticipant(reader, reader.table(*node, "participant"));

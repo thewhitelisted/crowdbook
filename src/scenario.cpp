@@ -83,8 +83,21 @@ void validate(const Scenario& scenario) {
     if (scenario.groups.empty()) {
         throw ScenarioError("the scenario has no agents");
     }
+    if (const auto& day = scenario.tradingDay) {
+        if (day->openingAuction < 0 || day->closingAuction < 0 ||
+            day->openingAuction + day->closingAuction > scenario.duration) {
+            throw ScenarioError("trading_day: the opening and closing auctions must not be "
+                                "negative and must fit in the duration together");
+        }
+        if (day->haltBand < 0 || day->halt < 0 || (day->haltBand > 0 && day->halt == 0)) {
+            throw ScenarioError("trading_day: a halt band needs a positive halt");
+        }
+        if (!(day->activity >= 0.0)) {
+            throw ScenarioError("trading_day: the activity must not be negative");
+        }
+    }
     try {
-        const Exchange check{scenario.exchange};
+        const Exchange check{exchangeConfig(scenario)};
     } catch (const std::invalid_argument& error) {
         throw ScenarioError(std::format("exchange: {}", error.what()));
     }
@@ -92,10 +105,20 @@ void validate(const Scenario& scenario) {
 
 } // namespace
 
+ExchangeConfig exchangeConfig(const Scenario& scenario) {
+    ExchangeConfig config = scenario.exchange;
+    if (const auto& day = scenario.tradingDay) {
+        config.referencePrice = scenario.referencePrice;
+        config.haltBand = day->haltBand;
+        config.haltDuration = day->halt;
+    }
+    return config;
+}
+
 struct ScenarioRun::State {
     State(const Scenario& scenario, EventSink* sink)
         : referencePrice(scenario.referencePrice), counter(sink),
-          simulation(scenario.seed, scenario.exchange) {
+          simulation(scenario.seed, exchangeConfig(scenario)) {
         simulation.setEventSink(&counter);
     }
 
@@ -112,6 +135,20 @@ ScenarioRun::ScenarioRun(const Scenario& scenario, const AgentRegistry& registry
     validate(scenario);
     state_ = std::make_unique<State>(scenario, sink);
     Environment environment{.referencePrice = scenario.referencePrice};
+    if (const auto& day = scenario.tradingDay) {
+        // Scheduled before any agent is added, so a phase due at the start comes before them.
+        Simulation& simulation = state_->simulation;
+        if (day->openingAuction > 0) {
+            simulation.schedulePhase(0, Phase::OpeningAuction);
+            simulation.schedulePhase(day->openingAuction, Phase::Continuous);
+        }
+        if (day->closingAuction > 0) {
+            simulation.schedulePhase(scenario.duration - day->closingAuction,
+                                     Phase::ClosingAuction);
+        }
+        simulation.schedulePhase(scenario.duration, Phase::Closed);
+        environment.activity = {.amplitude = day->activity, .day = scenario.duration};
+    }
     if (scenario.fundamental) {
         try {
             // Stream 0 belongs to no agent: agent n draws from streams 2n and 2n + 1.

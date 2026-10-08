@@ -250,5 +250,60 @@ TEST(ZeroIntelligenceTest, RejectsInvalidConfigs) {
                  std::invalid_argument);
 }
 
+TEST(ZeroIntelligenceTest, InAnAuctionItsMarketOrdersBecomeLimitOrdersThroughTheIndicative) {
+    ZeroIntelligenceTrader trader{{.limitRate = 0.0, .marketRate = 1.0, .maxOffset = 4},
+                                  kReference};
+    FakeContext context;
+    context.snapshot.phase = Phase::OpeningAuction;
+    context.snapshot.indicative = Uncross{.price = 1'020, .volume = 5};
+    for (const Request& request : run(trader, context, 200)) {
+        const auto& order = std::get<NewOrder>(request);
+        EXPECT_EQ(order.type, OrderType::Limit);
+        EXPECT_EQ(order.timeInForce, TimeInForce::GoodTillCancel);
+        // Buys at up to four ticks above the indicative price, sells down to four below.
+        if (order.side == Side::Buy) {
+            EXPECT_GE(order.price, 1'021);
+            EXPECT_LE(order.price, 1'024);
+        } else {
+            EXPECT_GE(order.price, 1'016);
+            EXPECT_LE(order.price, 1'019);
+        }
+    }
+}
+
+TEST(ZeroIntelligenceTest, SendsNothingOnceTheMarketHasClosed) {
+    ZeroIntelligenceTrader trader{{}, kReference};
+    FakeContext context;
+    context.snapshot.phase = Phase::Closed;
+    EXPECT_TRUE(run(trader, context, 200).empty());
+}
+
+TEST(ZeroIntelligenceTest, ItsPaceFollowsTheDaysCurve) {
+    const ActivityCurve curve{.amplitude = 2.0, .day = 100 * kSecond};
+    ZeroIntelligenceTrader trader{{.limitRate = 1.0, .marketRate = 0.0, .activity = curve},
+                                  kReference};
+    double open = 0.0;
+    double midday = 0.0;
+    for (const auto& [time, wait] : {std::pair{Timestamp{0}, &open},
+                                     std::pair{Timestamp{50 * kSecond}, &midday}}) {
+        FakeContext context;
+        context.setNow(time);
+        for (int i = 0; i < kOrders; ++i) {
+            trader.onWakeup(context, 0);
+        }
+        double total = 0.0;
+        int count = 0;
+        for (const auto& [at, tag] : context.wakeups) {
+            if (tag == 0) {
+                total += static_cast<double>(at - time) / 1e9;
+                ++count;
+            }
+        }
+        *wait = total / count;
+    }
+    // Waits three times as long at midday, at 0.6 of the average pace, as at the open, at 1.8.
+    EXPECT_NEAR(midday / open, 3.0, 0.15);
+}
+
 } // namespace
 } // namespace crowdbook

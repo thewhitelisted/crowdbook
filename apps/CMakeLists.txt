@@ -153,8 +153,15 @@ if(CROWDBOOK_BUILD_TESTS)
     file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")
     foreach(example IN LISTS examples)
         get_filename_component(name "${example}" NAME_WE)
+        # A trading day's auctions need its full length; the others run for two seconds.
+        file(READ "${example}" text)
+        string(FIND "${text}" "[trading_day]" day)
+        set(length --duration 2s)
+        if(day GREATER -1)
+            set(length)
+        endif()
         add_test(NAME cli.example.${name}
-            COMMAND crowdbook_cli run "${example}" --duration 2s
+            COMMAND crowdbook_cli run "${example}" ${length}
                 --log "${CMAKE_CURRENT_BINARY_DIR}/${name}.csv")
     endforeach()
 endif()

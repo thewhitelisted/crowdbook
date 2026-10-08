@@ -38,7 +38,8 @@ MomentumTrader::MomentumTrader(const MomentumConfig& config, Price referencePric
 void MomentumTrader::onStart(AgentContext& context) { context.wakeWithin(config_.interval); }
 
 void MomentumTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
-    market_.update(context.market());
+    const MarketSnapshot market = context.market();
+    market_.update(market);
     const double price = market_.fairPrice();
     if (fast_ && slow_) {
         *fast_ += fastWeight_ * (price - *fast_);
@@ -50,7 +51,9 @@ void MomentumTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
 
     const Ledger& ledger = context.ledger();
     const Quantity size = config_.orderSize;
-    if (trend() > config_.threshold &&
+    if (market.phase != Phase::Continuous) {
+        // Market orders cannot wait for an auction; it keeps watching and trades after.
+    } else if (trend() > config_.threshold &&
         ledger.position() + ledger.openQuantity(Side::Buy) + size <= config_.maxPosition) {
         context.submitMarket(Side::Buy, size);
     } else if (trend() < -config_.threshold &&

@@ -57,12 +57,16 @@ public:
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
     void onFilled(AgentContext& context, const OrderFilled& event) override;
     void onRejected(AgentContext& context, const OrderRejected& event) override;
+    // Its quotes stand through an auction, but it sends no new ones until trading is
+    // continuous again.
+    void onPhase(AgentContext& context, const PhaseChanged& phase) override;
     void onTopOfBook(AgentContext& context, const TopOfBook& top) override;
     void onTrade(AgentContext& context, const Trade& trade) override;
 
     [[nodiscard]] double fairPrice() const noexcept;
 
 private:
+    Phase phase_ = Phase::Continuous;
     // A quote the market maker has asked for: its client order id and the last price requested.
     struct Quote {
         ClientOrderId clientOrderId = 0;

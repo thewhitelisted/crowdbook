@@ -234,6 +234,10 @@ void checkRewind(const CommandLine& line) {
         throw UsageError(
             "--at rewinds a session, which keeps its seed: --seed cannot change it");
     }
+    if (line.at && line.duration) {
+        throw UsageError("--at rewinds a session, which keeps its duration and the day's "
+                         "schedule with it: --duration cannot change it");
+    }
     if (line.at && !line.seats.empty()) {
         throw UsageError(
             "--at rewinds a session, which keeps its seats: --seat cannot change them");

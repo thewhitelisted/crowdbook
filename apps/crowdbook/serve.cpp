@@ -101,10 +101,7 @@ int serve(const ServeOptions& options) {
         from = loadSession(options.scenarioPath);
     }
     const std::string text = from ? from->scenario : readFile(options.scenarioPath);
-    Scenario scenario = parseScenario(text, options.scenarioPath);
-    if (from) {
-        scenario.seed = from->seed;
-    }
+    Scenario scenario = from ? sessionScenario(*from) : parseScenario(text, options.scenarioPath);
     if (options.seed) {
         scenario.seed = *options.seed;
     }

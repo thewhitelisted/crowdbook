@@ -41,6 +41,7 @@ std::unique_ptr<Agent> makeZeroIntelligence(const Parameters& parameters,
                 parameters.duration("activity_baseline", defaults.activityBaseline),
             .volatilityResponse =
                 parameters.number("volatility_response", defaults.volatilityResponse),
+            .activity = environment.activity,
         },
         environment.referencePrice);
 }
@@ -82,15 +83,17 @@ std::unique_ptr<Agent> makeAdaptive(const Parameters& parameters,
 }
 
 std::unique_ptr<Agent> makeExecution(const Parameters& parameters,
-                                     const Environment& /*environment*/) {
+                                     const Environment& environment) {
     const ExecutionConfig defaults;
     const std::string style = parameters.text("style", "twap");
-    if (style != "twap" && style != "pov") {
-        throw std::invalid_argument(
-            std::format("execution style must be \"twap\" or \"pov\", not \"{}\"", style));
+    if (style != "twap" && style != "pov" && style != "vwap") {
+        throw std::invalid_argument(std::format(
+            "execution style must be \"twap\", \"pov\" or \"vwap\", not \"{}\"", style));
     }
     return std::make_unique<ExecutionTrader>(ExecutionConfig{
-        .style = style == "twap" ? ExecutionStyle::Twap : ExecutionStyle::Pov,
+        .style = style == "twap"  ? ExecutionStyle::Twap
+                 : style == "pov" ? ExecutionStyle::Pov
+                                  : ExecutionStyle::Vwap,
         .minParent = parameters.integer("min_parent", defaults.minParent),
         .parentTail = parameters.number("parent_tail", defaults.parentTail),
         .maxParent = parameters.integer("max_parent", defaults.maxParent),
@@ -98,6 +101,7 @@ std::unique_ptr<Agent> makeExecution(const Parameters& parameters,
         .interval = parameters.duration("interval", defaults.interval),
         .childSize = parameters.integer("child_size", defaults.childSize),
         .participation = parameters.number("participation", defaults.participation),
+        .activity = environment.activity,
     });
 }
 
