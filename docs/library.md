@@ -103,6 +103,11 @@ the operating system add. On an Apple M5:
 | 200 | as it happens | 1.3 ms | 2.6 ms | 79% |
 | 200 | every 10 ms | 0.18 ms | 1.1 ms | 28% |
 
+On CI's Linux machine, four shared cores of an AMD EPYC 7763 that the clients run on too, one
+client's answers are 0.15 ms late at the median and 0.23 ms at the 99th percentile without any
+spin, 50 clients' 0.19 and 0.83 ms, and 200 clients' with market data every 10 ms 0.5 and 3.2 ms;
+each run shows the latest figures.
+
 A bare TCP round trip between two threads on the same machine takes 35 to 80 µs, depending on how
 deeply its cores sleep; most of what remains for one client is that. With hundreds of seats, the
 cost is the market data: every seat gets every update, so batching it (`--feed-interval`) is
