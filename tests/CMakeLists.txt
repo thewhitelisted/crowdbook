@@ -10,6 +10,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(crowdbook_tests
     adaptive_test.cpp
     agent_registry_test.cpp
+    auction_test.cpp
     event_log_test.cpp
     execution_test.cpp
     exchange_random_test.cpp

@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <tuple>
 #include <vector>
 
+#include "crowdbook/order_book.hpp"
 #include "crowdbook/types.hpp"
 #include "order_test_support.hpp"
 
@@ -24,7 +26,7 @@ public:
         }
 
         Quantity remaining = request.quantity;
-        while (remaining > 0) {
+        while (matching && remaining > 0) {
             const auto maker = bestOpposite(request.side);
             if (maker == entries_.end()) {
                 break;
@@ -84,6 +86,106 @@ public:
         const RestingOrder original = entry->order;
         entries_.erase(entry);
         return submit(limit(id, original.owner, original.side, price, quantity), fills);
+    }
+
+    // Off for a call auction: orders rest without trading.
+    bool matching = true;
+
+    // Tries every price any order is at, and keeps the one that trades the most lots, then has
+    // the smallest imbalance, then is nearest the reference, then is lowest.
+    [[nodiscard]] std::optional<Uncross> indicative(Price reference) const {
+        std::optional<Uncross> best;
+        for (const Entry& candidate : entries_) {
+            const Price price = candidate.order.price;
+            Quantity demand = 0;
+            Quantity supply = 0;
+            for (const Entry& entry : entries_) {
+                if (entry.order.side == Side::Buy && entry.order.price >= price) {
+                    demand += entry.order.remaining;
+                }
+                if (entry.order.side == Side::Sell && entry.order.price <= price) {
+                    supply += entry.order.remaining;
+                }
+            }
+            const Uncross here{.price = price,
+                               .volume = std::min(demand, supply),
+                               .imbalance = demand - supply};
+            if (here.volume == 0) {
+                continue;
+            }
+            const auto key = [reference](const Uncross& u) {
+                return std::tuple{-u.volume, u.imbalance < 0 ? -u.imbalance : u.imbalance,
+                                  u.price < reference ? reference - u.price : u.price - reference,
+                                  u.price};
+            };
+            if (!best || key(here) < key(*best)) {
+                best = here;
+            }
+        }
+        return best;
+    }
+
+    // Lines up every bid at or above the price, highest and then oldest first, against every ask
+    // at or below it, lowest and then oldest first, and trades them in pairs at the price.
+    std::optional<Uncross> uncross(Price reference, std::vector<Fill>& fills,
+                                   std::vector<RestingOrder>& selfTrades) {
+        const std::optional<Uncross> result = indicative(reference);
+        if (!result) {
+            return std::nullopt;
+        }
+        const Price price = result->price;
+        std::vector<Entry> bids;
+        std::vector<Entry> asks;
+        for (const Entry& entry : entries_) {
+            if (entry.order.side == Side::Buy && entry.order.price >= price) {
+                bids.push_back(entry);
+            } else if (entry.order.side == Side::Sell && entry.order.price <= price) {
+                asks.push_back(entry);
+            }
+        }
+        std::ranges::sort(bids, [](const Entry& a, const Entry& b) { return ahead(a, b); });
+        std::ranges::sort(asks, [](const Entry& a, const Entry& b) { return ahead(a, b); });
+        std::size_t i = 0;
+        std::size_t j = 0;
+        while (i < bids.size() && j < asks.size()) {
+            Entry& bid = bids[i];
+            Entry& ask = asks[j];
+            const bool bidIsOlder = bid.sequence < ask.sequence;
+            if (bid.order.owner == ask.order.owner) {
+                Entry& newer = bidIsOlder ? ask : bid;
+                selfTrades.push_back(newer.order);
+                static_cast<void>(cancel(newer.order.id));
+                (bidIsOlder ? j : i) += 1;
+                continue;
+            }
+            Entry& maker = bidIsOlder ? bid : ask;
+            Entry& taker = bidIsOlder ? ask : bid;
+            const Quantity quantity = std::min(bid.order.remaining, ask.order.remaining);
+            maker.order.remaining -= quantity;
+            taker.order.remaining -= quantity;
+            fills.push_back({.makerOrderId = maker.order.id,
+                             .takerOrderId = taker.order.id,
+                             .makerOwner = maker.order.owner,
+                             .takerOwner = taker.order.owner,
+                             .takerSide = taker.order.side,
+                             .price = price,
+                             .quantity = quantity,
+                             .makerRemaining = maker.order.remaining});
+            for (Entry* side : {&bid, &ask}) {
+                const auto entry = findEntry(side->order.id);
+                entry->order.remaining = side->order.remaining;
+                if (side->order.remaining == 0) {
+                    entries_.erase(entry);
+                }
+            }
+            if (bid.order.remaining == 0) {
+                ++i;
+            }
+            if (ask.order.remaining == 0) {
+                ++j;
+            }
+        }
+        return result;
     }
 
     std::optional<RestingOrder> cancel(OrderId id) {

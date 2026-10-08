@@ -1,6 +1,7 @@
 #include "crowdbook/order_book.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <format>
 
 namespace crowdbook {
@@ -26,8 +27,9 @@ OrderResult OrderBook::submit(const OrderRequest& request, std::vector<Fill>& fi
         return rejected(RejectReason::DuplicateOrderId);
     }
 
-    const MatchOutcome outcome = request.side == Side::Buy ? match(asks_, request, fills)
-                                                           : match(bids_, request, fills);
+    const MatchOutcome outcome = !matching_                ? MatchOutcome{}
+                                 : request.side == Side::Buy ? match(asks_, request, fills)
+                                                             : match(bids_, request, fills);
     const Quantity remaining = request.quantity - outcome.filled;
 
     if (remaining == 0) {
@@ -94,21 +96,114 @@ std::optional<RestingOrder> OrderBook::cancel(OrderId id) {
     if (it == orders_.end()) {
         return std::nullopt;
     }
+    const RestingOrder cancelled = toRestingOrder(it->second);
+    erase(it->second);
+    return cancelled;
+}
 
-    Node& node = it->second;
-    const RestingOrder cancelled = toRestingOrder(node);
+// Takes an order off its level, and the level off the book if it empties, and forgets the order.
+void OrderBook::erase(Node& node) {
     const Level& level = *node.level;
+    const Side side = node.side;
+    const OrderId id = node.id;
     unlink(node);
     if (level.orderCount == 0) {
         const Price price = level.price;
-        if (cancelled.side == Side::Buy) {
+        if (side == Side::Buy) {
             bids_.erase(price);
         } else {
             asks_.erase(price);
         }
     }
-    orders_.erase(it);
-    return cancelled;
+    orders_.erase(id);
+}
+
+std::optional<Uncross> OrderBook::indicative(Price reference) const {
+    // Every price that is some order's limit is a candidate, lowest first. Demand at a price is
+    // what is bid at it or higher, supply what is offered at it or lower.
+    Quantity demand = 0;
+    for (const auto& [price, level] : bids_) {
+        demand += level.quantity;
+    }
+    Quantity supply = 0;
+    auto bid = bids_.rbegin(); // lowest bid first
+    auto ask = asks_.begin();  // lowest ask first
+    std::optional<Uncross> best;
+    const auto better = [reference](const Uncross& a, const Uncross& b) {
+        if (a.volume != b.volume) {
+            return a.volume > b.volume;
+        }
+        if (std::abs(a.imbalance) != std::abs(b.imbalance)) {
+            return std::abs(a.imbalance) < std::abs(b.imbalance);
+        }
+        if (std::abs(a.price - reference) != std::abs(b.price - reference)) {
+            return std::abs(a.price - reference) < std::abs(b.price - reference);
+        }
+        return a.price < b.price;
+    };
+    while (bid != bids_.rend() || ask != asks_.end()) {
+        const Price price = bid == bids_.rend()   ? ask->first
+                            : ask == asks_.end() ? bid->first
+                                                 : std::min(bid->first, ask->first);
+        // Asks at this price now count toward supply; bids below it no longer count to demand.
+        while (ask != asks_.end() && ask->first == price) {
+            supply += ask->second.quantity;
+            ++ask;
+        }
+        const Uncross here{.price = price,
+                           .volume = std::min(demand, supply),
+                           .imbalance = demand - supply};
+        if (here.volume > 0 && (!best || better(here, *best))) {
+            best = here;
+        }
+        while (bid != bids_.rend() && bid->first == price) {
+            demand -= bid->second.quantity;
+            ++bid;
+        }
+    }
+    return best;
+}
+
+std::optional<Uncross> OrderBook::uncross(Price reference, std::vector<Fill>& fills,
+                                          std::vector<RestingOrder>& selfTrades) {
+    const std::optional<Uncross> result = indicative(reference);
+    if (!result) {
+        return std::nullopt;
+    }
+    const Price price = result->price;
+    while (!bids_.empty() && !asks_.empty() && bids_.begin()->first >= price &&
+           asks_.begin()->first <= price) {
+        Node& bid = *bids_.begin()->second.head;
+        Node& ask = *asks_.begin()->second.head;
+        const bool bidIsOlder = bid.sequence < ask.sequence;
+        Node& maker = bidIsOlder ? bid : ask;
+        Node& taker = bidIsOlder ? ask : bid;
+        if (bid.owner == ask.owner) {
+            selfTrades.push_back(toRestingOrder(taker));
+            erase(taker);
+            continue;
+        }
+        const Quantity quantity = std::min(bid.remaining, ask.remaining);
+        maker.remaining -= quantity;
+        taker.remaining -= quantity;
+        maker.level->quantity -= quantity;
+        taker.level->quantity -= quantity;
+        fills.push_back({.makerOrderId = maker.id,
+                         .takerOrderId = taker.id,
+                         .makerOwner = maker.owner,
+                         .takerOwner = taker.owner,
+                         .takerSide = taker.side,
+                         .price = price,
+                         .quantity = quantity,
+                         .makerRemaining = maker.remaining});
+        if (bid.remaining == 0) {
+            erase(bid);
+        }
+        if (ask.remaining == 0) {
+            erase(ask);
+        }
+    }
+    return result;
 }
 
 std::optional<RestingOrder> OrderBook::find(OrderId id) const {
@@ -173,7 +268,7 @@ void OrderBook::depth(Side side, std::size_t maxLevels, std::vector<LevelSummary
 std::size_t OrderBook::orderCount() const noexcept { return orders_.size(); }
 
 std::optional<std::string> OrderBook::audit() const {
-    if (const auto bid = bestBid(), ask = bestAsk(); bid && ask && *bid >= *ask) {
+    if (const auto bid = bestBid(), ask = bestAsk(); matching_ && bid && ask && *bid >= *ask) {
         return std::format("book is crossed: best bid {} >= best ask {}", *bid, *ask);
     }
 
@@ -284,6 +379,7 @@ template <typename Levels>
 void OrderBook::rest(Levels& levels, Node& node) {
     Level& level = levels.try_emplace(node.price, Level{.price = node.price}).first->second;
     node.level = &level;
+    node.sequence = nextSequence_++;
     node.prev = level.tail;
     node.next = nullptr;
     if (level.tail != nullptr) {

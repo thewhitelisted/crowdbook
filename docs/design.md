@@ -157,6 +157,46 @@ second on a mixed stream of passive orders, cancels, crossing orders and market 
   orders. `BookDepth` is the depth feed: the best levels on each side, as many as the exchange is
   configured to publish, sent whenever one of them changes.
 
+## Trading day
+
+A scenario with a `[trading_day]` section trades the way a stock exchange's day goes, in phases;
+without one, the market trades continuously from start to end, as before.
+
+- **Phases:** an opening auction from the start, continuous trading, a closing auction at the
+  end of the day, then closed. A halt is an auction too. The schedule's phase changes are
+  actions in the kernel's queue like any other, so they happen at the same nanosecond in every
+  run; a halt schedules its own end.
+- **Auctions are call auctions.** Limit orders rest without trading, so the book can be crossed.
+  Market, immediate-or-cancel and post-only orders are rejected, since none of them can wait for
+  the call. When the auction ends, the book uncrosses at a single price: the price that trades
+  the most lots; among those, the one that leaves the smallest imbalance between what is left
+  to buy and to sell; among those, the one nearest the reference price, the last auction's
+  price or the scenario's reference before any auction; and among those, the lowest. Orders
+  trade at that price in price-time priority, both sides as auction liquidity, paying the
+  exchange's auction fee. If an uncross would match an agent with itself, the newer order's
+  remainder is cancelled as a self-trade and the clearing price stays as it was. Cancelling it
+  takes lots out of the volume that price was chosen for, which can leave the book crossed, so
+  an uncross that cancelled a self-trade is followed by another, at the price for what is left,
+  until one cancels none. Without self-trades one round always leaves the book uncrossed: a
+  crossing bid and ask left over would have made another price trade more.
+- **The indicative price:** during an auction the exchange publishes, after every change, the
+  price the book would uncross at now, the lots that would trade and the imbalance, as real
+  exchanges do. The best bid and ask are still published, and may be crossed.
+- **Closed:** after the closing auction nothing trades and only cancels are accepted.
+- **Halts:** a continuous trade further than the halt band from the reference price halts the
+  market into an auction for the halt's length. The trade that set it off stands. A halt that
+  would run into the closing auction ends there instead.
+- **Agents in auctions:** every agent can see the phase, streamed or in its snapshot. Noise
+  traders send limit orders, which build the auction's book, and skip the market orders they
+  would have sent; the market maker, momentum and informed traders wait for continuous trading,
+  since their orders cannot rest; execution agents pause their parent orders and carry on
+  after.
+- **Intraday activity:** an optional U-shaped curve multiplies the noise traders' order rates,
+  busier at the open and the close than at midday, as on real exchanges. It is an assumption,
+  stated in the scenario, and the volatility and spreads that follow from it are measured.
+- **VWAP:** a third execution style paces a parent order by the same curve, so it trades more
+  when the market is expected to be busy, which is what tracking the day's VWAP means.
+
 ## Simulation
 
 `Simulation` is the discrete-event kernel. It owns the exchange and the agents, and works through
@@ -691,6 +731,12 @@ Choices for later milestones may change once they are implemented; changes are r
 | Fee units | Thousandths of a tick-lot, kept apart from cash | Real fees are fractions of a tick; a separate integer keeps accounting exact without shrinking the price range |
 | Parent orders | An optional parent id on a new order, which the exchange ignores and the log keeps | An analysis can rebuild every parent from the log, as FIX's linked order ids allow; agents need nothing new |
 | VWAP | Comes with the trading day, not with TWAP and POV | It follows a forecast of the day's volume curve; until the market has a day, it is TWAP |
+| Auctions | Call auctions: limit orders rest, the book uncrosses at one price that trades the most lots | How real exchanges open, close and restart after halts |
+| Uncross ties | Smallest imbalance, then nearest the reference, then lowest | The common exchange rule, made total so the price is always determined |
+| Orders in auctions | Market, immediate-or-cancel and post-only rejected | None can wait for the call; rejecting them is plainer than converting them |
+| Indicative price | Published during auctions | Agents and people see where the auction is heading, as on real exchanges |
+| Halts | A continuous trade outside a band around the last auction price starts an auction; the trade stands | A circuit breaker in its simplest form; stopping trades at the band would need a rule per order type |
+| Execution in auctions | Parents pause, children wait | Giving up a parent because the market is in an auction would make brokers walk away twice a day |
 | Live play | A pacer around runUntil plus Simulation::act, on one thread | Wall-clock time only decides when a person's actions happen, so a recording replays exactly |
 | Trading screen | Terminal, with ANSI escape codes and no library | Runs anywhere with a terminal and adds no dependency; a browser screen is part of the hosted product |
 | Session files | TOML holding the scenario's text, the seed and every request with its time | A session replays even when its scenario file changes or is gone |

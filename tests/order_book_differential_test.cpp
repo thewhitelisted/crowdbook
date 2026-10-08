@@ -132,5 +132,85 @@ TEST_P(OrderBookDifferentialTest, AgreesWithReferenceBook) {
 INSTANTIATE_TEST_SUITE_P(Seeds, OrderBookDifferentialTest,
                          ::testing::Range<std::uint64_t>(1, 41));
 
+class AuctionDifferentialTest : public ::testing::TestWithParam<std::uint64_t> {};
+
+// The same random flow, through call auctions now and then: matching turns off, orders pile up
+// and cross, the indicative price must agree with the reference's brute force after every step,
+// and the uncross must trade the same fills, cancel the same self-trades and leave the same book,
+// which must then not be crossed.
+TEST_P(AuctionDifferentialTest, AgreesWithReferenceBookThroughAuctions) {
+    const std::uint64_t seed = GetParam();
+    RandomFlow flow{seed, seed % 2 == 0 ? kCrowded : kDeep};
+    OrderBook book;
+    ReferenceBook reference;
+    std::vector<Fill> bookFills;
+    std::vector<Fill> referenceFills;
+    std::vector<RestingOrder> bookSelfTrades;
+    std::vector<RestingOrder> referenceSelfTrades;
+    OrderId nextId = 1;
+    int uncrosses = 0;
+
+    for (int step = 0; step < kStepsPerSeed; ++step) {
+        SCOPED_TRACE(std::format("seed {} step {}", seed, step));
+        bookFills.clear();
+        referenceFills.clear();
+        bookSelfTrades.clear();
+        referenceSelfTrades.clear();
+
+        const std::uint64_t action = flow.below(100);
+        if (book.matching() && action < 3) {
+            book.setMatching(false);
+            reference.matching = false;
+        } else if (!book.matching() && action < 6) {
+            // A round that cancels self-trades can leave the book crossed, so it goes again.
+            const Price referencePrice = flow.price();
+            while (true) {
+                const std::size_t cancelled = bookSelfTrades.size();
+                const auto round = book.uncross(referencePrice, bookFills, bookSelfTrades);
+                ASSERT_EQ(round,
+                          reference.uncross(referencePrice, referenceFills, referenceSelfTrades));
+                ASSERT_EQ(bookSelfTrades, referenceSelfTrades);
+                if (!round || bookSelfTrades.size() == cancelled) {
+                    break;
+                }
+            }
+            book.setMatching(true);
+            reference.matching = true;
+            ++uncrosses;
+        } else if (action < 70) {
+            OrderRequest request{.id = nextId++,
+                                 .owner = flow.owner(),
+                                 .side = flow.side(),
+                                 .price = flow.price(),
+                                 .quantity = flow.quantity()};
+            if (flow.below(10) == 0) {
+                request.type = OrderType::Market;
+            }
+            ASSERT_EQ(book.submit(request, bookFills), reference.submit(request, referenceFills));
+        } else if (action < 85) {
+            const std::vector<RestingOrder> resting = reference.orders();
+            const OrderId id = resting.empty() ? nextId : resting[flow.below(resting.size())].id;
+            ASSERT_EQ(book.cancel(id), reference.cancel(id));
+        } else {
+            const std::vector<RestingOrder> resting = reference.orders();
+            const OrderId id = resting.empty() ? nextId : resting[flow.below(resting.size())].id;
+            const Price price = flow.price();
+            const Quantity quantity = flow.quantity();
+            ASSERT_EQ(book.modify(id, price, quantity, bookFills),
+                      reference.modify(id, price, quantity, referenceFills));
+        }
+
+        ASSERT_EQ(bookFills, referenceFills);
+        ASSERT_NO_FATAL_FAILURE(expectSameState(book, reference));
+        if (!book.matching()) {
+            const Price referencePrice = flow.price();
+            ASSERT_EQ(book.indicative(referencePrice), reference.indicative(referencePrice));
+        }
+    }
+    EXPECT_GT(uncrosses, 10);
+}
+
+INSTANTIATE_TEST_SUITE_P(Seeds, AuctionDifferentialTest, ::testing::Range<std::uint64_t>(1, 41));
+
 } // namespace
 } // namespace crowdbook
