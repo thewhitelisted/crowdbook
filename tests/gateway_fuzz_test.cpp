@@ -231,7 +231,9 @@ void fuzzOnce(std::uint64_t seed, Coverage& coverage) {
                 if (std::holds_alternative<protocol::Error>(message)) {
                     ++coverage.errors;
                 } else if (const auto* market = std::get_if<protocol::MarketMessage>(&message)) {
-                    coverage.fills += std::holds_alternative<OrderFilled>(market->event) ? 1 : 0;
+                    if (std::holds_alternative<OrderFilled>(market->event)) {
+                        ++coverage.fills;
+                    }
                 }
             } catch (const protocol::ProtocolError& error) {
                 ADD_FAILURE() << "step " << step << ": " << error.what() << " in " << line;
