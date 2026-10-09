@@ -13,7 +13,7 @@ cmake --install build/release --prefix /opt/crowdbook
 ```
 
 ```cmake
-find_package(crowdbook 0.11 REQUIRED)  # with CMAKE_PREFIX_PATH=/opt/crowdbook
+find_package(crowdbook 0.12 REQUIRED)  # with CMAKE_PREFIX_PATH=/opt/crowdbook
 target_link_libraries(my_program PRIVATE crowdbook::gateway)
 ```
 

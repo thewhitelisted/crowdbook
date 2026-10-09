@@ -1,6 +1,6 @@
 [project]
 name = "crowdbook"
-version = "0.11.0"
+version = "0.12.0"
 description = "Trade in a crowdbook market from Python, by hand or with a bot"
 readme = "README.md"
 license = "MIT"

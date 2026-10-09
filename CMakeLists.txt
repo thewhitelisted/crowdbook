@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(crowdbook
-    VERSION 0.11.0
+    VERSION 0.12.0
     DESCRIPTION "Agent-based limit order book simulator for market microstructure research"
     LANGUAGES CXX)
 
