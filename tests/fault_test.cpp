@@ -28,20 +28,39 @@ namespace {
 // How many more allocations succeed before one fails; negative for none failing.
 std::int64_t allocationsLeft = -1;
 
-} // namespace
-
-void* operator new(std::size_t size) {
+// Memory from malloc, or nullptr when this allocation is the one to fail or there is none.
+void* allocate(std::size_t size) noexcept {
     if (allocationsLeft >= 0 && allocationsLeft-- == 0) {
-        throw std::bad_alloc{};
+        return nullptr;
     }
-    if (void* memory = std::malloc(size == 0 ? 1 : size)) {
+    return std::malloc(size == 0 ? 1 : size);
+}
+
+void* allocateOrThrow(std::size_t size) {
+    if (void* memory = allocate(size)) {
         return memory;
     }
     throw std::bad_alloc{};
 }
 
+} // namespace
+
+// Every form that is not over-aligned, so that whatever one of them allocates, another of them
+// frees: the sanitizers' runtime has its own, and memory must not pass between the two.
+void* operator new(std::size_t size) { return allocateOrThrow(size); }
+void* operator new[](std::size_t size) { return allocateOrThrow(size); }
+void* operator new(std::size_t size, const std::nothrow_t& /*tag*/) noexcept {
+    return allocate(size);
+}
+void* operator new[](std::size_t size, const std::nothrow_t& /*tag*/) noexcept {
+    return allocate(size);
+}
 void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete[](void* memory) noexcept { std::free(memory); }
 void operator delete(void* memory, std::size_t /*size*/) noexcept { std::free(memory); }
+void operator delete[](void* memory, std::size_t /*size*/) noexcept { std::free(memory); }
+void operator delete(void* memory, const std::nothrow_t& /*tag*/) noexcept { std::free(memory); }
+void operator delete[](void* memory, const std::nothrow_t& /*tag*/) noexcept { std::free(memory); }
 
 namespace crowdbook {
 namespace {

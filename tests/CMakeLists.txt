@@ -81,4 +81,8 @@ target_link_libraries(crowdbook_fault_tests PRIVATE
 target_compile_definitions(crowdbook_fault_tests PRIVATE
     CROWDBOOK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 crowdbook_set_warnings(crowdbook_fault_tests)
+# Its operator delete frees what its operator new took from malloc, which GCC cannot tell apart
+# from a mismatch once it has inlined the two.
+target_compile_options(crowdbook_fault_tests PRIVATE
+    $<$<CXX_COMPILER_ID:GNU>:-Wno-mismatched-new-delete>)
 gtest_discover_tests(crowdbook_fault_tests)
