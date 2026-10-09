@@ -334,6 +334,26 @@ TEST(GatewayTest, ASessionReplaysToTheSameLogByteForByte) {
     }
 }
 
+// A session stopped before every seat is claimed still runs what was due at time 0, such as the
+// market maker's first quotes, as its replay does.
+TEST(GatewayTest, ASessionStoppedBeforeItStartsReplaysTheSame) {
+    std::ostringstream live;
+    CsvEventLog sink{live};
+    Gateway gateway{parseScenario(kScenario), std::string{kScenario},
+                    AgentRegistry::withBuiltIns(), twoSeats(), &sink};
+    Client alice{gateway, 0};
+    alice.hello("alice", 0);
+    gateway.advance(kSecond);
+    gateway.stop(2 * kSecond);
+    EXPECT_FALSE(gateway.started());
+    EXPECT_EQ(gateway.session().end, 0);
+    std::ostringstream replayed;
+    CsvEventLog replaySink{replayed};
+    static_cast<void>(replaySession(gateway.session(), AgentRegistry::withBuiltIns(), &replaySink));
+    EXPECT_EQ(replayed.str(), live.str());
+    EXPECT_GT(std::ranges::count(live.str(), '\n'), 1);
+}
+
 // Bob's cancel is on its way when Alice's order fills his offer: the answer to the cancel comes
 // after the order is done, and still names it by Bob's id.
 TEST(GatewayTest, AnAnswerAfterAnOrderIsDoneKeepsTheClientsId) {

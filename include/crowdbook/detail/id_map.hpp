@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -17,7 +18,8 @@ namespace crowdbook::detail {
 // book: open addressing with linear probing in one array, so that adding and removing an order
 // allocate nothing once the table has grown. Values move when the table grows or an entry is
 // erased, so a pointer to one lasts only until the next insert or erase. Only audits walk it,
-// through forEach, and nothing that changes a run may depend on its order.
+// through forEach, and nothing that changes a run may depend on its order. If growing the table
+// fails to allocate, the map is left as it was.
 template <typename Key, typename Value>
 class IdMap {
 public:
@@ -54,7 +56,7 @@ public:
     // was added.
     std::pair<Value*, bool> tryEmplace(Key key, const Value& value) {
         if ((size_ + 1) * 2 > slots_.size()) {
-            grow();
+            rehash(slots_.empty() ? kFirstCapacity : slots_.size() * 2);
         }
         std::size_t i = home(key);
         for (; slots_[i].used; i = next(i)) {
@@ -65,6 +67,19 @@ public:
         slots_[i] = Slot{.key = key, .value = value, .used = true};
         ++size_;
         return {&slots_[i].value, true};
+    }
+
+    // Whether `count` more entries fit without the table growing.
+    [[nodiscard]] bool hasRoomFor(std::size_t count) const noexcept {
+        return (size_ + count) * 2 <= slots_.size();
+    }
+
+    // Makes room for `count` entries, so that adding entries up to that many allocates nothing
+    // and cannot throw.
+    void reserve(std::size_t count) {
+        if (count * 2 > slots_.size()) {
+            rehash(std::bit_ceil(std::max(count * 2, kFirstCapacity)));
+        }
     }
 
     void insertOrAssign(Key key, const Value& value) {
@@ -115,25 +130,34 @@ private:
         bool used = false;
     };
 
+    static constexpr std::size_t kFirstCapacity = 16;
+
     // Fibonacci hashing: the top bits of the key times 2^64 / golden ratio.
-    [[nodiscard]] std::size_t home(Key key) const noexcept {
+    [[nodiscard]] static std::size_t home(Key key, int shift) noexcept {
         constexpr std::uint64_t kGolden = 0x9E37'79B9'7F4A'7C15U;
-        return static_cast<std::size_t>((static_cast<std::uint64_t>(key) * kGolden) >> shift_);
+        return static_cast<std::size_t>((static_cast<std::uint64_t>(key) * kGolden) >> shift);
     }
+    [[nodiscard]] std::size_t home(Key key) const noexcept { return home(key, shift_); }
     [[nodiscard]] std::size_t next(std::size_t i) const noexcept { return (i + 1) & mask_; }
 
-    void grow() {
-        std::vector<Slot> old = std::move(slots_);
-        const std::size_t capacity = old.empty() ? 16 : old.size() * 2;
-        slots_.assign(capacity, Slot{});
-        mask_ = capacity - 1;
-        shift_ = 64 - std::countr_zero(capacity);
-        size_ = 0;
-        for (Slot& slot : old) {
+    // Moves every entry into a table of `capacity` slots, a power of two. The new table is built
+    // in full before it replaces the old one, so a failure to allocate it changes nothing.
+    void rehash(std::size_t capacity) {
+        std::vector<Slot> fresh(capacity);
+        const std::size_t mask = capacity - 1;
+        const int shift = 64 - std::countr_zero(capacity);
+        for (const Slot& slot : slots_) {
             if (slot.used) {
-                tryEmplace(slot.key, std::move(slot.value));
+                std::size_t i = home(slot.key, shift);
+                while (fresh[i].used) {
+                    i = (i + 1) & mask;
+                }
+                fresh[i] = slot;
             }
         }
+        slots_ = std::move(fresh);
+        mask_ = mask;
+        shift_ = shift;
     }
 
     std::vector<Slot> slots_;

@@ -17,6 +17,7 @@ add_executable(crowdbook_tests
     exchange_test.cpp
     execution_test.cpp
     fundamental_test.cpp
+    gateway_fuzz_test.cpp
     gateway_test.cpp
     golden_test.cpp
     id_map_test.cpp
@@ -71,3 +72,13 @@ if(NOT CROWDBOOK_SANITIZE)
     crowdbook_set_warnings(crowdbook_allocation_tests)
     gtest_discover_tests(crowdbook_allocation_tests)
 endif()
+
+# Makes allocations fail on purpose and checks what each failure leaves behind. It replaces the
+# global operator new too, but only to fail it, so it runs under the sanitizers as well.
+add_executable(crowdbook_fault_tests fault_test.cpp)
+target_link_libraries(crowdbook_fault_tests PRIVATE
+    crowdbook::scenario GTest::gtest_main)
+target_compile_definitions(crowdbook_fault_tests PRIVATE
+    CROWDBOOK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+crowdbook_set_warnings(crowdbook_fault_tests)
+gtest_discover_tests(crowdbook_fault_tests)

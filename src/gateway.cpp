@@ -622,6 +622,9 @@ struct Gateway::State {
     }
 
     void finish(std::int64_t wallNow) {
+        // What is due at this moment has run, as a replay runs it, even in a session that ends
+        // before its clock started.
+        market.run.runUntil(simulation().now());
         finished = true;
         record.end = simulation().now();
         const RunResult result = market.result();

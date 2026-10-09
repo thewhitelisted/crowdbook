@@ -61,13 +61,24 @@ public:
     void schedulePhase(Timestamp time, Phase phase);
 
     // Processes everything scheduled up to and including `endTime`, then moves the clock there.
+    // Throws std::invalid_argument for a time after kLatestTime.
+    //
+    // An exception that escapes an agent, the exchange or the event sink while the simulation
+    // runs, such as std::bad_alloc, leaves every structure valid, so the simulation can still be
+    // inspected and destroyed safely, but the market may be half way through an event, so from
+    // then on runUntil and act throw std::logic_error rather than run on.
     void runUntil(Timestamp endTime);
 
     // Runs `action` with the agent's context at the current time, as if one of its callbacks
     // were running: whatever it sends leaves now. This is how an agent driven from outside the
     // simulation, such as a person trading live, acts between calls to runUntil. Throws
-    // std::out_of_range for an unknown id.
+    // std::out_of_range for an unknown id. An exception that escapes the action stops the
+    // simulation, as one escaping runUntil does.
     void act(AgentId id, const std::function<void(AgentContext&)>& action);
+
+    // Whether an exception escaped runUntil or act, after which the simulation runs no further.
+    // Read from inside a run, by an agent or a sink, it is true, as the run has not finished.
+    [[nodiscard]] bool failed() const noexcept { return failed_; }
 
     [[nodiscard]] Timestamp now() const noexcept { return now_; }
     // Messages and wakeups scheduled but not yet processed.
@@ -139,6 +150,12 @@ private:
 
     // Queues an action for `time` and returns its slot, for the caller to build the action in.
     Action& schedule(Timestamp time);
+    void throwIfFailed() const {
+        if (failed_) [[unlikely]] {
+            throwFailed();
+        }
+    }
+    [[noreturn]] void throwFailed() const;
     void send(AgentId sender, Request request);
     void deliver(AgentId recipient, const Event& event);
     Duration drawJitter(Slot& endpoint);
@@ -164,6 +181,7 @@ private:
     std::vector<std::uint32_t> freeActions_;
     std::uint64_t nextSequence_ = 0;
     Timestamp now_ = 0;
+    bool failed_ = false; // set while a run is under way, and left set if an exception escapes
     EventSink* sink_ = nullptr;
     std::vector<Event> events_; // reused for every request
 

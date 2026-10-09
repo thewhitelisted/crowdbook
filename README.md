@@ -321,7 +321,7 @@ build depends on it.
 
 Measured on one core of an Apple M5 with a Release build:
 
-- The matching engine handles about 42 million operations per second (roughly 24 ns each) on a
+- The matching engine handles about 45 million operations per second (roughly 22 ns each) on a
   mixed stream of passive orders, cancels, crossing orders and market orders.
 - A simulated day of the 1,432-agent mixed market in
   [large_market.toml](examples/scenarios/large_market.toml), 17.5 million trades, takes 35

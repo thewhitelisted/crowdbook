@@ -104,20 +104,19 @@ double allocationsPerRequest(const std::string& scenarioPath, EventSink* extra =
 }
 
 // A market with a depth feed: each depth update shares its levels with every copy of it, so a
-// request costs at most one allocation for each side of the book it changes, and price levels
-// coming and going cost the rest.
+// request costs at most one allocation for each side of the book it changes, and nothing else.
 TEST(AllocationTest, AMarketWithADepthFeed) {
     const double perRequest = allocationsPerRequest("/examples/challenges/market_making.toml");
     RecordProperty("allocations_per_request", std::to_string(perRequest));
-    EXPECT_LT(perRequest, 1.25) << "allocations per request: " << perRequest;
+    EXPECT_LT(perRequest, 1.05) << "allocations per request: " << perRequest;
 }
 
-// A crowd of a thousand agents and no depth feed: orders, the book's nodes, the ledgers and the
-// event queue reuse their memory, so only price levels coming and going allocate.
+// A crowd of a thousand agents and no depth feed: orders, the book's nodes and price levels, the
+// ledgers and the event queue reuse their memory, so almost nothing allocates.
 TEST(AllocationTest, ALargeMarket) {
     const double perRequest = allocationsPerRequest("/examples/scenarios/large_market.toml");
     RecordProperty("allocations_per_request", std::to_string(perRequest));
-    EXPECT_LT(perRequest, 0.1) << "allocations per request: " << perRequest;
+    EXPECT_LT(perRequest, 0.01) << "allocations per request: " << perRequest;
 }
 
 // A prediction market, whose true value is worked out every second, allocates no more than any
@@ -125,7 +124,7 @@ TEST(AllocationTest, ALargeMarket) {
 TEST(AllocationTest, APredictionMarket) {
     const double perRequest = allocationsPerRequest("/examples/scenarios/prediction.toml");
     RecordProperty("allocations_per_request", std::to_string(perRequest));
-    EXPECT_LT(perRequest, 1.25) << "allocations per request: " << perRequest;
+    EXPECT_LT(perRequest, 1.05) << "allocations per request: " << perRequest;
 }
 
 // The event log adds nothing: each row is built in a buffer that is reused.

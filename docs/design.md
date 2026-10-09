@@ -108,9 +108,10 @@ Rules:
 - Self-trade prevention: when an incoming order reaches a resting order from the same owner, the
   incoming order's remaining quantity is cancelled. Orders ahead of that resting order still trade.
 
-On an Apple M5 (Release build, `crowdbook_bench`) the book handles about 30 million operations per
+On an Apple M5 (Release build, `crowdbook_bench`) the book handles about 45 million operations per
 second on a mixed stream of passive orders, cancels, crossing orders and market orders, roughly
-33 ns per operation.
+22 ns per operation. Price levels that empty keep their memory for the next new level, so a busy
+book allocates almost nothing.
 
 ## Exchange
 
@@ -725,6 +726,15 @@ uv run --project analysis crowdbook-large-orders
   the rate limit, the limit on waiting output, long and split lines, hello timeouts, tokens, a
   seat claimed again, clock messages and the end. A session with two seats, a disconnect and a
   seat claimed again replays to the same event log byte for byte.
+- **Gateway fuzzing:** for 12 seeds, three seat holders trade while dozens of hostile
+  connections come and go: wrong seats and tokens, orders with ids, prices and quantities at
+  and past every edge, mangled lines, random bytes, lines far longer than any message, floods
+  over the rate limit, readers that take a few bytes at a time or nothing, and the operator
+  changing the clock's speed and pausing it. The gateway must never throw, every byte it sends
+  must form whole messages, no connection may hold more output than its limit, the book must
+  pass its audit, and the session must replay to the live event log byte for byte. It found that
+  a session stopped before every seat was claimed never ran what was due at time 0, which its
+  replay does.
 - **Scoring tests** score hand-made fills and trades against values worked out by hand: PnL
   net of fees at both marks, inventory over every change of position, the close penalty, a
   target against VWAP and against the reference price, a target done at the benchmark, and the
@@ -774,6 +784,15 @@ uv run --project analysis crowdbook-large-orders
 - **Analysis tests** check each statistic in `analysis/` on inputs with known answers: a random
   walk's flat volatility signature, a normal sample's zero excess kurtosis, hand-computed spreads
   and price moves.
+- **Fault injection:** `crowdbook_fault_tests` replaces `operator new` with one that fails on
+  demand. It fails allocation after allocation in an id map as it grows, in 400 young order books
+  through random orders, modifies, cancels and auctions, and in a whole market during a busy
+  minute. The id map must keep every entry; the book must pass its audit after every failure and
+  still cancel every order at the end, a cancel must never allocate, and when the fills have room
+  a failed request must leave the book exactly as it was; the market must stop, refuse to go on,
+  and be destroyed cleanly. It runs under the sanitizers too. It found an id map that lost its
+  table when growing failed, a resting order indexed before its level existed, and fills
+  recorded after the order they emptied had changed.
 - **Sanitizers:** the `asan` preset runs everything under AddressSanitizer and
   UndefinedBehaviorSanitizer, locally and in CI.
 
@@ -872,6 +891,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | Calibration data | Free for commercial use: Polymarket's trades from its public blockchain first | Data a product built on crowdbook can use; exchange feeds' terms limit them to personal or research use |
 | What traders know | Beliefs: the value late by a delay of each trader's own, a lasting error, a group's bias, fresh noise; crowds of experts and followers in the examples | Traders who saw the value with fresh noise each look knew it exactly between them, which made prices calibrated by construction; real traders are late, wrong for a while and sometimes partisan |
 | Informed capacity | Many traders on ordinary limits rather than a few with huge ones | Real capital is spread over many traders, and more of them act the further the price strays |
+| When something fails | Every structure stays valid when an allocation fails or an agent throws; the market stops and refuses to go on; room is made before an order trades, and price levels and nodes are reused | A hosted service can drop one failed market and keep the rest, and nothing a failure leaves behind is undefined; reusing memory made the safety free and cut allocations |
 | Depth in memory | Immutable levels shared by every copy of an update | Copying the levels into every event, delivery and snapshot took a quarter of a market's time and most of its allocations |
 | Performance guards | Allocation counts in CI, timings against a baseline on one machine | Counts are the same on any machine and catch most slowdowns; timings catch the rest but only mean something where the baseline was recorded |
 | Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |

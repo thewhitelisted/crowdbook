@@ -111,10 +111,15 @@ AgentId Simulation::addAgent(std::unique_ptr<Agent> agent, const AgentOptions& o
 }
 
 void Simulation::runUntil(Timestamp endTime) {
+    throwIfFailed();
     if (endTime > kLatestTime) {
         throw std::invalid_argument(
             std::format("the simulation cannot run past {} ns, about 127 years", kLatestTime));
     }
+    // Cleared only if the run gets to the end: an exception that escapes leaves it set, and the
+    // simulation stopped. Nothing is cleaned up then, since nothing will run again, and the
+    // simulation frees everything it holds when it is destroyed.
+    failed_ = true;
     while (!queue_.empty() && queue_.front().time <= endTime) {
         std::ranges::pop_heap(queue_, Later{});
         const Scheduled item = queue_.back();
@@ -124,12 +129,25 @@ void Simulation::runUntil(Timestamp endTime) {
         freeActions_.push_back(item.action); // only now, as processing may schedule more
     }
     now_ = std::max(now_, endTime);
+    failed_ = false;
+}
+
+void AgentContext::throwWakeupTooFar() {
+    throw std::invalid_argument("a wakeup cannot be more than 1000000000s away");
+}
+
+void Simulation::throwFailed() const {
+    throw std::logic_error(std::format(
+        "the simulation stopped at {} ns, when an error escaped it, and cannot go on", now_));
 }
 
 void Simulation::act(AgentId id, const std::function<void(AgentContext&)>& action) {
+    throwIfFailed();
     static_cast<void>(slot(id));
     Context context{*this, id};
+    failed_ = true; // as in runUntil
     action(context);
+    failed_ = false;
 }
 
 Agent& Simulation::agent(AgentId id) { return *slot(id).agent; }

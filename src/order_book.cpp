@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <format>
+#include <type_traits>
+#include <utility>
 
 namespace crowdbook {
 
@@ -25,6 +27,11 @@ OrderResult OrderBook::submit(const OrderRequest& request, std::vector<Fill>& fi
     }
     if (orders_.contains(request.id)) {
         return rejected(RejectReason::DuplicateOrderId);
+    }
+    const bool mayRest = request.type == OrderType::Limit &&
+                         request.timeInForce != TimeInForce::ImmediateOrCancel;
+    if (mayRest) {
+        prepareToRest(request.side);
     }
 
     const MatchOutcome outcome = !matching_                ? MatchOutcome{}
@@ -80,7 +87,9 @@ OrderResult OrderBook::modify(OrderId id, Price price, Quantity quantity,
         return {.status = OrderStatus::Resting, .remaining = quantity};
     }
 
-    // Any other change loses queue position: cancel and re-enter as a new order with the same id.
+    // Any other change loses queue position: cancel and re-enter as a new order with the same id,
+    // with room made first, so that the order is not lost if memory runs out.
+    prepareToRest(node.side);
     const OrderRequest replacement{.id = id,
                                    .owner = node.owner,
                                    .side = node.side,
@@ -112,9 +121,9 @@ void OrderBook::erase(Node& node) {
     if (level.orderCount == 0) {
         const Price price = level.price;
         if (side == Side::Buy) {
-            bids_.erase(price);
+            retire(bids_, bids_.find(price), spareBids_);
         } else {
-            asks_.erase(price);
+            retire(asks_, asks_.find(price), spareAsks_);
         }
     }
     orders_.erase(id);
@@ -187,12 +196,7 @@ std::optional<Uncross> OrderBook::uncross(Price reference, std::vector<Fill>& fi
             continue;
         }
         const Quantity quantity = std::min(bid.remaining, ask.remaining);
-        maker.remaining -= quantity;
-        taker.remaining -= quantity;
-        maker.level->quantity -= quantity;
-        taker.level->quantity -= quantity;
-        changed(Side::Buy);
-        changed(Side::Sell);
+        // The fill first: if appending it fails, nothing has changed yet.
         fills.push_back({.makerOrderId = maker.id,
                          .takerOrderId = taker.id,
                          .makerOwner = maker.owner,
@@ -200,7 +204,13 @@ std::optional<Uncross> OrderBook::uncross(Price reference, std::vector<Fill>& fi
                          .takerSide = taker.side,
                          .price = price,
                          .quantity = quantity,
-                         .makerRemaining = maker.remaining});
+                         .makerRemaining = maker.remaining - quantity});
+        maker.remaining -= quantity;
+        taker.remaining -= quantity;
+        maker.level->quantity -= quantity;
+        taker.level->quantity -= quantity;
+        changed(Side::Buy);
+        changed(Side::Sell);
         if (bid.remaining == 0) {
             erase(bid);
         }
@@ -354,10 +364,7 @@ OrderBook::MatchOutcome OrderBook::match(Levels& levels, const OrderRequest& tak
             }
 
             const Quantity quantity = std::min(taker.quantity - outcome.filled, maker.remaining);
-            maker.remaining -= quantity;
-            level.quantity -= quantity;
-            changed(maker.side);
-            outcome.filled += quantity;
+            // The fill first: if appending it fails, nothing has changed yet.
             fills.push_back({.makerOrderId = maker.id,
                              .takerOrderId = taker.id,
                              .makerOwner = maker.owner,
@@ -365,7 +372,11 @@ OrderBook::MatchOutcome OrderBook::match(Levels& levels, const OrderRequest& tak
                              .takerSide = taker.side,
                              .price = level.price,
                              .quantity = quantity,
-                             .makerRemaining = maker.remaining});
+                             .makerRemaining = maker.remaining - quantity});
+            maker.remaining -= quantity;
+            level.quantity -= quantity;
+            changed(maker.side);
+            outcome.filled += quantity;
 
             if (maker.remaining == 0) {
                 unlink(maker);
@@ -375,7 +386,11 @@ OrderBook::MatchOutcome OrderBook::match(Levels& levels, const OrderRequest& tak
         }
 
         if (level.head == nullptr) {
-            levels.erase(best);
+            if constexpr (std::is_same_v<Levels, Bids>) {
+                retire(levels, best, spareBids_);
+            } else {
+                retire(levels, best, spareAsks_);
+            }
         }
     }
     return outcome;
@@ -383,7 +398,23 @@ OrderBook::MatchOutcome OrderBook::match(Levels& levels, const OrderRequest& tak
 
 template <typename Levels>
 void OrderBook::rest(Levels& levels, Node& node) {
-    Level& level = levels.try_emplace(node.price, Level{.price = node.price}).first->second;
+    auto at = levels.lower_bound(node.price);
+    if (at == levels.end() || at->first != node.price) {
+        auto& spares = [this]() -> auto& {
+            if constexpr (std::is_same_v<Levels, Bids>) {
+                return spareBids_;
+            } else {
+                return spareAsks_;
+            }
+        }();
+        // prepareToRest left a spare, so a new level allocates nothing.
+        auto spare = std::move(spares.back());
+        spares.pop_back();
+        spare.key() = node.price;
+        spare.mapped() = Level{.price = node.price};
+        at = levels.insert(at, std::move(spare));
+    }
+    Level& level = at->second;
     node.level = &level;
     node.sequence = nextSequence_++;
     node.prev = level.tail;
@@ -419,10 +450,44 @@ void OrderBook::unlink(Node& node) {
     node.next = nullptr;
 }
 
-OrderBook::Node& OrderBook::newNode() {
+void OrderBook::makeRoomToRest(Side side) {
+    orders_.reserve(orders_.size() + 1);
     if (freeNodes_.empty()) {
-        return nodes_.emplace_back();
+        if (freeNodes_.capacity() < nodes_.size() + 1) {
+            freeNodes_.reserve(std::max<std::size_t>(16, 2 * (nodes_.size() + 1)));
+        }
+        freeNodes_.push_back(&nodes_.emplace_back());
     }
+    if (side == Side::Buy) {
+        prepareLevel<Bids>(spareBids_);
+    } else {
+        prepareLevel<Asks>(spareAsks_);
+    }
+}
+
+template <typename Levels, typename Spares>
+void OrderBook::prepareLevel(Spares& spares) {
+    if (spares.capacity() < kSpareLevels) {
+        spares.reserve(kSpareLevels);
+    }
+    if (spares.empty()) {
+        Levels scratch;
+        scratch.try_emplace(0);
+        spares.push_back(scratch.extract(scratch.begin()));
+    }
+}
+
+template <typename Levels, typename Spares>
+void OrderBook::retire(Levels& levels, typename Levels::iterator level, Spares& spares) {
+    if (spares.size() < spares.capacity()) {
+        spares.push_back(levels.extract(level)); // within capacity, so it cannot allocate
+    } else {
+        levels.erase(level);
+    }
+}
+
+OrderBook::Node& OrderBook::newNode() {
+    // prepareToRest left a free node.
     Node& node = *freeNodes_.back();
     freeNodes_.pop_back();
     return node;

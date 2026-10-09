@@ -20,6 +20,10 @@ namespace crowdbook {
 //
 // The book does not assign order ids or decide who may cancel what; the exchange does both before
 // calling it. Executions are appended to a caller-owned vector so a hot loop can reuse one buffer.
+//
+// If memory runs out, the std::bad_alloc leaves the book consistent: an order that was to rest has
+// its room made before it trades, so only appending to `fills` can fail once matching starts, and
+// then the fills already appended are the trades that happened.
 class OrderBook {
 public:
     static constexpr std::size_t kAllLevels = std::numeric_limits<std::size_t>::max();
@@ -125,6 +129,22 @@ private:
     MatchOutcome match(Levels& levels, const OrderRequest& taker, std::vector<Fill>& fills);
     template <typename Levels>
     void rest(Levels& levels, Node& node);
+    // Makes room for an order on `side` to rest, in the index, the nodes and the levels, so that
+    // resting it after it has traded allocates nothing and cannot fail. A busy book has the room
+    // already, which takes a few comparisons to see.
+    void prepareToRest(Side side) {
+        const bool spareLevel = side == Side::Buy ? !spareBids_.empty() : !spareAsks_.empty();
+        if (!spareLevel || freeNodes_.empty() || !orders_.hasRoomFor(1)) [[unlikely]] {
+            makeRoomToRest(side);
+        }
+    }
+    void makeRoomToRest(Side side);
+    template <typename Levels, typename Spares>
+    static void prepareLevel(Spares& spares);
+    // Takes an emptied level off the book, keeping its memory for the next new level if there is
+    // room among the spares.
+    template <typename Levels, typename Spares>
+    static void retire(Levels& levels, typename Levels::iterator level, Spares& spares);
     void unlink(Node& node);
     static RestingOrder toRestingOrder(const Node& node) noexcept;
 
@@ -136,11 +156,17 @@ private:
 
     Bids bids_;
     Asks asks_;
+    // The map nodes of levels that emptied, for new levels to reuse, so that prices coming and
+    // going on a busy book allocate nothing: at most kSpareLevels a side.
+    static constexpr std::size_t kSpareLevels = 32;
+    std::vector<Bids::node_type> spareBids_;
+    std::vector<Asks::node_type> spareAsks_;
     bool matching_ = true;
     std::uint64_t nextSequence_ = 0;
     std::array<std::uint64_t, 2> changes_{}; // bids, asks
     // Owns every resting order's node. Nodes never move, so level queues can link them, and the
-    // nodes of orders that have left are reused, so a busy book stops allocating.
+    // nodes of orders that have left are reused, so a busy book stops allocating. freeNodes_ always
+    // has room for every node, so freeing one never allocates.
     std::deque<Node> nodes_;
     std::vector<Node*> freeNodes_;
     // Only looked up: the levels, not this map, give the order in which orders trade.

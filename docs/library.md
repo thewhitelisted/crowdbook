@@ -56,6 +56,12 @@ length, are at most `kMaxDuration` (a billion seconds, about 31 years), and `run
 later than `kLatestTime` (four times that). Anything longer is refused with
 `std::invalid_argument`, or `ScenarioError` from files, before it can reach the clock.
 
+If an exception escapes a market, such as `std::bad_alloc` when memory runs out or one thrown by
+an agent of your own, every structure is left valid, so the market can be inspected and destroyed
+safely, but it may be part way through an event: `Simulation::failed()` turns true, and from then
+on `runUntil` and `act` throw `std::logic_error` rather than run on. A service holding many
+markets can drop the one that failed and keep the others.
+
 ## Versions
 
 The library follows semantic versioning. Until 1.0, a minor version may change the API, so the

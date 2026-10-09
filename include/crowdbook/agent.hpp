@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <stdexcept>
 
 #include "crowdbook/ledger.hpp"
 #include "crowdbook/messages.hpp"
@@ -19,6 +18,10 @@ enum class MarketDataMode : std::uint8_t {
 // What an agent can see and do from inside a callback. Nothing reaches the exchange instantly:
 // each request arrives after the agent's latency, and the replies take time to come back.
 class AgentContext {
+private:
+    // Kept out of line, so that every agent's wakeAfter stays a comparison and a call.
+    [[noreturn]] static void throwWakeupTooFar();
+
 public:
     AgentContext() = default;
     AgentContext(const AgentContext&) = delete;
@@ -63,8 +66,8 @@ public:
 
     // Throws std::invalid_argument for a delay longer than kMaxDuration.
     void wakeAfter(Duration delay, std::uint64_t tag = 0) {
-        if (delay > kMaxDuration) {
-            throw std::invalid_argument("a wakeup cannot be more than 1000000000s away");
+        if (delay > kMaxDuration) [[unlikely]] {
+            throwWakeupTooFar();
         }
         wakeAt(now() + delay, tag);
     }
