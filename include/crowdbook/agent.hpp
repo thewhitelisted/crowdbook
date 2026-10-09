@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <stdexcept>
 
 #include "crowdbook/ledger.hpp"
 #include "crowdbook/messages.hpp"
@@ -60,7 +61,13 @@ public:
         return submit({.side = side, .type = OrderType::Market, .quantity = quantity});
     }
 
-    void wakeAfter(Duration delay, std::uint64_t tag = 0) { wakeAt(now() + delay, tag); }
+    // Throws std::invalid_argument for a delay longer than kMaxDuration.
+    void wakeAfter(Duration delay, std::uint64_t tag = 0) {
+        if (delay > kMaxDuration) {
+            throw std::invalid_argument("a wakeup cannot be more than 1000000000s away");
+        }
+        wakeAt(now() + delay, tag);
+    }
 
     // Asks for onWakeup at a uniformly random time in (now, now + interval], drawn from the
     // agent's own stream. Agents that act on a fixed timer start it this way, so that the agents

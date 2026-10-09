@@ -392,6 +392,51 @@ TEST(SimulationTest, AddAgentRejectsInvalidOptions) {
     EXPECT_EQ(simulation.addAgent(std::make_unique<RecordingAgent>()), 1U);
 }
 
+// The longest latencies, jitter and waits allowed, up to the latest time the clock reaches: every
+// time worked out from them still fits in a Timestamp, which the sanitizer build checks.
+TEST(SimulationTest, TheLongestDelaysAtTheLatestTimeStillFit) {
+    Simulation simulation{1};
+    RecordingSink sink;
+    simulation.setEventSink(&sink);
+    const Latency longest{
+        .toExchange = kMaxDuration, .fromExchange = kMaxDuration, .jitter = kMaxDuration};
+    // It starts early enough for its order to reach the exchange, and the reply to be sent back,
+    // by the latest time.
+    auto& agent = add<RecordingAgent>(
+        simulation, {.latency = longest, .startTime = kLatestTime - 2 * kMaxDuration});
+    agent.startHook = [](AgentContext& context) {
+        context.submitLimit(Side::Buy, 99, 5);
+        context.wakeAfter(kMaxDuration);
+    };
+    agent.wakeupHook = [](AgentContext& context, std::uint64_t /*tag*/) {
+        context.wakeAfter(kMaxDuration);
+    };
+
+    simulation.runUntil(kLatestTime);
+    EXPECT_EQ(agent.wakeups.size(), 2U);
+    EXPECT_EQ(agent.wakeups.back().first, kLatestTime);
+    // The order reached the exchange, and its reply and the next wakeup are due after the end.
+    ASSERT_EQ(sink.requests.size(), 1U);
+    EXPECT_LE(sink.requests[0].time, kLatestTime);
+    const Timestamp next = simulation.nextEventTime().value_or(0);
+    EXPECT_GT(next, kLatestTime);
+    EXPECT_LE(next, kLatestTime + kMaxDuration);
+
+    // Nothing runs past the latest time, and nothing waits longer than the longest duration.
+    EXPECT_THROW(simulation.runUntil(kLatestTime + 1), std::invalid_argument);
+    for (const Latency& tooLong : {Latency{.toExchange = kMaxDuration + 1},
+                                   Latency{.fromExchange = kMaxDuration + 1},
+                                   Latency{.jitter = kMaxDuration + 1}}) {
+        EXPECT_THROW(simulation.addAgent(std::make_unique<RecordingAgent>(), {.latency = tooLong}),
+                     std::invalid_argument);
+    }
+    Simulation waiting{1};
+    add<RecordingAgent>(waiting, {}).startHook = [](AgentContext& context) {
+        context.wakeAfter(kMaxDuration + 1);
+    };
+    EXPECT_THROW(waiting.runUntil(1), std::invalid_argument);
+}
+
 TEST(SimulationTest, AgentAddedMidRunStartsNowByDefault) {
     Simulation simulation{1};
     simulation.runUntil(100);

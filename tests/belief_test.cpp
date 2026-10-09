@@ -157,7 +157,8 @@ TEST(BeliefTest, SettingsAreChecked) {
     const auto value = walk();
     for (const BeliefConfig& config :
          {BeliefConfig{.noise = -1.0}, BeliefConfig{.error = -1.0}, BeliefConfig{.lag = -1},
-          BeliefConfig{.errorMemory = 0}, BeliefConfig{.bias = std::nan("")}}) {
+          BeliefConfig{.errorMemory = 0}, BeliefConfig{.bias = std::nan("")},
+          BeliefConfig{.lag = kMaxDuration + 1}}) {
         EXPECT_THROW(Belief(config, value), std::invalid_argument);
     }
     EXPECT_THROW(Belief(BeliefConfig{}, nullptr), std::invalid_argument);

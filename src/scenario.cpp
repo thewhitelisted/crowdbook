@@ -73,8 +73,8 @@ std::string jsonString(std::string_view text) {
 }
 
 void validate(const Scenario& scenario) {
-    if (scenario.duration < 0) {
-        throw ScenarioError("the duration must not be negative");
+    if (scenario.duration < 0 || scenario.duration > kMaxDuration) {
+        throw ScenarioError("the duration must be from 0 to 1000000000s");
     }
     if (scenario.referencePrice < 1 || scenario.referencePrice > kMaxPrice) {
         throw ScenarioError(

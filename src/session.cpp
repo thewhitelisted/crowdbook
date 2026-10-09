@@ -293,9 +293,17 @@ Session parseSession(std::string_view text, std::string_view source) {
         .seed = static_cast<std::uint64_t>(
             reader.integer(reader.required(root, "seed"), "seed", 0, kMaxInt)),
         .end = reader.integer(reader.required(root, "end_ns"), "end_ns", 0, kMaxInt)};
-    static_cast<void>(parseScenario(session.scenario, std::format("{} (its scenario)", source)));
+    Scenario scenario = parseScenario(session.scenario, std::format("{} (its scenario)", source));
     if (const toml::node* node = root.get("duration_ns")) {
-        session.duration = reader.integer(*node, "duration_ns", 0, kMaxInt);
+        session.duration = reader.integer(*node, "duration_ns", 0, kMaxDuration);
+        scenario.duration = *session.duration;
+    }
+    // A session stops by the time its market ends, which also keeps a replay from running for
+    // longer than the market could.
+    if (session.end > sessionEnd(scenario)) {
+        reader.fail(reader.required(root, "end_ns"),
+                    std::format("end_ns is after the session's market ends, at {} ns",
+                                sessionEnd(scenario)));
     }
     session.recordedBy.clear();
     if (const toml::node* node = root.get("recorded_by")) {

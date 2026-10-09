@@ -17,9 +17,10 @@ Belief::Belief(const BeliefConfig& config, std::shared_ptr<Fundamental> value)
             "section");
     }
     if (!(config.noise >= 0.0) || !(config.error >= 0.0) || !std::isfinite(config.bias) ||
-        config.lag < 0 || config.errorMemory <= 0) {
-        throw std::invalid_argument("noise, error and lag must not be negative, the bias must be "
-                                    "a number, and the error memory must be positive");
+        config.lag < 0 || config.lag > kMaxDuration || config.errorMemory <= 0) {
+        throw std::invalid_argument("noise, error and lag must not be negative, the lag must be "
+                                    "at most 1000000000s, the bias must be a number, and the "
+                                    "error memory must be positive");
     }
     // The latest a trader of this group can see the value.
     value_->remember(2 * config.lag);

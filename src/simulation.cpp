@@ -78,8 +78,10 @@ AgentId Simulation::addAgent(std::unique_ptr<Agent> agent, const AgentOptions& o
         throw std::invalid_argument("agent must not be null");
     }
     const Latency& latency = options.latency;
-    if (latency.toExchange < 0 || latency.fromExchange < 0 || latency.jitter < 0) {
-        throw std::invalid_argument("latencies must not be negative");
+    const auto inRange = [](Duration part) { return part >= 0 && part <= kMaxDuration; };
+    if (!inRange(latency.toExchange) || !inRange(latency.fromExchange) ||
+        !inRange(latency.jitter)) {
+        throw std::invalid_argument("latencies must be from 0 to 1000000000s");
     }
     const Timestamp startTime = options.startTime.value_or(now_);
     if (startTime < now_) {
@@ -109,6 +111,10 @@ AgentId Simulation::addAgent(std::unique_ptr<Agent> agent, const AgentOptions& o
 }
 
 void Simulation::runUntil(Timestamp endTime) {
+    if (endTime > kLatestTime) {
+        throw std::invalid_argument(
+            std::format("the simulation cannot run past {} ns, about 127 years", kLatestTime));
+    }
     while (!queue_.empty() && queue_.front().time <= endTime) {
         std::ranges::pop_heap(queue_, Later{});
         const Scheduled item = queue_.back();

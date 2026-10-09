@@ -467,7 +467,7 @@ A session is a TOML file holding everything a replay needs:
 |---|---|
 | `session_version` | `2` |
 | `seed` | The seed the session ran with |
-| `end_ns` | When it stopped, in simulated nanoseconds |
+| `end_ns` | When it stopped, in simulated nanoseconds; no later than its market ends |
 | `seats` | The names of the session's seats, in the order their participants joined: `["you"]` for `play` |
 | `scenario` | The scenario file's text, so a session replays even if the file changes |
 | `actions` | The participants' requests in time order, one table each: `time_ns`, `seat` (an index into `seats`), `instrument` (always 0 for now), `request` (`new`, `cancel` or `modify`) and the request's fields: `client_order_id`, `side`, `type`, `time_in_force`, `price`, `quantity` |

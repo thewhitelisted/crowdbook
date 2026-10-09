@@ -50,6 +50,12 @@ deliver, whether WebSocket or anything else, and call `advance` on a timer. Ever
 happens on the thread that calls it, so markets can run on as many threads as there are cores,
 one market to a thread.
 
+Simulated time is a count of nanoseconds in 64 bits, and the library keeps every sum of times
+inside it by bounding what goes in: durations, such as latencies, jitter, waits and a scenario's
+length, are at most `kMaxDuration` (a billion seconds, about 31 years), and `runUntil` goes no
+later than `kLatestTime` (four times that). Anything longer is refused with
+`std::invalid_argument`, or `ScenarioError` from files, before it can reach the clock.
+
 ## Versions
 
 The library follows semantic versioning. Until 1.0, a minor version may change the API, so the

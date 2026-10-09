@@ -62,6 +62,9 @@ Exchange::Exchange(const ExchangeConfig& config) : config_(config) {
         (config.haltBand > 0 && config.haltDuration == 0)) {
         throw std::invalid_argument("a halt band needs a positive halt duration");
     }
+    if (config.haltDuration > kMaxDuration) {
+        throw std::invalid_argument("a halt can last at most 1000000000s");
+    }
     if (config.maxPrice < 1 || config.maxPrice > kMaxPrice) {
         throw std::invalid_argument(
             std::format("the highest price must be from 1 to {}", kMaxPrice));

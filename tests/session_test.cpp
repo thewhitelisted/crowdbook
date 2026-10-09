@@ -302,6 +302,14 @@ TEST(SessionTest, ReportsMalformedSessionsWithTheirLine) {
          "'instrument' must be a whole number between 0 and 0"},
         {"session_version = 1\nseed = 1\nend_ns = 100\nscenario = \"seed = 1\"\n",
          "the scenario has no [[agents]]"},
+        // A session ends by the time its market does, at its duration or the one it ran with.
+        {"session_version = 1\nseed = 1\nend_ns = 60000000001\n" + scenario,
+         "test.session:3: end_ns is after the session's market ends, at 60000000000 ns"},
+        {"session_version = 1\nseed = 1\nduration_ns = 10\nend_ns = 11\n" + scenario,
+         "end_ns is after the session's market ends, at 10 ns"},
+        {"session_version = 1\nseed = 1\nduration_ns = 1000000000000000001\nend_ns = 1\n" +
+             scenario,
+         "'duration_ns' must be a whole number between 0 and 1000000000000000000"},
     };
     for (const auto& [text, expected] : cases) {
         EXPECT_NE(parseError(text).find(expected), std::string::npos)

@@ -485,6 +485,13 @@ TEST(ExchangeSetupTest, RejectsDuplicateAgentsAndInvalidLimits) {
     EXPECT_THROW(static_cast<void>(exchange.account(kBob)), std::out_of_range);
 }
 
+TEST(ExchangeSetupTest, HaltsLastFromANanosecondToTheLongestDuration) {
+    EXPECT_THROW(Exchange(ExchangeConfig{.haltBand = 5, .haltDuration = 0}), std::invalid_argument);
+    EXPECT_NO_THROW(Exchange(ExchangeConfig{.haltBand = 5, .haltDuration = kMaxDuration}));
+    EXPECT_THROW(Exchange(ExchangeConfig{.haltBand = 5, .haltDuration = kMaxDuration + 1}),
+                 std::invalid_argument);
+}
+
 TEST(AccountTest, EquityMarksThePositionToMarket) {
     EXPECT_EQ((Account{.cash = -303, .position = 3}).equity(105), 12);
     EXPECT_EQ((Account{.cash = 303, .position = -3}).equity(105), -12);

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -43,9 +44,13 @@ using Duration = std::int64_t;
 inline constexpr Duration kMicrosecond = 1'000;
 inline constexpr Duration kMillisecond = 1'000'000;
 inline constexpr Duration kSecond = 1'000'000'000;
-// Durations stay shorter than a billion seconds, about 31 years, which is far enough below the
-// clock's limit that adding a few of them to a time cannot overflow it.
+// Durations stay shorter than a billion seconds, about 31 years, and the simulated clock stops by
+// kLatestTime, about 127 years: far enough below the limit of a Timestamp that a time plus a few
+// durations, such as a latency, its jitter and a wait, cannot overflow it. Every duration and time
+// that reaches the simulation is checked against them.
 inline constexpr Duration kMaxDuration = 1'000'000'000 * kSecond;
+inline constexpr Timestamp kLatestTime = 4 * kMaxDuration;
+static_assert(kLatestTime <= std::numeric_limits<Timestamp>::max() - 5 * kMaxDuration);
 
 enum class Side : std::uint8_t { Buy, Sell };
 

@@ -170,6 +170,15 @@ TEST(ScenarioTest, InformedTradersSeeTheFundamental) {
     EXPECT_FALSE(runScenario(marketWithAMaker(), AgentRegistry::withBuiltIns()).finalValue);
 }
 
+TEST(ScenarioTest, LastsFromNothingToTheLongestDuration) {
+    for (const Duration duration : {Duration{-1}, kMaxDuration + 1}) {
+        Scenario scenario = marketWithAMaker();
+        scenario.duration = duration;
+        EXPECT_THROW(static_cast<void>(runScenario(scenario, AgentRegistry::withBuiltIns())),
+                     ScenarioError);
+    }
+}
+
 TEST(ScenarioTest, NamesTheGroupAtFault) {
     Scenario scenario = marketWithAMaker();
     scenario.groups[1].parameters.set("limt_rate", 2.0);
