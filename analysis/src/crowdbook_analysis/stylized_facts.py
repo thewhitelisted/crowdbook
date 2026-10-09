@@ -49,9 +49,12 @@ CLUSTERING_TICKS = {1: "1 min", 10: "10 min", 60: "1 h", 120: "2 h"}
 
 IMPACT_SECONDS = [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 60, 120]
 IMPACT_TICKS = {0.001: "1 ms", 0.01: "10 ms", 0.1: "100 ms", 1: "1 s", 10: "10 s", 60: "1 min"}
-IMPACT_GROUPS = ["noise", "trend", "informed"]  # the trader groups of large_market.toml
-LEFT_OUT = {"maker": "without the market maker", "trend": "without the trend followers",
-            "informed": "without the informed traders"}
+# The trader groups of large_market.toml whose aggressive orders are followed.
+IMPACT_GROUPS = ["noise", "trend", "experts", "followers"]
+# Groups left out together, to see what each kind of trader does to the market.
+LEFT_OUT = {("maker", "slow maker"): "without the market makers",
+            ("trend",): "without the trend followers",
+            ("experts", "followers"): "without the traders who follow the value"}
 
 # The noise traders of large_noise.toml divided among more or fewer agents, each sending orders
 # proportionally faster, so that the market as a whole sees the same flow. Positions are
@@ -104,20 +107,37 @@ def without_keys(text: str, keys: list[str]) -> str:
     return "".join(kept)
 
 
+def with_group_setting(text: str, name: str, key: str, value: str) -> str:
+    """The scenario with one setting of the agent group called `name` changed."""
+    head, *groups = re.split(r"(?m)^(?=\[\[agents\]\])", text)
+    changed = 0
+    for index, group in enumerate(groups):
+        if f'name = "{name}"' in group:
+            groups[index], count = re.subn(rf"(?m)^{key} = [^#\n]*?(\s*#.*)?$",
+                                           f"{key} = {value}", group)
+            changed += count
+    if changed != 1:
+        raise ValueError(f"the scenario does not set {key} once for the group {name}")
+    return head + "".join(groups)
+
+
 MEMORY_VARIANTS = {
     "without news": lambda text: without_keys(text, ["jump_rate", "jump_size"]),
     "without the activity response": lambda text: without_keys(text, ["activity_response"]),
     "without the volatility response": lambda text: without_keys(text, ["volatility_response"]),
+    "with followers who act 2.5 ticks off": lambda text: with_group_setting(
+        text, "followers", "threshold", "2.5"),
     "with fifty adaptive traders": lambda text: text + ADAPTIVE,
 }
 
 
-def without_group(text: str, name: str) -> str:
-    """The scenario with its agent group called `name` left out."""
+def without_group(text: str, names: tuple[str, ...]) -> str:
+    """The scenario with its agent groups of these names left out."""
     head, *groups = re.split(r"(?m)^(?=\[\[agents\]\])", text)
-    kept = [group for group in groups if f'name = "{name}"' not in group]
-    if len(kept) != len(groups) - 1:
-        raise ValueError(f"the scenario has no single agent group called {name}")
+    kept = [group for group in groups
+            if not any(f'name = "{name}"' in group for name in names)]
+    if len(kept) != len(groups) - len(names):
+        raise ValueError(f"the scenario does not have one agent group for each of {names}")
     return head + "".join(kept)
 
 
@@ -484,7 +504,7 @@ def main() -> None:
         for count in CROWD_SIZES
     }
     mixed = texts["mixed market"]
-    variant_texts = {label: without_group(mixed, name) for name, label in LEFT_OUT.items()}
+    variant_texts = {label: without_group(mixed, names) for names, label in LEFT_OUT.items()}
     memory_texts = {
         label: change(texts["memory market"]) for label, change in MEMORY_VARIANTS.items()
     }

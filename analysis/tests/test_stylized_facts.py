@@ -1,7 +1,7 @@
 import unittest
 
 from crowdbook_analysis.large_orders import with_settings
-from crowdbook_analysis.stylized_facts import without_group, without_keys
+from crowdbook_analysis.stylized_facts import with_group_setting, without_group, without_keys
 
 SCENARIO = """seed = 1
 
@@ -32,12 +32,24 @@ class ScenarioEditsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             without_keys(SCENARIO, ["volatility_response"])
 
-    def test_without_group_drops_one_agent_table(self):
-        edited = without_group(SCENARIO, "trend")
+    def test_without_group_drops_those_agent_tables(self):
+        edited = without_group(SCENARIO, ("trend",))
         self.assertNotIn("momentum", edited)
         self.assertIn('name = "noise"', edited)
+        self.assertNotIn("[[agents]]", without_group(SCENARIO, ("noise", "trend")))
         with self.assertRaises(ValueError):
-            without_group(SCENARIO, "maker")
+            without_group(SCENARIO, ("maker",))
+        with self.assertRaises(ValueError):
+            without_group(SCENARIO, ("trend", "maker"))
+
+    def test_with_group_setting_changes_only_that_group(self):
+        text = (SCENARIO + 'threshold = 1.0           # ticks\n\n'
+                '[[agents]]\nname = "other"\nthreshold = 1.0\n')
+        edited = with_group_setting(text, "trend", "threshold", "2.5")
+        self.assertIn('name = "trend"\nthreshold = 2.5\n', edited)
+        self.assertIn('name = "other"\nthreshold = 1.0\n', edited)
+        with self.assertRaises(ValueError):
+            with_group_setting(text, "noise", "threshold", "2.5")
 
 
 class WithSettingsTest(unittest.TestCase):

@@ -22,14 +22,10 @@ double weightFor(Duration interval, Duration halfLife) {
 
 AdaptiveTrader::AdaptiveTrader(const AdaptiveConfig& config,
                                std::shared_ptr<Fundamental> fundamental, Price referencePrice)
-    : config_(config), fundamental_(std::move(fundamental)), market_(referencePrice) {
-    if (!fundamental_) {
-        throw std::invalid_argument(
-            "adaptive traders need a fundamental value; add a [fundamental] section");
-    }
-    if (config.interval <= 0 || config.memory <= 0 || !(config.noise >= 0.0) ||
-        !(config.choiceIntensity >= 0.0) || !(config.threshold >= 0.0)) {
-        throw std::invalid_argument("adaptive needs a positive interval and memory, and noise, "
+    : config_(config), belief_(config.belief, std::move(fundamental)), market_(referencePrice) {
+    if (config.interval <= 0 || config.memory <= 0 || !(config.choiceIntensity >= 0.0) ||
+        !(config.threshold >= 0.0)) {
+        throw std::invalid_argument("adaptive needs a positive interval and memory, and "
                                     "choice_intensity and threshold that are not negative");
     }
     if (config.fastHalfLife <= 0 || config.slowHalfLife <= config.fastHalfLife) {
@@ -59,8 +55,7 @@ void AdaptiveTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     market_.update(market);
     const double price = market_.fairPrice();
     Random& random = context.random();
-    const double noise = random.normal(0.0, config_.noise);
-    const double value = fundamental_->valueAt(context.now()) + noise;
+    const double value = belief_.look(context);
 
     // Score the calls made last time against what the price has done since.
     if (lastPrice_) {

@@ -31,6 +31,18 @@ latency = { to_exchange = "20us", from_exchange = "20us" }
 account = { max_position = 220, max_order_quantity = 10 }
 
 [[agents]]
+type = "market_maker"
+name = "slow maker"
+risk_aversion = 0.005
+volatility = 3.0
+intensity = 0.5
+quote_size = 20
+max_inventory = 200
+requote_interval = "1s"
+latency = { to_exchange = "200us", from_exchange = "200us" }
+account = { max_position = 220, max_order_quantity = 20 }
+
+[[agents]]
 type = "zero_intelligence"
 name = "noise"
 count = 1000
@@ -60,12 +72,30 @@ account = { max_position = 60, max_order_quantity = 5 }
 
 [[agents]]
 type = "informed"
-name = "informed"
-count = 20
+name = "experts"          # fast and close to right
+count = 10
 interval = "200ms"
 noise = 1.0
-threshold = 2.0
+error = 0.5               # ticks of lasting error in what each believes
+error_memory = "300s"
+lag = "1s"                # how late, on average, each sees the value
+threshold = 2.0           # ticks: half the width of each one's range of fair values
 order_size = 5
-max_position = 10000
+max_position = 5000
 latency = { to_exchange = "100us", from_exchange = "100us", jitter = "20us" }
-account = { max_position = 10010, max_order_quantity = 5 }
+account = { max_position = 5005, max_order_quantity = 5 }
+
+[[agents]]
+type = "informed"
+name = "followers"        # slower, with views of their own
+count = 400
+interval = "5s"
+noise = 1.0
+error = 1.5               # ticks of lasting error in what each believes
+error_memory = "300s"
+lag = "30s"               # how late, on average, each sees the value
+threshold = 4.0           # ticks: half the width of each one's range of fair values
+order_size = 5
+max_position = 1000
+latency = { to_exchange = "100us", from_exchange = "100us", jitter = "20us" }
+account = { max_position = 1005, max_order_quantity = 5 }

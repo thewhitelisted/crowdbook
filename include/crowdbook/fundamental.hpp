@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 
+#include "crowdbook/detail/ring.hpp"
 #include "crowdbook/random.hpp"
 #include "crowdbook/types.hpp"
 
@@ -57,22 +58,30 @@ public:
     // news, a step that is not positive, or a resolution that is not after the start.
     Fundamental(const PredictionConfig& config, Duration resolution, Random random);
 
-    // The value at `time`. Reads must not go back to an earlier step than a previous read, which
-    // holds inside a simulation because its clock never runs backwards; throws
-    // std::invalid_argument otherwise.
+    // The value at `time`. Reads may go back in time only as far as `remember` allows, which
+    // inside a simulation, whose clock never runs backwards, covers a trader that sees the value
+    // late; throws std::invalid_argument for a read further back.
     [[nodiscard]] double valueAt(Timestamp time);
+    // Keeps the value for at least `window` before the latest read, for readers that see it late.
+    // The longest window asked for wins. Keeping it changes nothing about the path.
+    void remember(Duration window);
     // How many jumps the value has taken so far.
     [[nodiscard]] std::int64_t jumps() const noexcept { return jumps_; }
     // When a prediction market resolves; nullopt for any other value.
     [[nodiscard]] std::optional<Duration> resolution() const noexcept { return resolution_; }
-    // The walk behind the value as of the last read: the value itself, or for a prediction market
-    // the hidden quantity that decides it, whose change over the whole run has variance 1. Reading
-    // it moves nothing.
-    [[nodiscard]] double walk() const noexcept { return value_; }
+    // The walk behind the value as of the latest read: the value itself, or for a prediction
+    // market the hidden quantity that decides it, whose change over the whole run has variance 1,
+    // and once resolved, where it ended. Reading it moves nothing.
+    [[nodiscard]] double walk() const noexcept { return outcome_ ? resolvedWalk_ : value_; }
 
 private:
-    // Moves the walk on by one step, with this standard deviation and expected number of jumps.
-    void move(double shockScale, double jumpsExpected);
+    // Moves the walk `x` on by one step, with this standard deviation and expected number of
+    // jumps.
+    void move(double& x, double shockScale, double jumpsExpected);
+    // Moves the walk to step `target`, keeping the steps it leaves while they may be read.
+    void advanceTo(std::int64_t target);
+    // A prediction market's value at step `step`, where the walk is `x`.
+    [[nodiscard]] double probabilityAt(std::int64_t step, double x) const noexcept;
     // The probability, in cents, that the hidden quantity ends above zero from `x` with `seconds`
     // to go.
     [[nodiscard]] double probabilityOfYes(double x, double seconds) const noexcept;
@@ -93,6 +102,17 @@ private:
     std::int64_t valuedStep_ = -1;
     double probability_ = 0.0;
     std::optional<double> outcome_{};
+    double resolvedWalk_ = 0.0;
+    // A step before the current one: the walk then, and for a prediction market its value, worked
+    // out the first time it is read, so that readers late by different delays work out each
+    // step's probability once between them.
+    struct RememberedStep {
+        double walk = 0.0;
+        double value = 0.0;
+    };
+    // The steps before the current one, as far back as readers may look, oldest first.
+    std::int64_t remembered_ = 0; // how many steps to keep
+    detail::Ring<RememberedStep> history_;
 };
 
 } // namespace crowdbook

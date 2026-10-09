@@ -1,8 +1,11 @@
 #include "crowdbook/fundamental.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <format>
+#include <limits>
 #include <stdexcept>
+#include <utility>
 
 #include "crowdbook/math.hpp"
 
@@ -39,6 +42,9 @@ Fundamental::Fundamental(const FundamentalConfig& config, Random random)
 }
 
 namespace {
+
+// A remembered step whose value no reader has asked for yet.
+constexpr double kNotWorkedOut = std::numeric_limits<double>::quiet_NaN();
 
 // What the walk of a prediction market is: no pull towards a mean, and the given variances.
 FundamentalConfig walkOf(const PredictionConfig& config, Duration resolution) {
@@ -95,9 +101,8 @@ Fundamental::Fundamental(const PredictionConfig& config, Duration resolution, Ra
     value_ = (low + high) / 2.0;
 }
 
-void Fundamental::move(double shockScale, double jumpsExpected) {
-    value_ = config_.initial + (value_ - config_.initial) * decay_ +
-             shockScale * random_.normal(0.0, 1.0);
+void Fundamental::move(double& x, double shockScale, double jumpsExpected) {
+    x = config_.initial + (x - config_.initial) * decay_ + shockScale * random_.normal(0.0, 1.0);
     if (jumpsExpected > 0.0) {
         // The number of jumps in one step is Poisson: walk its distribution to a uniform draw.
         const double draw = random_.uniform();
@@ -110,10 +115,34 @@ void Fundamental::move(double shockScale, double jumpsExpected) {
             cumulative += probability;
         }
         for (std::int64_t jump = 0; jump < count; ++jump) {
-            value_ += random_.normal(0.0, config_.jumpSize);
+            x += random_.normal(0.0, config_.jumpSize);
         }
         jumps_ += count;
     }
+}
+
+void Fundamental::advanceTo(std::int64_t target) {
+    for (; step_ < target; ++step_) {
+        if (remembered_ > 0) {
+            history_.pushBack({.walk = value_,
+                               .value = valuedStep_ == step_ ? probability_ : kNotWorkedOut});
+            if (std::cmp_greater(history_.size(), remembered_)) {
+                history_.popFront();
+            }
+        }
+        move(value_, shockScale_, jumpsPerStep_);
+    }
+}
+
+void Fundamental::remember(Duration window) {
+    if (window > 0) {
+        remembered_ = std::max(remembered_, window / config_.step + 1);
+    }
+}
+
+double Fundamental::probabilityAt(std::int64_t step, double x) const noexcept {
+    const Duration left = *resolution_ - step * config_.step;
+    return probabilityOfYes(x, static_cast<double>(left) / static_cast<double>(kSecond));
 }
 
 double Fundamental::probabilityOfYes(double x, double seconds) const noexcept {
@@ -146,40 +175,50 @@ double Fundamental::probabilityOfYes(double x, double seconds) const noexcept {
 double Fundamental::valueAt(Timestamp time) {
     if (resolution_ && time >= *resolution_) {
         if (!outcome_) {
-            // Every whole step up to resolution, then whatever is left of the last one.
+            // Every whole step up to resolution, then whatever is left of the last one, which
+            // decides the question but is no step anyone can read.
             const std::int64_t last = *resolution_ / config_.step;
             if (last < step_) {
                 throw std::invalid_argument("the fundamental cannot go back in time");
             }
-            for (; step_ < last; ++step_) {
-                move(shockScale_, jumpsPerStep_);
-            }
+            advanceTo(last);
+            resolvedWalk_ = value_;
             const Duration rest = *resolution_ - last * config_.step;
             if (rest > 0) {
                 const double seconds = static_cast<double>(rest) / static_cast<double>(kSecond);
-                move(config_.volatility * std::sqrt(seconds), config_.jumpRate * seconds);
+                move(resolvedWalk_, config_.volatility * std::sqrt(seconds),
+                     config_.jumpRate * seconds);
             }
-            outcome_ = value_ > 0.0 ? 100.0 : 0.0;
+            outcome_ = resolvedWalk_ > 0.0 ? 100.0 : 0.0;
         }
         return *outcome_;
     }
     const std::int64_t target = time < 0 ? 0 : time / config_.step;
     if (target < step_) {
-        throw std::invalid_argument(std::format(
-            "the fundamental was read at step {} after step {}; reads cannot go back in time",
-            target, step_));
+        // A reader that sees the value late, within what is remembered.
+        const std::int64_t back = step_ - target;
+        if (std::cmp_greater(back, history_.size())) {
+            throw std::invalid_argument(std::format(
+                "the fundamental was read at step {} after step {}, further back than it "
+                "remembers",
+                target, step_));
+        }
+        RememberedStep& then = history_[history_.size() - static_cast<std::size_t>(back)];
+        if (!resolution_) {
+            return then.walk;
+        }
+        if (std::isnan(then.value)) {
+            then.value = probabilityAt(target, then.walk);
+        }
+        return then.value;
     }
-    for (; step_ < target; ++step_) {
-        move(shockScale_, jumpsPerStep_);
-    }
+    advanceTo(target);
     if (!resolution_) {
         return value_;
     }
     // The probability changes only when the walk moves: work it out once a step.
     if (valuedStep_ != step_) {
-        const Duration left = *resolution_ - step_ * config_.step;
-        probability_ = probabilityOfYes(value_, static_cast<double>(left) /
-                                                    static_cast<double>(kSecond));
+        probability_ = probabilityAt(step_, value_);
         valuedStep_ = step_;
     }
     return probability_;

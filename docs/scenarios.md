@@ -240,9 +240,10 @@ direction of the trend.
 ### `adaptive`
 
 Switches between a value strategy and a trend strategy by how well each has been doing, after
-Brock and Hommes (1998). Needs a `[fundamental]` section.
+Brock and Hommes (1998). Needs a `[fundamental]` or `[prediction]` section.
 
-Every interval it looks at the price and, with noise, at the true value. The value strategy calls a
+Every interval it looks at the price and, as it sees it ([how traders see the true
+value](#how-traders-see-the-true-value)), at the true value. The value strategy calls a
 buy when the value is above the price, by at least `threshold`, and a sell when it is below by as
 much; the trend strategy calls a buy when a fast moving average of the price leads a slow one, by at
 least `threshold`, and a sell when it trails by as much. Each keeps a track record: the price change
@@ -255,7 +256,7 @@ trades toward that position at the market, `order_size` at a time.
 | Parameter | Default | Meaning |
 |---|---|---|
 | `interval` | `"1s"` | How often it decides |
-| `noise` | `2.0` | Ticks; standard deviation of each look at the value |
+| `noise`, `error`, `error_memory`, `bias`, `lag` | `2.0`, `0`, `"60s"`, `0`, `"0s"` | How it sees the value; see below |
 | `fast_half_life`, `slow_half_life` | `"2s"`, `"20s"` | The trend strategy's moving averages |
 | `memory` | `"60s"` | Half-life of the track records |
 | `choice_intensity` | `1.0` | Per tick of track record: how surely the better strategy is chosen |
@@ -265,21 +266,44 @@ trades toward that position at the market, `order_size` at a time.
 
 ### `informed`
 
-Observes the fundamental value with noise and trades when the book is far enough from it, using
-immediate-or-cancel orders priced to keep its edge. Needs a `[fundamental]` section.
+Follows the true value, as it sees it, and trades when the book is outside its range of fair
+values, using immediate-or-cancel orders priced to keep its edge. Needs a `[fundamental]` or
+`[prediction]` section.
 
-To hold the price to the value over a long run, informed traders must absorb the other traders'
-net order flow, so give them room: with small position limits they fill up, and the price drifts
-away from the value. [large_market.toml](../examples/scenarios/large_market.toml) shows a setting
-that holds for a simulated day.
+To hold the price to the value over a long run, the traders who follow it must absorb the other
+traders' net order flow. Give them room the way real markets do, with a crowd of traders on
+ordinary limits rather than a few with huge ones: with too little room in all, they fill up and the
+price drifts away from the value. [large_market.toml](../examples/scenarios/large_market.toml)
+shows a crowd that holds for a simulated day. Mind its `threshold` too: a large crowd with narrow
+ranges, spread around the value by their errors, stands ready at every price near it, a deep book
+of its own that can smother effects that need the book to thin
+([results.md](results.md#memory-what-makes-volatility-cluster)).
 
 | Parameter | Default | Meaning |
 |---|---|---|
 | `interval` | `"100ms"` | How often it looks at the value |
-| `noise` | `1.0` | Ticks; standard deviation of each look at the value |
-| `threshold` | `3.0` | Ticks of edge needed before trading |
+| `noise`, `error`, `error_memory`, `bias`, `lag` | `1.0`, `0`, `"60s"`, `0`, `"0s"` | How it sees the value; see below |
+| `threshold` | `3.0` | Ticks of edge needed before trading: half the width of its range of fair values, inside which it does nothing |
 | `order_size` | `5` | Lots per order |
 | `max_position` | `50` | Largest position it builds, counting orders in flight |
+
+### How traders see the true value
+
+Nobody knows the true value exactly. Informed and adaptive traders see it through a belief, set by
+five parameters, in ticks (cents in a prediction market):
+
+| Parameter | Meaning |
+|---|---|
+| `noise` | Standard deviation of a fresh error on every look |
+| `error` | Standard deviation of the trader's own lasting error, which wanders slowly; 0 for none |
+| `error_memory` | How long a lasting error lasts: after this long, what it was and what it is have a correlation of 1/e |
+| `bias` | Added to every look: the group's tilt, such as partisans who want the answer to be yes |
+| `lag` | How late, on average, the trader sees the value. Each trader of a group gets its own delay, between none and twice this, so some hear the news first and some last |
+
+With the defaults a trader sees the value as it is now with fresh noise alone. The examples mix a
+few experts, quick and close to right, with a larger crowd of followers who see the value half a
+minute or more late with views of their own, and in the prediction markets partisans, so that the
+price earns its accuracy instead of having it by construction.
 
 ### `execution`
 

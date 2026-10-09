@@ -125,7 +125,12 @@ constexpr std::uint64_t kMarketResult = 0xebf5b0556bf4bf09;
 constexpr std::uint64_t kDemoReplayLog = 0xaad3c9d2f37beeed;
 constexpr std::uint64_t kServedReplayLog = 0xa2936e8ff2d3b17b;
 constexpr std::uint64_t kChallengeReplayLog = 0x38ec4ed46b3cc470;
-constexpr std::uint64_t kTradingDayLog = 0x2fd2bd8755b72152;
+// The example trading day, since its traders who follow the value see it late and with lasting
+// errors of their own.
+constexpr std::uint64_t kTradingDayLog = 0x64bb6a9ec98c87b9;
+// Two minutes of the example prediction market: the probability of yes, worked out with the
+// normal distribution, and partisans who see it tilted.
+constexpr std::uint64_t kPredictionLog = 0x31f395923b73bddc;
 
 TEST(GoldenTest, AMarketsOutputsAreTheSameOnEveryPlatform) {
     const Scenario scenario = parseScenario(kMarket, "golden");
@@ -199,6 +204,17 @@ TEST(GoldenTest, TheChallengeSessionReplaysAndScoresTheSameOnEveryPlatform) {
     ASSERT_EQ(result.scores.size(), 1U);
     EXPECT_EQ(result.scores[0].score.total, -217'953);
     EXPECT_EQ(result.scores[0].score.paper, 127'953);
+}
+
+TEST(GoldenTest, APredictionMarketIsTheSameOnEveryPlatform) {
+    Scenario scenario = loadScenario(std::string{CROWDBOOK_SOURCE_DIR} +
+                                     "/examples/scenarios/prediction.toml");
+    scenario.duration = 120 * kSecond;
+    std::ostringstream log;
+    CsvEventLog sink{log};
+    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), &sink);
+    ASSERT_TRUE(result.finalValue);
+    EXPECT_EQ(hex(hashOf(log.str())), hex(kPredictionLog));
 }
 
 } // namespace

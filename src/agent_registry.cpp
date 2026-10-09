@@ -24,6 +24,15 @@ std::string joined(const std::vector<std::string>& names) {
     return text;
 }
 
+// How a trader that watches the true value sees it, from its group's parameters.
+BeliefConfig readBelief(const Parameters& parameters, const BeliefConfig& defaults) {
+    return {.noise = parameters.number("noise", defaults.noise),
+            .error = parameters.number("error", defaults.error),
+            .errorMemory = parameters.duration("error_memory", defaults.errorMemory),
+            .bias = parameters.number("bias", defaults.bias),
+            .lag = parameters.duration("lag", defaults.lag)};
+}
+
 std::unique_ptr<Agent> makeZeroIntelligence(const Parameters& parameters,
                                             const Environment& environment) {
     const ZeroIntelligenceConfig defaults;
@@ -70,7 +79,7 @@ std::unique_ptr<Agent> makeAdaptive(const Parameters& parameters,
     return std::make_unique<AdaptiveTrader>(
         AdaptiveConfig{
             .interval = parameters.duration("interval", defaults.interval),
-            .noise = parameters.number("noise", defaults.noise),
+            .belief = readBelief(parameters, defaults.belief),
             .fastHalfLife = parameters.duration("fast_half_life", defaults.fastHalfLife),
             .slowHalfLife = parameters.duration("slow_half_life", defaults.slowHalfLife),
             .memory = parameters.duration("memory", defaults.memory),
@@ -126,7 +135,7 @@ std::unique_ptr<Agent> makeInformed(const Parameters& parameters,
     return std::make_unique<InformedTrader>(
         InformedConfig{
             .interval = parameters.duration("interval", defaults.interval),
-            .noise = parameters.number("noise", defaults.noise),
+            .belief = readBelief(parameters, defaults.belief),
             .threshold = parameters.number("threshold", defaults.threshold),
             .orderSize = parameters.integer("order_size", defaults.orderSize),
             .maxPosition = parameters.integer("max_position", defaults.maxPosition),

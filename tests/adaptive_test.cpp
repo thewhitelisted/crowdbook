@@ -25,7 +25,7 @@ std::shared_ptr<Fundamental> fixedValue(double value) {
 
 // Sees the value exactly, and always follows whichever record is better.
 const AdaptiveConfig kSure{.interval = kSecond,
-                           .noise = 0.0,
+                           .belief = {.noise = 0.0},
                            .fastHalfLife = kSecond,
                            .slowHalfLife = 10 * kSecond,
                            .memory = 30 * kSecond,
@@ -166,7 +166,7 @@ TEST(AdaptiveTest, RequiresAFundamentalAndAValidConfig) {
     for (const AdaptiveConfig& config :
          {invalid([](AdaptiveConfig& c) { c.interval = 0; }),
           invalid([](AdaptiveConfig& c) { c.memory = 0; }),
-          invalid([](AdaptiveConfig& c) { c.noise = -1.0; }),
+          invalid([](AdaptiveConfig& c) { c.belief.noise = -1.0; }),
           invalid([](AdaptiveConfig& c) { c.choiceIntensity = -1.0; }),
           invalid([](AdaptiveConfig& c) { c.slowHalfLife = c.fastHalfLife; }),
           invalid([](AdaptiveConfig& c) { c.orderSize = 0; }),

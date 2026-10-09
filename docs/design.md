@@ -221,9 +221,10 @@ same: the exchange, the agents, the trading day, scoring and reports.
 - **Resolution is the end of the run.** Positions are worth 100 or 0 a share from then on, which
   is how scoring at the true value and the reports already value them; the results add each
   group's PnL at resolution beside its PnL at the last price.
-- **Agents need nothing new.** Informed traders see the probability with noise, as they see any
-  true value. They need capital, though: with too little, they run out of room long before
-  resolution and the price stops following the probability ([results.md](results.md)).
+- **Agents need nothing new.** Informed traders see the probability through the same beliefs as
+  any true value, late and with errors of their own. They need capital, though: with too little,
+  they run out of room before resolution and the price stops following the probability; and
+  traders who see it late hold prices back from 0 and 100 ([results.md](results.md)).
 - **One source of the value.** `makeFundamental` builds a scenario's true value, fundamental or
   probability, from its seed for the agents, the reports and the price samples alike, so they all
   see the same path without one disturbing another.
@@ -475,13 +476,15 @@ from C++ directly; [scenarios.md](scenarios.md) lists their parameters.
   orders stand further back from the best prices when prices have been jumping more than usual.
   It measures both from its own snapshots, which carry the trades and volume published so far.
 - **Market maker** (Avellaneda and Stoikov, 2008): one bid and one ask around a reservation price
-  that leans against inventory, requoted on a timer and after every fill. Its fair price is a
+  that leans against inventory, requoted on a timer and after every fill. The examples run two,
+  a fast one at the touch and a slower one quoting more lots further out, so the book has
+  competition and depth. Its fair price is a
   running average of trade prices rather than the mid, because the mid is often its own quotes.
 - **Momentum trader:** market orders in the direction of a fast moving average's lead over a slow
   one, within a position limit that counts orders in flight.
-- **Informed trader:** observes the fundamental value with noise and trades with
+- **Informed trader:** follows the true value as its belief sees it and trades with
   immediate-or-cancel orders priced to keep its edge, so it never sweeps the book past its
-  estimate.
+  estimate. It does nothing while the price is within its range of fair values.
 - **Adaptive trader** (Brock and Hommes, 1998): switches between a value strategy and a trend
   strategy by the track record of each, choosing by a logit of the difference, and holds the
   position its chosen strategy calls for. Traders like it herd, since they all score the same
@@ -495,6 +498,19 @@ zero, the default) stepped with its exact discrete-time formulas from its own ra
 its path does not depend on who reads it or when. News adds jumps at random times; without news it
 makes no draws for them, so turning news off leaves every earlier path as it was.
 
+Nobody knows the value exactly. Informed and adaptive traders see it through a `Belief`: as it
+was a moment ago, by a delay of the trader's own; with a lasting error that wanders back and forth
+(an Ornstein–Uhlenbeck process sampled at each look); tilted by the group's bias; and with fresh
+noise on each look. The value remembers its recent steps for traders who see it late, and a read
+further back than any trader's delay is an error. A belief draws its fresh noise first and draws
+nothing else unless its other settings are on, so a scenario that sets none of them runs exactly
+as before and old sessions replay. The examples use crowds: a few experts, quick and close to
+right, many followers, late and with views of their own, and in prediction markets partisans.
+Capacity comes from the size of the crowd, on ordinary position limits, as it does in real
+markets, and as the price strays further from the value more of the crowd finds it outside their
+range and trades it back. Holding a price to its value for a whole day takes a large crowd: the
+research markets have four hundred followers on 1,000 lots each and ten experts on 5,000.
+
 A scenario names agent groups with shared settings. `AgentRegistry` maps type names to factories
 that read a `Parameters` object; after a factory runs, any parameter it did not read is an error,
 so a misspelled key cannot silently fall back to a default. `runScenario` builds the market from
@@ -502,7 +518,7 @@ a `Scenario` struct and reports trades, volume, the last price, the fundamental'
 each group's position, cash and PnL. Scenario files are only one way to fill in that struct: the
 TOML reader lives in its own library, so the core library stays free of dependencies.
 
-Running the examples and analysing the results taught five things worth keeping.
+Running the examples and analysing the results taught eight things worth keeping.
 
 **Market-maker self-impact.** In Avellaneda–Stoikov the mid price is
 exogenous, but here the zero-intelligence traders anchor on the best quotes, which are often the
@@ -547,6 +563,20 @@ true value: they absorbed the flow, as they should absorb anything that carries 
 Without them, impact grew almost linearly with a parent's size, because noise traders' orders
 lasting five seconds give the book no memory of where the price has been. Letting those orders
 rest for 50 seconds bent impact toward the square root of real markets.
+
+**Traders who know too much make the market too good.** Informed traders who saw the true value
+with fresh noise on each look knew it exactly between them: the prediction market's prices were
+calibrated by construction, and the price never strayed. Giving each trader a delay of its own and
+a lasting error broke both, in the way real markets break: prices underreact to news, cheap
+prediction shares are too dear and dear ones too cheap, and trend followers profit from the
+underreaction.
+
+**A crowd that trades small differences is a book of its own.** Four hundred followers, each
+trading the price back when it was 2.5 ticks from what it thought the value, had views spread
+around the value, so together they stood ready at every price near it: depth that does not thin
+when the noise traders step back. Volatility stopped clustering. Followers who act only at 4
+ticks, as slow money acts only on clear mispricings, leave the book to the noise traders, and the
+clustering came back.
 
 ## Analysis
 
@@ -840,6 +870,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | Prediction markets | One YES book priced 1 to 99, resolving to 0 or 100; no separate NO book | A YES bid is a NO offer: one book trades the same way, without the machinery of complementary shares |
 | A prediction's true value | The probability that a hidden walk with news ends above zero | A fair price by construction, which converges as resolution nears, so prices can be checked for calibration |
 | Calibration data | Free for commercial use: Polymarket's trades from its public blockchain first | Data a product built on crowdbook can use; exchange feeds' terms limit them to personal or research use |
+| What traders know | Beliefs: the value late by a delay of each trader's own, a lasting error, a group's bias, fresh noise; crowds of experts and followers in the examples | Traders who saw the value with fresh noise each look knew it exactly between them, which made prices calibrated by construction; real traders are late, wrong for a while and sometimes partisan |
+| Informed capacity | Many traders on ordinary limits rather than a few with huge ones | Real capital is spread over many traders, and more of them act the further the price strays |
 | Depth in memory | Immutable levels shared by every copy of an update | Copying the levels into every event, delivery and snapshot took a quarter of a market's time and most of its allocations |
 | Performance guards | Allocation counts in CI, timings against a baseline on one machine | Counts are the same on any machine and catch most slowdowns; timings catch the rest but only mean something where the baseline was recorded |
 | Order of work | Gateway, scoring and session reports before more realism | Practice, assessment and testing all need outside participants and a result; realism work is then measured on the markets people use |

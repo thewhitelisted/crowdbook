@@ -1,8 +1,10 @@
 """One chart style for every figure: thin marks, recessive axes and a validated palette.
 
-The three series colors are the first three slots of a categorical palette validated as a set for
-color-vision deficiencies. The third falls below 3:1 contrast on the surface, so multi-series
-charts always carry a legend and, where they fit, direct labels at the line ends.
+The series colors are the first four slots of a categorical palette validated as a set for
+color-vision deficiencies. The first three can share a chart of any kind; the fourth only lines,
+where each series sits next to few others. The third and fourth fall below 3:1 contrast on the
+surface, so multi-series charts always carry a legend and, where they fit, direct labels at the
+line ends.
 """
 
 from pathlib import Path
@@ -20,7 +22,7 @@ INK_SECONDARY = "#52514e"
 INK_MUTED = "#898781"
 GRID = "#e1e0d9"
 AXIS = "#c3c2b7"
-SERIES = ("#2a78d6", "#eb6834", "#1baf7a")
+SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100")
 
 # Sizes in points at 100 dpi: 2 px lines, 8 px markers with a 2 px ring in the surface color.
 LINE = 1.44

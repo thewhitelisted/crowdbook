@@ -9,14 +9,10 @@ namespace crowdbook {
 
 InformedTrader::InformedTrader(const InformedConfig& config,
                                std::shared_ptr<Fundamental> fundamental)
-    : config_(config), fundamental_(std::move(fundamental)) {
-    if (!fundamental_) {
+    : config_(config), belief_(config.belief, std::move(fundamental)) {
+    if (config.interval <= 0 || !(config.threshold >= 0.0)) {
         throw std::invalid_argument(
-            "informed traders need a fundamental value; add a [fundamental] section");
-    }
-    if (config.interval <= 0 || !(config.noise >= 0.0) || !(config.threshold >= 0.0)) {
-        throw std::invalid_argument(
-            "informed needs a positive interval and noise and threshold that are not negative");
+            "informed needs a positive interval and a threshold that is not negative");
     }
     if (config.orderSize < 1 || config.maxPosition < config.orderSize ||
         config.maxPosition > kMaxQuantity) {
@@ -30,8 +26,7 @@ void InformedTrader::onStart(AgentContext& context) { context.wakeWithin(config_
 void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     const MarketSnapshot market = context.market();
     market_.update(market);
-    const double noise = context.random().normal(0.0, config_.noise);
-    const double estimate = fundamental_->valueAt(context.now()) + noise;
+    const double estimate = belief_.look(context);
 
     const Ledger& ledger = context.ledger();
     const Quantity size = config_.orderSize;

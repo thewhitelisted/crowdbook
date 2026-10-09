@@ -76,12 +76,12 @@ Apple M5 at:
 
 | | Times real time |
 |---|---:|
-| The market alone | 29,000 to 43,000 |
-| Served through the gateway to one client reading every message | 19,000 to 27,000 |
+| The market alone | 27,000 to 42,000 |
+| Served through the gateway to one client reading every message | 18,000 to 26,000 |
 
 So one core keeps up with thousands of such markets in computation; encoding market data for
-clients costs about two fifths of it. Each served market takes about 400 KB of memory, so a
-gigabyte holds some 2,500. To measure:
+clients costs about two fifths of it. Each served market takes about 430 KB of memory, so a
+gigabyte holds some 2,300. To measure:
 
 ```bash
 cmake --workflow --preset release
@@ -98,11 +98,11 @@ the operating system add. On an Apple M5:
 
 | Clients | Market data | Late at the median | 99th percentile | Server CPU |
 |---:|---|---:|---:|---:|
-| 1 | as it happens | 0.24 ms | 0.34 ms | 1% |
-| 1 | as it happens, `--spin 150us` | 0.14 ms | 0.21 ms | 1% |
-| 50 | as it happens | 0.17 ms | 0.54 ms | 18% |
-| 200 | as it happens | 1.3 ms | 2.6 ms | 79% |
-| 200 | every 10 ms | 0.18 ms | 1.1 ms | 28% |
+| 1 | as it happens | 0.24 ms | 0.38 ms | 1% |
+| 1 | as it happens, `--spin 150us` | 0.14 ms | 0.24 ms | 1% |
+| 50 | as it happens | 0.15 ms | 0.48 ms | 19% |
+| 200 | as it happens | 1.4 ms | 2.8 ms | 89% |
+| 200 | every 10 ms | 0.18 ms | 1.2 ms | 31% |
 
 On CI's Linux machine, four shared cores of an AMD EPYC 7763 that the clients run on too, one
 client's answers are 0.15 ms late at the median and 0.23 ms at the 99th percentile without any

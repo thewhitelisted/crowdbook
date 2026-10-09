@@ -233,6 +233,31 @@ void BM_PredictionValue(benchmark::State& state) {
 }
 BENCHMARK(BM_PredictionValue);
 
+// Forty traders who see a prediction market's probability late, each by a delay of its own of up
+// to a minute, reading it once a second: between them they work out each step's probability once.
+void BM_LatePredictionReads(benchmark::State& state) {
+    const PredictionConfig config{.probability = 0.5, .newsRate = 0.05, .newsShare = 0.5};
+    std::vector<Duration> delays;
+    for (Duration delay = 0; delay < 60 * kSecond; delay += 1'500 * kMillisecond) {
+        delays.push_back(delay);
+    }
+    Timestamp time = 0;
+    std::optional<Fundamental> value;
+    for (auto _ : state) {
+        if (!value || time >= 3'500 * kSecond) {
+            value.emplace(config, 3'600 * kSecond, Random{1, 0});
+            value->remember(60 * kSecond);
+            time = 60 * kSecond;
+        }
+        time += kSecond;
+        for (const Duration delay : delays) {
+            benchmark::DoNotOptimize(value->valueAt(time - delay));
+        }
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<std::int64_t>(delays.size()));
+}
+BENCHMARK(BM_LatePredictionReads);
+
 // The report of five minutes of the playable market with four seats: five replays of it, on one
 // thread and on four.
 void BM_SessionReport(benchmark::State& state) {

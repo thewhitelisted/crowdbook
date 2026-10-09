@@ -22,7 +22,7 @@ std::shared_ptr<Fundamental> fixedValue(double value) {
 }
 
 const InformedConfig kExact{.interval = 100 * kMillisecond,
-                            .noise = 0.0,
+                            .belief = {.noise = 0.0},
                             .threshold = 3.0,
                             .orderSize = 5,
                             .maxPosition = 10};
@@ -84,7 +84,7 @@ TEST(InformedTest, FirstLooksAtARandomPointInItsFirstInterval) {
 TEST(InformedTest, RequiresAFundamentalAndAValidConfig) {
     EXPECT_THROW((InformedTrader{kExact, nullptr}), std::invalid_argument);
     EXPECT_THROW((InformedTrader{{.interval = 0}, fixedValue(100.0)}), std::invalid_argument);
-    EXPECT_THROW((InformedTrader{{.noise = -1.0}, fixedValue(100.0)}), std::invalid_argument);
+    EXPECT_THROW((InformedTrader{{.belief = {.noise = -1.0}}, fixedValue(100.0)}), std::invalid_argument);
     EXPECT_THROW((InformedTrader{{.orderSize = 6, .maxPosition = 5}, fixedValue(100.0)}),
                  std::invalid_argument);
     EXPECT_THROW((InformedTrader{{.maxPosition = kMaxQuantity + 1}, fixedValue(100.0)}),

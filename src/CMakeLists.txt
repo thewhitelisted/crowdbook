@@ -1,6 +1,7 @@
 add_library(crowdbook
     agent_registry.cpp
     agents/adaptive.cpp
+    agents/belief.cpp
     agents/execution.cpp
     agents/informed.cpp
     agents/market_maker.cpp

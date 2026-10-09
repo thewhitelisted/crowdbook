@@ -1,5 +1,6 @@
-# Challenge: find the informed flow. Make markets where a third of the orders come from traders
-# who know the true value. Quote against all of them alike and they will pick you off.
+# Challenge: find the informed flow. Make markets where two of every five lots that take liquidity
+# come from traders who follow the true value. Quote against all of them alike and they will pick
+# you off.
 #
 #   crowdbook play examples/challenges/informed_flow.toml --record session.toml
 #   crowdbook serve examples/challenges/informed_flow.toml --seat maker
@@ -11,10 +12,11 @@ reference_price = 10000
 [challenge]
 name = "Find the informed flow"
 briefing = """
-You make markets beside one other market maker. Most of the orders you trade with are noise, but
-ten informed traders see the true value, which wanders twice as fast as in a quiet market, and
-take any quote that is more than a tick and a half wrong. Losing to them is the cost of quoting;
-how much you lose depends on how quickly you notice which way they are leaning.
+You make markets beside one other market maker. Most of the orders you trade with are noise, but the
+true value wanders twice as fast as in a quiet market and many traders follow it: four experts see
+it within a second and take any quote more than a tick and a half wrong, and forty followers see it
+about twenty seconds late, each with a view of its own. Losing to them is the cost of quoting; how
+much you lose depends on how quickly you notice which way they are leaning.
 
 Watch the trades: informed orders come in runs on one side. Positions are valued at the true value
 at the end. Holding inventory costs 0.02 a lot every second, each lot held at the end costs 1, and
@@ -64,12 +66,30 @@ account = { max_position = 110, max_order_quantity = 10 }
 
 [[agents]]
 type = "informed"
-name = "informed"
-count = 10
+name = "experts"          # fast and close to right
+count = 4
 interval = "1s"
 noise = 0.5
-threshold = 1.5
+error = 0.5               # ticks of lasting error in what each believes
+error_memory = "300s"
+lag = "1s"                # how late, on average, each sees the value
+threshold = 1.5           # ticks: half the width of each one's range of fair values
 order_size = 3
 max_position = 300
 latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
 account = { max_position = 303, max_order_quantity = 3 }
+
+[[agents]]
+type = "informed"
+name = "followers"        # slower, with views of their own
+count = 40
+interval = "3s"
+noise = 0.5
+error = 2.0               # ticks of lasting error in what each believes
+error_memory = "300s"
+lag = "20s"               # how late, on average, each sees the value
+threshold = 3.0           # ticks: half the width of each one's range of fair values
+order_size = 3
+max_position = 200
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 203, max_order_quantity = 3 }

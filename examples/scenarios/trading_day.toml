@@ -1,8 +1,9 @@
 # A trading day: an opening auction, ten minutes of continuous trading that is busiest at the open
 # and the close, a closing auction, and halts when the price runs more than 15 ticks from the last
-# auction's price. Noise traders build the auctions' books with limit orders; the market maker,
-# the trend followers and the informed traders wait for continuous trading; brokers work large
-# orders by the day's expected volume curve (VWAP) and pause in auctions.
+# auction's price. Noise traders build the auctions' books with limit orders; the market makers, the
+# trend followers and the traders who follow the true value, a few experts and a slower crowd, wait
+# for continuous trading; brokers work large orders by the day's expected volume curve (VWAP) and
+# pause in auctions.
 #
 #   crowdbook run examples/scenarios/trading_day.toml --log day.csv --log-only phase,trade
 #   crowdbook play examples/scenarios/trading_day.toml
@@ -55,6 +56,17 @@ latency = { to_exchange = "20us", from_exchange = "20us" }
 account = { max_position = 110, max_order_quantity = 10 }
 
 [[agents]]
+type = "market_maker"
+name = "slow maker"
+intensity = 0.5
+quote_size = 10
+max_inventory = 100
+requote_interval = "1s"
+post_only = true
+latency = { to_exchange = "200us", from_exchange = "200us" }
+account = { max_position = 110, max_order_quantity = 10 }
+
+[[agents]]
 type = "momentum"
 name = "trend"
 count = 5
@@ -69,15 +81,33 @@ account = { max_position = 33, max_order_quantity = 3 }
 
 [[agents]]
 type = "informed"
-name = "informed"
-count = 5
+name = "experts"          # fast and close to right
+count = 2
 interval = "2s"
 noise = 1.0
-threshold = 2.0
+error = 1.0               # ticks of lasting error in what each believes
+error_memory = "300s"
+lag = "1s"                # how late, on average, each sees the value
+threshold = 2.0           # ticks: half the width of each one's range of fair values
 order_size = 3
 max_position = 300
 latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
 account = { max_position = 303, max_order_quantity = 3 }
+
+[[agents]]
+type = "informed"
+name = "followers"        # slower, with views of their own
+count = 30
+interval = "5s"
+noise = 1.0
+error = 3.0               # ticks of lasting error in what each believes
+error_memory = "300s"
+lag = "30s"               # how late, on average, each sees the value
+threshold = 4.0           # ticks: half the width of each one's range of fair values
+order_size = 3
+max_position = 200
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 203, max_order_quantity = 3 }
 
 [[agents]]
 type = "execution"

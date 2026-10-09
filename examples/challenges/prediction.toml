@@ -15,10 +15,11 @@ This market is on one yes-or-no question, and it resolves in ten minutes. A shar
 answer is yes and nothing if it is no, so prices run from 1 to 99 and the price is the market's
 probability of yes, in cents. It starts at a coin flip.
 
-News arrives about every minute and a half, and moves the probability. You don't see it. Ten
-traders do, within a few cents, and trade until the price agrees with them; noise traders, a
-market maker and a few trend followers trade too. As the end nears, the same news moves the
-probability further, and the price heads for 0 or 100.
+News arrives about every minute and a half, and moves the probability. You don't see it. Six experts
+do, within a second or two; thirty followers some twenty seconds later, each with a view of its own;
+and eight partisans want the answer to be yes and think it eight cents likelier than it is. Noise
+traders, two market makers and a few trend followers trade too. As the end nears, the same news
+moves the probability further, and the price heads for 0 or 100.
 
 You are scored at resolution: every share you hold is worth 100 or 0. You may hold 50 shares
 either way and send 10 at a time; a loss of 2,000 stops you."""
@@ -64,16 +65,62 @@ latency = { to_exchange = "20us", from_exchange = "20us" }
 account = { max_position = 110, max_order_quantity = 10 }
 
 [[agents]]
+type = "market_maker"
+name = "slow maker"
+volatility = 4.5          # quotes three times as wide, which stand a second
+intensity = 0.5
+quote_size = 10
+max_inventory = 100
+requote_interval = "1s"
+post_only = true
+latency = { to_exchange = "200us", from_exchange = "200us" }
+account = { max_position = 110, max_order_quantity = 10 }
+
+[[agents]]
 type = "informed"
-name = "informed"
-count = 10
-interval = "1s"
+name = "experts"          # fast and close to right
+count = 6
+interval = "500ms"
 noise = 3.0
-threshold = 2.0
+error = 2.0               # cents of lasting error in what each believes
+error_memory = "300s"
+lag = "1s"                # how late, on average, each sees the value
+threshold = 2.0           # cents: half the width of each one's range of fair values
 order_size = 5
-max_position = 3000
+max_position = 600
 latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
-account = { max_position = 3005, max_order_quantity = 5 }
+account = { max_position = 605, max_order_quantity = 5 }
+
+[[agents]]
+type = "informed"
+name = "followers"        # slower, with views of their own
+count = 30
+interval = "5s"
+noise = 3.0
+error = 6.0               # cents of lasting error in what each believes
+error_memory = "300s"
+lag = "20s"               # how late, on average, each sees the value
+threshold = 4.0           # cents: half the width of each one's range of fair values
+order_size = 5
+max_position = 300
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 305, max_order_quantity = 5 }
+
+[[agents]]
+type = "informed"
+name = "partisans"        # tilted toward one side
+count = 8
+interval = "5s"
+noise = 3.0
+error = 6.0               # cents of lasting error in what each believes
+error_memory = "300s"
+lag = "10s"               # how late, on average, each sees the value
+bias = 8.0                # cents toward yes: what they want to be true
+threshold = 4.0           # cents: half the width of each one's range of fair values
+order_size = 5
+max_position = 300
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 305, max_order_quantity = 5 }
 
 [[agents]]
 type = "momentum"

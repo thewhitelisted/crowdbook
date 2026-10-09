@@ -21,8 +21,9 @@ or writing a program in any language that trades over the network.
 > depends on how long the book remembers. The engine is also a library, with versioned formats, a
 > package to install and a container image. Markets can trade a whole day, with opening and closing
 > auctions and halts, and a market can be a prediction market on a yes-or-no question, whose prices
-> come out as calibrated probabilities. Next: calibration against real markets, starting with
-> Polymarket's trades. See
+> come out as probabilities. Nobody sees the true value exactly: traders see it late, each with
+> errors of its own, and some with a tilt, which gives prediction markets the favourite–longshot
+> bias of real ones. Next: calibration against real markets, starting with Polymarket's trades. See
 > [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
 > roadmap.
 
@@ -57,19 +58,21 @@ agent parameter.
 
 ## Results
 
-A day of a 1,041-agent market — a thousand noise traders, a market maker, twenty trend followers
-and twenty informed traders who know the asset's true value — simulates in 32 seconds. Measured
-over four such days and more than a thousand smaller markets ([docs/results.md](docs/results.md)):
+A day of a 1,432-agent market — a thousand noise traders, two market makers, twenty trend
+followers, and ten experts and four hundred followers who see the asset's true value late, each
+with errors of its own — simulates in 35 seconds. Measured over four such days and thousands of
+smaller markets ([docs/results.md](docs/results.md)):
 
 - **Who moves prices.** Noise traders' orders move the mid a tenth of a tick, and the move is gone
-  within a second. Informed traders' orders move it two ticks, for good. Trend followers' orders
-  arrive as moves end, and the price reverses two ticks against them, which costs them 3.3 ticks
-  on every lot.
+  within a second. Orders from traders who follow the value move it one and a half to two ticks,
+  for good. Trend followers' orders arrive as moves end, and the price reverses two ticks against
+  them, which costs them 3.4 ticks on every lot.
 - **Headcount is not what matters.** The same order flow from 100 or 1,000 noise traders gives the
   same market. Fat tails and volatility clustering appear only when agents react to the market.
 - **Liquidity feedback makes volatility cluster.** When noise traders stand back from the book
-  after prices jump, the thinner book makes the next jump bigger: volatility clusters for about
-  an hour, and one-minute returns have fat tails.
+  after prices jump, the thinner book makes the next jump bigger: volatility clusters for an hour
+  or two, and one-minute returns have fat tails. A crowd of value traders who trade small
+  mispricings undoes it: between them they are a deep book that does not thin.
 - **Large orders leave two marks.** Brokers working parent orders with a Pareto tail of sizes give
   the signs of market orders the long memory that theory predicts from that tail. A parent's
   impact grows almost linearly with its size in a book that forgets in seconds, and bends toward
@@ -77,15 +80,16 @@ over four such days and more than a thousand smaller markets ([docs/results.md](
 - **Informed traders barely cost the market maker.** Its fills against them lose about 0.9 ticks
   per lot. But by pulling prices back to value they make its fills against noise traders worth
   one to two ticks more, and the noise traders pay for both.
-- **Prediction markets are calibrated, when the informed have capital.** In a market on a
-  yes-or-no question, of the moments the price said 70 to 80 cents, three quarters resolved yes,
-  and prices moved fastest in the last minutes of questions still open, as on election night. With
-  too little capital, the informed traders run out of room and the price stops following the
-  probability.
+- **Late traders give prediction markets a favourite–longshot bias.** In a market on a yes-or-no
+  question, of the moments the price said 70 to 80 cents, three quarters resolved yes, but of
+  those at 10 to 20, only 6%: traders who see the news a minute late hold prices back from 0 and
+  100, as in real prediction and betting markets, and trend followers profit from the
+  underreaction. Prices move fastest in the last minutes of questions still open, as on election
+  night.
 - **What's missing.** Volatility clusters for an hour, not the weeks of real markets, and nothing
   is calibrated to real order books yet.
 
-![Mid move after the aggressive orders of noise traders, trend followers and informed traders](docs/images/impact.png)
+![Mid move after the aggressive orders of noise traders, trend followers, experts and followers](docs/images/impact.png)
 
 The analysis is a separate Python package that drives the `crowdbook` command:
 
@@ -232,10 +236,10 @@ project, each a market with a task:
 
 | Challenge | Task | Scored on |
 |---|---|---|
-| [market_making.toml](examples/challenges/market_making.toml) | Be the only market maker among noise and a few informed traders | PnL at the true value, less a charge for inventory held; a loss of 2,000 stops you |
+| [market_making.toml](examples/challenges/market_making.toml) | Be the only market maker among noise traders and traders who follow the true value | PnL at the true value, less a charge for inventory held; a loss of 2,000 stops you |
 | [large_order.toml](examples/challenges/large_order.toml) | Buy 300 lots in ten minutes | Against the market's VWAP; unfinished lots cost 10 each |
 | [news.toml](examples/challenges/news.toml) | Trade jumps in the true value you cannot see | PnL at the true value |
-| [informed_flow.toml](examples/challenges/informed_flow.toml) | Make markets where a third of the flow is informed | PnL at the true value, less a charge for inventory held |
+| [informed_flow.toml](examples/challenges/informed_flow.toml) | Make markets where two lots in five that take liquidity are informed | PnL at the true value, less a charge for inventory held |
 | [prediction.toml](examples/challenges/prediction.toml) | Trade a yes-or-no question that resolves in ten minutes, without seeing the news | PnL at resolution, 100 or 0 a share |
 
 ```bash
@@ -319,17 +323,17 @@ Measured on one core of an Apple M5 with a Release build:
 
 - The matching engine handles about 42 million operations per second (roughly 24 ns each) on a
   mixed stream of passive orders, cancels, crossing orders and market orders.
-- A simulated day of the 1,041-agent mixed market in
-  [large_market.toml](examples/scenarios/large_market.toml), 17 million trades, takes 32 seconds:
-  about 2,700 times faster than real time.
-- The markets of the example challenges run 29,000 to 43,000 times faster than real time, and
-  19,000 to 27,000 times when served through the gateway to a client that reads every message.
+- A simulated day of the 1,432-agent mixed market in
+  [large_market.toml](examples/scenarios/large_market.toml), 17.5 million trades, takes 35
+  seconds: about 2,500 times faster than real time.
+- The markets of the example challenges run 27,000 to 42,000 times faster than real time, and
+  18,000 to 26,000 times when served through the gateway to a client that reads every message.
 - The event log writes about 280 MB a second, and the server encodes a ten-level depth update in
   about 120 ns.
 - Served over TCP to 50 trading clients, each placing or cancelling 20 orders a second and reading
-  every market data message, the server answers within 0.17 ms of the market's own latency at the
-  median and 0.54 ms at the 99th percentile, on 18% of a core. With 200 clients and market data
-  batched every 10 ms, it is 0.18 and 1.1 ms on 28% of a core. A served market takes about 400 KB
+  every market data message, the server answers within 0.15 ms of the market's own latency at the
+  median and 0.48 ms at the 99th percentile, on 19% of a core. With 200 clients and market data
+  batched every 10 ms, it is 0.18 and 1.2 ms on 31% of a core. A served market takes about 430 KB
   of memory.
 - Whole markets of zero-intelligence traders, each acting about four times a second, simulate
   this many seconds per second of wall-clock time:
