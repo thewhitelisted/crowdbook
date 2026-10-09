@@ -224,7 +224,9 @@ class LiveTest(unittest.TestCase):
 
     def test_a_bot_trades_through_a_trading_day(self):
         bot = AuctionBuyer()
-        with served(self.directory, DAY, "--speed", "15") as port:
+        # Slow enough that each five-second auction lasts a second of wall-clock time, so the bot's
+        # bid arrives before the auction ends even on a busy machine.
+        with served(self.directory, DAY, "--speed", "5") as port:
             end = crowdbook.run(bot, port=port)
         self.assertIsNotNone(end)
         self.assertEqual(bot.phases, ["opening-auction", "continuous", "closing-auction",
