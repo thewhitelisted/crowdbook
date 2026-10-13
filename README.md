@@ -375,5 +375,9 @@ python3 tools/bench_check.py
 
 ## License
 
-[MIT](LICENSE). Third-party code compiled into the binary is listed in
+[PolyForm Shield 1.0.0](LICENSE): you may use, change and share crowdbook for any purpose except
+providing a product that competes with it, or with a product its author provides using it.
+Everything published before this licence, version 0.12.0 included, was released under MIT and
+stays under it. The Python client in [clients/python](clients/python) stays under
+[MIT](clients/python/LICENSE). Third-party code compiled into the binary is listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

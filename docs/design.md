@@ -30,8 +30,9 @@ market and on a real one (M18).
 Out of scope: connecting to real exchanges or trading real money, and multiple instruments or
 venues until the single-instrument market is calibrated.
 
-This repository is the open engine, under the MIT license: the simulator, its agents, the
-analysis, the terminal trading screen, the gateway with its protocol, and the Python client.
+This repository is the engine, its source available under the PolyForm Shield license and its
+Python client under MIT: the simulator, its agents, the analysis, the terminal trading screen, the
+gateway with its protocol, and the Python client.
 A trading screen in the browser, multiplayer markets hosted online, and tournaments with
 leaderboards are planned as part of a hosted product built on the engine, and are not built here;
 the roadmap marks them.
