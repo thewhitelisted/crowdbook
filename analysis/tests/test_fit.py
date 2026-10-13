@@ -32,6 +32,7 @@ class ScenarioTest(unittest.TestCase):
         self.assertEqual(scenario["exchange"]["taker_fee"], 1.75)
         self.assertEqual(scenario["exchange"]["fee_curve"], "probability")
         groups = {group["name"]: group for group in scenario["agents"]}
+        self.assertEqual(groups["noise"]["market_protection"], 10)
         self.assertEqual(groups["crowd"]["count"], 7)
         self.assertEqual(groups["crowd"]["lag"], "12500ms")
         self.assertEqual(groups["crowd"]["interval"], "10s")
