@@ -716,8 +716,10 @@ the price and the memory in order signs among them, so the fitted point matters 
   resolve yes against 13.7%, and of those priced 0 to 10, 0.3% against 2.2%: a favourite–longshot
   bias the real markets do not have and the market fitted one setting at a time did not (16.5%).
   The joint search traded it for the spread, the pace and the close, since few moments fall at
-  the ends and their tolerances are wide. A market built on this crowd offers something to whoever
-  sells longshots.
+  the ends and their tolerances are wide. Betting on the bias does not pay after spread and fees,
+  though: over 400 markets with these settings drawn within a third either way, a trader buying
+  shares priced 80 to 97 and selling those priced 3 to 20, holding them to the end, made −0.72
+  dollars a market, with a 95% interval from −2.36 to +0.93.
 - **Orders do not crowd in at the end.** In the real fifteen-minute questions the last tenth of the
   window has 15% of the orders and the first tenth 8%; the fitted market has 10% and 11%. Nothing
   in the simulated crowd is drawn to a question as its fate is decided.
