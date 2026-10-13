@@ -1,6 +1,8 @@
+#include <cstdint>
 #include <memory>
 #include <set>
 #include <stdexcept>
+#include <variant>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -68,6 +70,43 @@ TEST(InformedTest, StopsAtItsPositionLimit) {
         orders += lookOnce(trader, context).size();
     }
     EXPECT_EQ(orders, 2U); // two orders of 5 in flight reach the limit of 10
+}
+
+TEST(InformedTest, DrawsSizesFromAParetoTail) {
+    // P(size >= q) = (5 / q)^1.5: about 3% of orders are 50 lots or more.
+    InformedConfig config = kExact;
+    config.maxPosition = 100'000;
+    config.sizeTail = 1.5;
+    int orders = 0;
+    int large = 0;
+    for (std::uint64_t seed = 1; seed <= 4'000; ++seed) {
+        InformedTrader trader{config, fixedValue(105.0)};
+        FakeContext context(seed);
+        for (const Request& request : lookOnce(trader, context)) {
+            const Quantity size = std::get<NewOrder>(request).quantity;
+            EXPECT_GE(size, config.orderSize);
+            large += size >= 50 ? 1 : 0;
+            ++orders;
+        }
+    }
+    EXPECT_EQ(orders, 4'000);
+    EXPECT_NEAR(large / 4'000.0, 0.0316, 0.01);
+}
+
+TEST(InformedTest, CutsADrawnSizeToTheRoomItsLimitLeaves) {
+    InformedConfig config = kExact;
+    config.maxPosition = 12;
+    config.sizeTail = 0.2; // so heavy that nearly every draw is past the limit
+    InformedTrader trader{config, fixedValue(105.0)};
+    FakeContext context;
+    Quantity inFlight = 0;
+    for (int i = 0; i < 10; ++i) {
+        for (const Request& request : lookOnce(trader, context)) {
+            inFlight += std::get<NewOrder>(request).quantity;
+        }
+    }
+    EXPECT_LE(inFlight, config.maxPosition);
+    EXPECT_GE(inFlight, config.maxPosition - config.orderSize + 1);
 }
 
 TEST(InformedTest, FirstLooksAtARandomPointInItsFirstInterval) {

@@ -20,6 +20,10 @@ struct ZeroIntelligenceConfig {
     Price maxOffset = 10; // limit orders go 1 to maxOffset ticks inside the opposite best quote
     Quantity minSize = 1;
     Quantity maxSize = 10;
+    // 0 draws sizes uniformly from minSize to maxSize. A positive value draws them from a Pareto
+    // tail instead, P(size > q) = (minSize / q) ^ sizeTail for q of at least minSize, capped at
+    // maxSize, as real order sizes are: most orders small and a few far larger.
+    double sizeTail = 0.0;
     // How the trader's pace follows the market's. Its order rates are multiplied by
     // (recent trade rate / usual trade rate) ^ activityResponse, kept within [0.1, 10], where both
     // rates come from the published trade count it sees when it acts, averaged over
@@ -60,7 +64,7 @@ class ZeroIntelligenceTrader final : public Agent {
 public:
     // Throws std::invalid_argument for a negative rate, limit and market rates that are both zero,
     // a maxOffset outside 1 to kMaxPrice, sizes that do not satisfy
-    // 1 <= minSize <= maxSize <= kMaxQuantity, a negative activity
+    // 1 <= minSize <= maxSize <= kMaxQuantity, a negative or infinite sizeTail, a negative activity
     // response, or activity windows that are not positive with memory no longer than baseline.
     ZeroIntelligenceTrader(const ZeroIntelligenceConfig& config, Price referencePrice);
 
@@ -92,6 +96,7 @@ private:
     void observeMarket(const MarketSnapshot& market, Timestamp now);
     [[nodiscard]] double orderRate() const noexcept;
     void scheduleNextOrder(AgentContext& context) const;
+    [[nodiscard]] Quantity drawSize(Random& random) const;
     void sendLimit(AgentContext& context) const;
     void sendMarket(AgentContext& context) const;
     void sendAuctionLimit(AgentContext& context, const MarketSnapshot& market) const;

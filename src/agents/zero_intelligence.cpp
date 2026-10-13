@@ -6,6 +6,7 @@
 #include <optional>
 #include <stdexcept>
 
+#include "crowdbook/agents/execution.hpp"
 #include "crowdbook/math.hpp"
 
 namespace crowdbook {
@@ -41,6 +42,9 @@ ZeroIntelligenceTrader::ZeroIntelligenceTrader(const ZeroIntelligenceConfig& con
     if (config.minSize < 1 || config.minSize > config.maxSize || config.maxSize > kMaxQuantity) {
         throw std::invalid_argument(std::format(
             "zero_intelligence sizes need 1 <= min_size <= max_size <= {}", kMaxQuantity));
+    }
+    if (!(config.sizeTail >= 0.0) || !std::isfinite(config.sizeTail)) {
+        throw std::invalid_argument("zero_intelligence size_tail must not be negative");
     }
     if (!(config.activityResponse >= 0.0) || !(config.volatilityResponse >= 0.0) ||
         config.activityMemory <= 0 || config.activityBaseline < config.activityMemory) {
@@ -136,13 +140,20 @@ void ZeroIntelligenceTrader::scheduleNextOrder(AgentContext& context) const {
                    kNextOrder);
 }
 
+Quantity ZeroIntelligenceTrader::drawSize(Random& random) const {
+    if (config_.sizeTail > 0.0) {
+        return drawParentSize(random, config_.minSize, config_.sizeTail, config_.maxSize);
+    }
+    return random.uniformInt(config_.minSize, config_.maxSize);
+}
+
 void ZeroIntelligenceTrader::sendLimit(AgentContext& context) const {
     Random& random = context.random();
     const Side side = randomSide(random);
     const Price widest = std::max<Price>(
         1, std::llround(static_cast<double>(config_.maxOffset) * stretch_));
     const Price offset = random.uniformInt(1, widest);
-    const Quantity size = random.uniformInt(config_.minSize, config_.maxSize);
+    const Quantity size = drawSize(random);
 
     const auto fair = static_cast<Price>(std::llround(market_.fairPrice()));
     const Price anchor = side == Side::Buy ? market_.bestAsk().value_or(fair + 1)
@@ -160,7 +171,7 @@ void ZeroIntelligenceTrader::sendAuctionLimit(AgentContext& context,
                                               const MarketSnapshot& market) const {
     Random& random = context.random();
     const Side side = randomSide(random);
-    const Quantity size = random.uniformInt(config_.minSize, config_.maxSize);
+    const Quantity size = drawSize(random);
     const Price offset = random.uniformInt(1, config_.maxOffset);
     const Price anchor = market.indicative
                              ? market.indicative->price
@@ -177,7 +188,7 @@ void ZeroIntelligenceTrader::sendAuctionLimit(AgentContext& context,
 void ZeroIntelligenceTrader::sendMarket(AgentContext& context) const {
     Random& random = context.random();
     const Side side = randomSide(random);
-    const Quantity size = random.uniformInt(config_.minSize, config_.maxSize);
+    const Quantity size = drawSize(random);
     context.submitMarket(side, size);
 }
 

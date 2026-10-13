@@ -44,6 +44,7 @@ std::unique_ptr<Agent> makeZeroIntelligence(const Parameters& parameters,
             .maxOffset = parameters.integer("max_offset", defaults.maxOffset),
             .minSize = parameters.integer("min_size", defaults.minSize),
             .maxSize = parameters.integer("max_size", defaults.maxSize),
+            .sizeTail = parameters.number("size_tail", defaults.sizeTail),
             .activityResponse = parameters.number("activity_response", defaults.activityResponse),
             .activityMemory = parameters.duration("activity_memory", defaults.activityMemory),
             .activityBaseline =
@@ -139,6 +140,7 @@ std::unique_ptr<Agent> makeInformed(const Parameters& parameters,
             .threshold = parameters.number("threshold", defaults.threshold),
             .orderSize = parameters.integer("order_size", defaults.orderSize),
             .maxPosition = parameters.integer("max_position", defaults.maxPosition),
+            .sizeTail = parameters.number("size_tail", defaults.sizeTail),
         },
         environment.fundamental);
 }

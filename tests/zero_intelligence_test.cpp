@@ -226,6 +226,40 @@ TEST(ZeroIntelligenceTest, StandsBackFromTheTouchWhenPricesStartJumping) {
     EXPECT_NEAR(trader.stretch(), 2.24, 0.05);
 }
 
+TEST(ZeroIntelligenceTest, DrawsSizesUniformlyWithoutATail) {
+    ZeroIntelligenceTrader trader{{.limitRate = 0.0, .marketRate = 1.0, .minSize = 2,
+                                   .maxSize = 4},
+                                  kReference};
+    FakeContext context;
+    std::set<Quantity> sizes;
+    for (const Request& request : run(trader, context, 1'000)) {
+        sizes.insert(std::get<NewOrder>(request).quantity);
+    }
+    EXPECT_EQ(sizes, (std::set<Quantity>{2, 3, 4}));
+}
+
+TEST(ZeroIntelligenceTest, DrawsSizesFromAParetoTail) {
+    // P(size >= q) = (min / q)^1.5 for whole sizes q: 11^-1.5 of orders above 10 lots, and
+    // 101^-1.5, about a tenth of a percent, above 100.
+    ZeroIntelligenceTrader trader{{.limitRate = 0.0, .marketRate = 1.0, .minSize = 1,
+                                   .maxSize = 10'000, .sizeTail = 1.5},
+                                  kReference};
+    FakeContext context;
+    int aboveTen = 0;
+    int aboveHundred = 0;
+    Quantity largest = 0;
+    for (const Request& request : run(trader, context, 200'000)) {
+        const Quantity size = std::get<NewOrder>(request).quantity;
+        ASSERT_GE(size, 1);
+        aboveTen += size > 10 ? 1 : 0;
+        aboveHundred += size > 100 ? 1 : 0;
+        largest = std::max(largest, size);
+    }
+    EXPECT_NEAR(aboveTen / 200'000.0, 0.0274, 0.002);
+    EXPECT_NEAR(aboveHundred / 200'000.0, 0.000985, 0.0003);
+    EXPECT_LE(largest, 10'000);
+}
+
 TEST(ZeroIntelligenceTest, RejectsInvalidConfigs) {
     EXPECT_THROW((ZeroIntelligenceTrader{{.limitRate = -1.0}, kReference}), std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.limitRate = 0.0, .marketRate = 0.0}, kReference}),
@@ -238,6 +272,8 @@ TEST(ZeroIntelligenceTest, RejectsInvalidConfigs) {
     EXPECT_THROW((ZeroIntelligenceTrader{{.maxSize = kMaxQuantity + 1}, kReference}),
                  std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.minSize = 5, .maxSize = 4}, kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((ZeroIntelligenceTrader{{.sizeTail = -1.0}, kReference}),
                  std::invalid_argument);
     EXPECT_THROW((ZeroIntelligenceTrader{{.activityResponse = -0.5}, kReference}),
                  std::invalid_argument);
