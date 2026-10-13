@@ -15,6 +15,9 @@ crowdbook-experiments = "crowdbook_analysis.experiments:main"
 crowdbook-large-orders = "crowdbook_analysis.large_orders:main"
 crowdbook-trading-day = "crowdbook_analysis.trading_day:main"
 crowdbook-prediction = "crowdbook_analysis.prediction:main"
+crowdbook-polymarket = "crowdbook_analysis.polymarket:main"
+crowdbook-realism = "crowdbook_analysis.realism:main"
+crowdbook-fit = "crowdbook_analysis.fit:main"
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]

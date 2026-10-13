@@ -6,6 +6,7 @@
 /compile_commands.json
 
 # Python
+/analysis/data/
 .venv/
 __pycache__/
 
