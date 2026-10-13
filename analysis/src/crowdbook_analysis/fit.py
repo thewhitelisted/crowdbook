@@ -49,6 +49,7 @@ BOOTSTRAP = 100
 GENERATIONS = 80
 RANGE_DRAWS = 40
 TAKER_FEE = 1.75  # cents a share at 50: Polymarket's 0.07 p (1 - p) dollars, measured
+MARKET_PROTECTION = 10
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,11 @@ class Settings:
     broker_interval_spread: float = 0.0  # how far brokers' waits between children stray
     broker_size_spread: float = 0.0  # how far their children's sizes stray
     taker_fee: float = TAKER_FEE  # not fitted: measured from the chain
+    # Not fitted: how far past the last trade a noise trader's market order may go, in cents. It
+    # leaves the scorecard as it was, since simulated orders already move the price past 10 cents
+    # more rarely than real ones, and it keeps a maker quoting far from the price from making
+    # money on market orders that would run to its quotes in a one-sided book.
+    market_protection: int = MARKET_PROTECTION
 
 
 @dataclass(frozen=True)
@@ -176,6 +182,7 @@ max_offset = 3
 min_size = 1
 max_size = 2000
 size_tail = {size_tail:.3f}     # P(size > q) = (1 / q)^{size_tail:.3f}
+market_protection = {market_protection}  # cents past the last trade a market order may go
 latency = {{ to_exchange = "300us", from_exchange = "300us", jitter = "100us" }}
 account = {{ max_position = 1000000, max_order_quantity = 2000 }}
 
