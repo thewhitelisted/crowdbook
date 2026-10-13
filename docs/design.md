@@ -335,7 +335,7 @@ byte for byte. [protocol.md](protocol.md) specifies the messages.
   every seat is claimed.
 - **Messages and their encoding are separate.** The protocol is a set of message types, and the
   encoding turns them into bytes. The first encoding is JSON, one message per line: any language
-  can speak it, and a person can read it. A binary encoding and FIX come later (M19) as other
+  can speak it, and a person can read it. A binary encoding and FIX come later (M20) as other
   encodings of the same messages. Every number on the wire is an integer, as in the engine.
 - **Order ids:** a client names its orders with its own ids, as with FIX's ClOrdID, so it can
   cancel an order it has only just sent. The gateway gives each new order a fresh client order id
@@ -348,7 +348,7 @@ byte for byte. [protocol.md](protocol.md) specifies the messages.
   The recording keeps that time and the seat, so a replay sends it at the same moment from the
   same agent. Real network delay therefore adds to the simulated one, scaled by the speed: at 50
   times real time, a millisecond on the wire is 50 simulated milliseconds. That is inherent to
-  trading in real time; the learning environment (M20) will step the market in lockstep instead.
+  trading in real time; the learning environment (M19) will step the market in lockstep instead.
 - **Untrusted input:** a line longer than 4 KiB, a malformed message, an unknown field or a value
   out of range gets an error message and is dropped. Each connection may send a limited number of
   messages per second of wall-clock time; messages over the limit are dropped before they reach
@@ -940,8 +940,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Done |
 | M17 | Prediction markets: a market type on a yes-or-no question, priced 1 to 99, whose true value is the probability of yes and which resolves to 0 or 100; news that moves it; scenarios and a challenge | Prices of informed markets are calibrated probabilities across many runs; volatility rises toward resolution; the value's process checked against its closed form | Done |
 | M18 | Calibration: the same statistics on real data, Polymarket's trades on its public blockchain first, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Next |
-| M19 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Planned |
-| M20 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules | A learning agent's runs reproduce from their seeds; throughput benchmark | Planned |
+| M19 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules, and a scenario's settings drawn at random from ranges for each episode | A learning agent's runs reproduce from their seeds; throughput benchmark | Planned |
+| M20 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Planned |
 | M21 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
 | M22 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |
 | M23 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Planned |
