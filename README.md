@@ -23,7 +23,9 @@ or writing a program in any language that trades over the network.
 > auctions and halts, and a market can be a prediction market on a yes-or-no question, whose prices
 > come out as probabilities. Nobody sees the true value exactly: traders see it late, each with
 > errors of its own, and some with a tilt, which gives prediction markets the favourite–longshot
-> bias of real ones. Next: calibration against real markets, starting with Polymarket's trades. See
+> bias of real ones. Simulated markets are now set against real ones: a scorecard of the same
+> statistics on Polymarket's Bitcoin questions, read from its public blockchain, and a market
+> fitted to them. Next: a learning environment, for stepping markets from Python. See
 > [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
 > roadmap.
 
@@ -51,10 +53,10 @@ noise                     20          0          -1575        -1575
 A market maker with a fast connection earns the spread from twenty zero-intelligence traders.
 `run.csv` holds every order, cancel, fill, trade and top-of-book change. The same seed always
 reproduces the same run, byte for byte, on any platform.
-[examples/scenarios](examples/scenarios) has twelve scenarios, from this one to thousand-trader
-markets with informed traders, memory, or brokers working large orders, a trading day and a
-prediction market; [docs/scenarios.md](docs/scenarios.md) describes the file format and every
-agent parameter.
+[examples/scenarios](examples/scenarios) has thirteen scenarios, from this one to thousand-trader
+markets with informed traders, memory, or brokers working large orders, a trading day, a
+prediction market and one fitted to Polymarket's fifteen-minute Bitcoin questions;
+[docs/scenarios.md](docs/scenarios.md) describes the file format and every agent parameter.
 
 ## Results
 
@@ -86,8 +88,14 @@ smaller markets ([docs/results.md](docs/results.md)):
   100, as in real prediction and betting markets, and trend followers profit from the
   underreaction. Prices move fastest in the last minutes of questions still open, as on election
   night.
-- **What's missing.** Volatility clusters for an hour, not the weeks of real markets, and nothing
-  is calibrated to real order books yet.
+- **Real prediction markets are fast and calibrated.** Over two weeks of Polymarket's questions on
+  whether Bitcoin will be up in five minutes, fifteen or an hour, 8.2 million orders read from the
+  chain, prices follow Bitcoin within a block or two and show no favourite–longshot bias; order
+  sizes have a power-law tail and order signs remember. A market fitted to the fifteen-minute
+  questions matches most of the scorecard, where the prediction example's late crowd does not.
+- **What's missing.** Volatility clusters for an hour, not the weeks of real markets; the fitted
+  market trades too often and does not crowd in at the end as real traders do, and nothing is
+  fitted to a real order book yet.
 
 ![Mid move after the aggressive orders of noise traders, trend followers, experts and followers](docs/images/impact.png)
 
@@ -100,6 +108,8 @@ uv run --project analysis crowdbook-experiments
 uv run --project analysis crowdbook-large-orders
 uv run --project analysis crowdbook-trading-day
 uv run --project analysis crowdbook-prediction
+uv run --project analysis crowdbook-polymarket --from 2026-09-28 --to 2026-10-12
+uv run --project analysis crowdbook-realism
 ```
 
 ## Trade in it yourself

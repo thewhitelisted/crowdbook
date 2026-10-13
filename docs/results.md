@@ -13,6 +13,15 @@ uv run --project analysis crowdbook-trading-day   # a few seconds
 uv run --project analysis crowdbook-prediction    # about half a minute
 ```
 
+The comparison with real markets reads Polymarket's trades from the Polygon blockchain first;
+the data is kept under `analysis/data`, so it is read once:
+
+```bash
+uv run --project analysis crowdbook-polymarket --from 2026-09-28 --to 2026-10-12  # an hour or so
+uv run --project analysis crowdbook-fit           # about ten minutes on four cores
+uv run --project analysis crowdbook-realism       # a few minutes
+```
+
 Uncertainties are standard errors across independent runs. Prices are in ticks, cents in the
 prediction market, and PnL is in ticks per lot traded.
 
@@ -433,6 +442,212 @@ earns the spread.
 - **Questions nearly decided hardly move**, 3 to 4 cents a minute at any time. A price at 97 has
   nowhere to go.
 
+## Real markets: Polymarket's Bitcoin questions
+
+Every simulated statistic above was measured without anything real to hold it against. Here the
+same statistics are measured on real prediction markets and on simulated ones, as a scorecard,
+and the settings of a simulated market are fitted to the real ones.
+
+The real markets are Polymarket's questions on whether Bitcoin will be up or down at the end of
+the next five minutes, fifteen minutes or hour. Each opens at a coin flip with nothing known and
+resolves at a known time, as a simulated prediction market does, and hundreds resolve every day.
+Over the fifteen days from September 28 to October 12, 2026, there were 4,319 five-minute
+questions, 1,439 of fifteen minutes and 359 hourly ones, with 8.2 million aggressive orders
+between them from 33,280 wallets, for 253 million shares. Every trade settles on the Polygon
+blockchain, and [`crowdbook-polymarket`](../analysis/src/crowdbook_analysis/polymarket.py) reads
+them from there: one event for each order that took liquidity, with its side, size and price, and
+how each question resolved. Which question is which comes from Polymarket's public list of
+markets, checked against the chain.
+
+The chain records trades but not the book, so every statistic is one trades alone give: the last
+price at each moment, each aggressive order's size and side. A block comes every second or two
+and gives the time a trade settled, a moment after it matched. Time is measured as a share of each
+question's window, so that windows of five minutes, fifteen and an hour, and simulated ones, can
+be set side by side.
+
+For a value to set prices against, each real question's true probability is worked out from
+Bitcoin's own price, Binance's one-second candles: the chance that a random walk with the
+volatility of the hour before ends the window above where it began. The hourly questions resolve
+on those very candles, and the value in a window's last second agrees with how the question
+resolved 99.1% of the time. The shorter ones resolve on Chainlink's price, averaged over a
+minute, which this value does not model: it agrees 93.4% of the time for fifteen minutes and only
+85.0% for five, the roughest stand-in, and is left out of the charts.
+
+[`crowdbook-realism`](../analysis/src/crowdbook_analysis/realism.py) prints the scorecard, with
+the prediction example ([prediction.toml](../examples/scenarios/prediction.toml), thirty minutes)
+and a market fitted to the fifteen-minute questions
+([up_or_down.toml](../examples/scenarios/up_or_down.toml)), each under 400 seeds.
+
+| statistic | real, 5 min | real, 15 min | real, hourly | simulated: prediction | simulated: up_or_down |
+|---|---:|---:|---:|---:|---:|
+| questions | 4319 | 1439 | 359 | 400 | 400 |
+| resolved yes | 50.2% | 49.3% | 49.9% | 51.7% | 55.2% |
+| Brier score of the price | 0.127 | 0.150 | 0.161 | 0.162 | 0.164 |
+| priced 10 to 20: resolved yes | 14.6% | 13.7% | 12.8% | 6.8% | 16.5% |
+| priced 80 to 90: resolved yes | 85.6% | 85.3% | 89.3% | 86.4% | 88.5% |
+| aggressive orders per minute | 279 | 71 | 13 | 478 | 112 |
+| moves in the first tenth, close (cents) | 11.8 | 11.1 | 10.4 | 7.8 | 10.3 |
+| moves in the last tenth, close (cents) | 47.9 | 44.1 | 39.1 | 23.9 | 32.8 |
+| excess kurtosis of moves, close | 2.5 | 3.0 | 2.2 | 2.8 | 2.2 |
+| orders in the first tenth | 12.1% | 8.1% | 14.4% | 13.0% | 11.8% |
+| orders in the last tenth | 3.4% | 15.0% | 10.8% | 8.7% | 9.2% |
+| largest tenth of orders against the median | 8.0 | 7.1 | 4.0 | 1.2 | 4.2 |
+| tail exponent of order sizes | 1.41 | 1.39 | 1.18 | 3.24 | 1.37 |
+| order signs, one apart | +0.23 | +0.30 | +0.27 | +0.08 | +0.32 |
+| order signs, ten apart | +0.11 | +0.12 | +0.05 | +0.09 | +0.11 |
+| successive price changes | −0.35 | −0.32 | −0.15 | −0.48 | −0.34 |
+| spread implied (cents) | 3.5 | 3.2 | 1.6 | 1.2 | 2.0 |
+| last price below 10 or above 90 | 99.7% | 99.8% | 95.3% | 77.2% | 81.2% |
+| value's moves in the first tenth, close (cents) | 12.5 | 14.1 | 14.8 | 10.1 | 10.8 |
+| value's moves in the last tenth, close (cents) | 35.8 | 41.4 | 40.2 | 45.6 | 42.4 |
+| excess kurtosis of the value's moves, close | 3.3 | 2.2 | 1.6 | 2.9 | 2.1 |
+| Brier score of the value | 0.153 | 0.161 | 0.162 | 0.157 | 0.161 |
+| distance from the value, close (cents) | 14.2 | 7.2 | 4.4 | 4.4 | 2.9 |
+| price closest to the value as it was (seconds before) | 1 | 2 | 3 | 34 | 3 |
+
+Moments are every twentieth of each window, before its end; "close" means a question priced 20 to
+80 when a change starts; a change is over a fifteenth of the window, a minute for the fifteen-minute
+questions. Order sizes are in shares, lots in a simulation, and the tail exponent is Hill's (1975),
+from the largest tenth.
+
+![Real and simulated prices as probabilities](images/realism_calibration.png)
+
+| price | real, 5 min: resolved yes | real, 15 min: resolved yes | real, hourly: resolved yes | simulated: prediction: resolved yes | simulated: up_or_down: resolved yes |
+|---|---:|---:|---:|---:|---:|
+| 0 to 10 | 2.3% (15827) | 2.2% (3797) | 2.4% (712) | 1.1% (547) | 2.5% (721) |
+| 10 to 20 | 14.6% (5978) | 13.7% (1966) | 12.8% (431) | 6.8% (440) | 16.5% (486) |
+| 20 to 30 | 24.9% (6181) | 22.0% (2191) | 23.4% (531) | 15.4% (507) | 34.1% (599) |
+| 30 to 40 | 33.1% (6190) | 33.5% (2506) | 32.4% (725) | 29.1% (803) | 35.4% (842) |
+| 40 to 50 | 44.2% (6440) | 41.9% (2856) | 41.1% (898) | 42.2% (1055) | 49.0% (954) |
+| 50 to 60 | 55.2% (6714) | 52.0% (2945) | 51.5% (913) | 55.0% (1146) | 59.4% (1027) |
+| 60 to 70 | 65.2% (6254) | 63.5% (2556) | 60.1% (722) | 63.1% (852) | 69.8% (805) |
+| 70 to 80 | 74.2% (5710) | 72.3% (2311) | 75.8% (557) | 75.7% (675) | 80.6% (628) |
+| 80 to 90 | 85.6% (5966) | 85.3% (2126) | 89.3% (458) | 86.4% (596) | 88.5% (593) |
+| 90 to 100 | 97.6% (16801) | 97.0% (4087) | 99.1% (874) | 96.6% (979) | 98.3% (945) |
+
+Moments from one question are alike, so they are worth far fewer independent forecasts than their
+count: the fitted market's 400 questions happened to resolve yes 55% of the time, which lifts its
+whole curve.
+
+### What the real markets show
+
+- **They are calibrated, with no favourite–longshot bias.** Of the moments priced 10 to 20, 13 to
+  15% resolved yes; of those priced 80 to 90, 85 to 89%. The example's late traders hold its
+  prices back from 0 and 100 (7% and 86%); these traders do not. The bias Snowberg and Wolfers
+  (2010) describe is in betting on horses and on questions that run for months; questions that
+  resolve in minutes, on a price anyone can watch, do not show it.
+- **Prices keep up within a block or two.** The price is closest to the value as it was 1 to 3
+  seconds before, about the time a trade takes to settle on the chain; the example's is closest
+  to the value as it was 34 seconds before. Its followers a minute late are no real crowd's
+  pace.
+- **The prices forecast as well as the value worked out from Bitcoin, or better.** Their Brier
+  score is 0.150 for fifteen minutes and 0.127 for five, against the value's 0.161 and 0.153:
+  traders can watch the very price each question resolves on, of which this value is only a
+  stand-in.
+- **Prices move fastest at the end, while the question is open**, from 11 cents a fifteenth of
+  the window to 39 to 48 in the last tenth, four times as fast, as in the example (from 8 to 24).
+  For a question still open with a minute left, a small move in Bitcoin decides it.
+- **Order sizes have a power-law tail.** The median order is 10 shares, the largest tenth start
+  at seven times that, and the tail's exponent is about 1.4: an order a hundred times the median
+  comes once in five hundred. The example's orders are all 1 to 10 lots.
+- **Order signs remember.** A buy is followed by another buy more often than not: the signs of
+  orders one apart correlate +0.23 to +0.30, ten apart +0.05 to +0.12. The example's correlate
+  less than +0.1.
+- **Successive price changes bounce**, a correlation of about −0.33 in the five- and
+  fifteen-minute questions, as trades alternate between the bid and the ask: Roll's measure
+  (1984) puts the spread at 3.2 to 3.5 cents, against the example's 1.2.
+
+![How late the price is: its distance from the value as it was](images/realism_lateness.png)
+
+![Moves while the question is still close, through the window](images/realism_moves.png)
+
+### A market fitted to them
+
+[up_or_down.toml](../examples/scenarios/up_or_down.toml) is a fifteen-minute question whose
+settings [`crowdbook-fit`](../analysis/src/crowdbook_analysis/fit.py) chose to bring its scorecard
+closest to that of the fifteen-minute questions. Closeness is the sum of squared differences,
+each over a tolerance: 2 cents for early moves and 5 for late ones, 0.05 for a correlation, 15%
+for the pace of orders, and so on. The search first settles the news against how the value moves,
+then sixteen settings of the traders, one at a time over three or four candidates each, against
+how the price and the orders behave, until a round changes nothing.
+
+| statistic | example: off by | fitted: off by |
+|---|---:|---:|
+| value's moves in the first tenth | −1.9 | −1.7 |
+| value's moves in the last tenth | +0.8 | −0.4 |
+| excess kurtosis of the value's moves | +1.5 | −0.4 |
+| Brier score | +0.6 | +1.3 |
+| priced 10 to 20: resolved yes | −2.8 | −0.3 |
+| priced 80 to 90: resolved yes | −0.5 | +0.2 |
+| orders per minute | +12.7 | +3.1 |
+| moves in the first tenth | −1.5 | −0.5 |
+| moves in the last tenth | −4.1 | −2.4 |
+| excess kurtosis of moves | −0.7 | −1.4 |
+| orders in the first tenth | +2.4 | +1.8 |
+| orders in the last tenth | −3.1 | −3.0 |
+| largest tenth of sizes against the median | −8.9 | −2.7 |
+| tail exponent of sizes | +5.7 | −0.1 |
+| order signs one apart | −4.5 | +0.3 |
+| order signs ten apart | −0.9 | −0.3 |
+| successive price changes | −3.0 | −0.4 |
+| spread implied | −5.0 | −2.5 |
+| price closest to the value as it was | +16.0 | +0.5 |
+
+In tolerances, from the fit's own 150 seeds; rates and ratios are compared as logarithms, so a
+spread off by −2.5 is about 0.7 times the real one. What it chose:
+
+- **News is rare and small**, a twentieth of the question's uncertainty: Bitcoin's price moves a
+  little at a time, and the value's moves have the thin tails of the real one's (excess kurtosis
+  2.1 against 2.2).
+- **Four fast traders see the probability a second late, and a crowd of ten looks every ten
+  seconds, ten seconds late**, each with a view of its own. The price is then closest to the value
+  as it was 3 seconds before, as in the real markets, and calibrated: of the moments priced 10 to
+  20, 13% resolve yes in the fit's own 150 runs and 16.5% in the 400 above.
+- **Order sizes have Pareto tails**, with exponents 1.0 for noise traders and 0.8 for those who
+  follow the value, which `size_tail` now sets for both; between them the orders' tail has the
+  real exponent, 1.37 against 1.39.
+- **Order signs remember** as the real ones do, +0.32 one apart and +0.11 ten apart, with two
+  brokers working parent orders among the traders.
+- **A market maker quoting wider and fewer noise traders' limit orders** widen the spread from
+  1.2 cents to 2.0, and the bounce matches the real one (−0.34 against −0.32).
+
+### Where the fit falls short
+
+- **Too many orders**, 112 a minute against 71: no candidate the search tried brought the pace
+  down without moving other statistics further away.
+- **Orders do not crowd in at the end.** In the real fifteen-minute questions the last tenth of
+  the window has 15% of the orders and the first tenth 8%; the fitted market has 9% and 12%.
+  Nothing in the simulated crowd is drawn to a question as its fate is decided.
+
+  ![When aggressive orders come through the window](images/realism_activity.png)
+
+- **Prices do not go all the way at the end.** The value is below 10 or above 90 in the last
+  second of 96% of questions, real and simulated alike, but only 81% of simulated questions last
+  trade there, against nearly all real ones. Real trading stops a median of twenty seconds before
+  the end, once the price is there; simulated trading goes on to the last second at prices that
+  have not followed the value all the way. Moves late in the window are smaller than the real
+  ones too, 33 cents a fifteenth against 44.
+- **The spread is still too narrow**, 2.0 cents against 3.2.
+- **The value moves less early in the window**, 11 cents a fifteenth against 14. A simulated
+  question's uncertainty is the same in every run; Bitcoin is calmer in some windows than the
+  hour before and wilder in others, which the stand-in value does not know, so its early moves
+  are partly that difference.
+
+### Limitations
+
+- **Trades, not the book.** Spreads, depth and the size of quotes are what the chain does not
+  record; the book is published only through Polymarket's own service.
+- **One asset, one kind of question, two weeks.** Questions about Bitcoin's next few minutes all
+  follow one price that anyone can watch; elections and games, traded for months, are another
+  market, and the one where the favourite–longshot bias has been found.
+- **The value is a stand-in.** It ignores the minute's averaging the shorter questions resolve on
+  and the moves within each hour's volatility, so the distance between price and value is partly
+  the stand-in's error: 4 cents for hourly questions, 7 for fifteen minutes, 14 for five.
+- **Times are when trades settled**, a second or two after they matched, so the real market's
+  lateness is at most what is shown and may be less.
+- **A local search.** The fit changes one setting at a time from a first guess, among a few
+  candidates each; a broader search may find a closer market.
+
 ## Market-maker experiments
 
 These use a smaller market, so many seeds are cheap. Each point averages 32 runs of 60 seconds.
@@ -551,8 +766,9 @@ give other markets. Making that easy to explore is the point of the toolkit.
   weeks; no agent here remembers longer than a day.
 - Each scenario is one point in a large parameter space, chosen so that every type of agent
   trades. The scripts make sweeps cheap.
-- None of these markets is calibrated to real data yet; a scorecard comparing the same statistics
-  on real order books is on the roadmap.
+- Only [up_or_down.toml](../examples/scenarios/up_or_down.toml) is fitted to real markets, and
+  only to their trades; the other markets here are not calibrated, and nothing is yet fitted to
+  a real order book.
 - One instrument, no hidden orders, and an exchange that takes no time to process a message.
 - The trading day's open is no more volatile than its midday: nothing here brings news at the
   open, and nobody but the noise traders trades in the auctions.
@@ -577,11 +793,15 @@ give other markets. Making that easy to explore is the point of the toolkit.
   financial markets. *PNAS* 102(6), 2254–2259.
 - Glosten, L. and Milgrom, P. (1985). Bid, ask and transaction prices in a specialist market with
   heterogeneously informed traders. *Journal of Financial Economics* 14(1), 71–100.
+- Hill, B. (1975). A simple general approach to inference about the tail of a distribution.
+  *Annals of Statistics* 3(5), 1163–1174.
 - Hong, H. and Stein, J. (1999). A unified theory of underreaction, momentum trading, and
   overreaction in asset markets. *Journal of Finance* 54(6), 2143–2184.
 - Kyle, A. (1985). Continuous auctions and insider trading. *Econometrica* 53(6), 1315–1335.
 - Lillo, F., Mike, S. and Farmer, J. D. (2005). Theory for long memory in supply and demand.
   *Physical Review E* 71, 066122.
+- Roll, R. (1984). A simple implicit measure of the effective bid-ask spread in an efficient
+  market. *Journal of Finance* 39(4), 1127–1139.
 - Snowberg, E. and Wolfers, J. (2010). Explaining the favorite–long shot bias: is it risk-love
   or misperceptions? *Journal of Political Economy* 118(4), 723–746.
 - Tóth, B., Lempérière, Y., Deremble, C., de Lataillade, J., Kockelkoren, J. and Bouchaud, J.-P.
