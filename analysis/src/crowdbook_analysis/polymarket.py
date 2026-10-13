@@ -32,7 +32,7 @@ from pathlib import Path
 import polars as pl
 
 from crowdbook_analysis.polygon import (
-    DEFAULT_RPC,
+    DEFAULT_RPCS,
     USER_AGENT,
     Rpc,
     address_topic,
@@ -281,7 +281,7 @@ def main() -> None:
     parser.add_argument("--to", dest="last", type=dt.date.fromisoformat, required=True,
                         help="the last UTC day to read")
     parser.add_argument("--series", nargs="+", default=list(SERIES))
-    parser.add_argument("--rpc", nargs="+", default=[DEFAULT_RPC],
+    parser.add_argument("--rpc", nargs="+", default=list(DEFAULT_RPCS),
                         help="Polygon JSON-RPC endpoints, tried in turn when one is busy")
     parser.add_argument("--data", type=Path, default=DATA)
     args = parser.parse_args()

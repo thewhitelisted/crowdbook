@@ -12,7 +12,9 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 
-DEFAULT_RPC = "https://polygon.gateway.tenderly.co"
+# Public nodes that serve eth_getLogs over a thousand blocks with each log's block time, tried in
+# turn, since each limits how often it answers.
+DEFAULT_RPCS = ("https://polygon.gateway.tenderly.co", "https://polygon-bor-rpc.publicnode.com")
 USER_AGENT = "crowdbook-analysis"
 
 # Keccak-256, the hash Ethereum and Polygon use for event signatures and ids. It differs from
@@ -109,7 +111,7 @@ class Rpc:
     fails, the request goes to the next one, and after every node has failed in turn, it waits
     longer each time before trying again."""
 
-    def __init__(self, urls: str | list[str] = DEFAULT_RPC, *, retries: int = 8,
+    def __init__(self, urls: str | list[str] | tuple[str, ...] = DEFAULT_RPCS, *, retries: int = 8,
                  timeout: float = 120.0):
         self.urls = [urls] if isinstance(urls, str) else list(urls)
         self.retries = retries
