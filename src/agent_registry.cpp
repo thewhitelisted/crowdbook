@@ -45,6 +45,8 @@ std::unique_ptr<Agent> makeZeroIntelligence(const Parameters& parameters,
             .minSize = parameters.integer("min_size", defaults.minSize),
             .maxSize = parameters.integer("max_size", defaults.maxSize),
             .sizeTail = parameters.number("size_tail", defaults.sizeTail),
+            .marketProtection =
+                parameters.integer("market_protection", defaults.marketProtection),
             .activityResponse = parameters.number("activity_response", defaults.activityResponse),
             .activityMemory = parameters.duration("activity_memory", defaults.activityMemory),
             .activityBaseline =

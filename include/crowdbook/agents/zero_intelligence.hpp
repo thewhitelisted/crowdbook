@@ -24,6 +24,13 @@ struct ZeroIntelligenceConfig {
     // tail instead, P(size > q) = (minSize / q) ^ sizeTail for q of at least minSize, capped at
     // maxSize, as real order sizes are: most orders small and a few far larger.
     double sizeTail = 0.0;
+    // A worst price for market orders, in ticks beyond the last trade price the trader saw (the
+    // mid, or the reference price, before any trade): the order takes what the book has up to there
+    // and the rest is cancelled, as exchanges' price protection and Polymarket's market orders do.
+    // It is set from the last trade rather than the best quote, which in a one-sided book can be
+    // far from any price anyone has paid. 0 sends true market orders, which take whatever the book
+    // has at any price.
+    Price marketProtection = 0;
     // How the trader's pace follows the market's. Its order rates are multiplied by
     // (recent trade rate / usual trade rate) ^ activityResponse, kept within [0.1, 10], where both
     // rates come from the published trade count it sees when it acts, averaged over
@@ -64,7 +71,8 @@ class ZeroIntelligenceTrader final : public Agent {
 public:
     // Throws std::invalid_argument for a negative rate, limit and market rates that are both zero,
     // a maxOffset outside 1 to kMaxPrice, sizes that do not satisfy
-    // 1 <= minSize <= maxSize <= kMaxQuantity, a negative or infinite sizeTail, a negative activity
+    // 1 <= minSize <= maxSize <= kMaxQuantity, a negative or infinite sizeTail, a negative
+    // marketProtection, a negative activity
     // response, or activity windows that are not positive with memory no longer than baseline.
     ZeroIntelligenceTrader(const ZeroIntelligenceConfig& config, Price referencePrice);
 
