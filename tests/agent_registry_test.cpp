@@ -42,6 +42,8 @@ TEST(AgentRegistryTest, CreatesBuiltInAgentsFromParameters) {
     Parameters pov;
     pov.set("style", std::string{"pov"});
     pov.set("participation", 0.2);
+    pov.set("interval_spread", 0.5);
+    pov.set("size_spread", 0.3);
     const std::unique_ptr<Agent> execution = registry.create("execution", pov, {});
     EXPECT_NE(dynamic_cast<ExecutionTrader*>(execution.get()), nullptr);
 
@@ -85,6 +87,11 @@ TEST(AgentRegistryTest, RejectsInvalidValues) {
     badStyle.set("style", std::string{"iceberg"});
     EXPECT_NE(creationError(registry, "execution", badStyle)
                   .find("\"twap\", \"pov\" or \"vwap\""),
+              std::string::npos);
+
+    Parameters badSpread;
+    badSpread.set("interval_spread", 1.0);
+    EXPECT_NE(creationError(registry, "execution", badSpread).find("interval_spread"),
               std::string::npos);
 
     // Informed traders need the scenario to model a fundamental value.

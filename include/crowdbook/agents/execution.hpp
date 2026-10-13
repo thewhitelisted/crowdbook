@@ -29,6 +29,12 @@ struct ExecutionConfig {
     Quantity childSize = 5;         // lots per child order; for POV, the most per child
     double participation = 0.1;     // POV: its share of all the volume while it works a parent
     ActivityCurve activity{};       // VWAP: the day's expected activity
+    // How far each wait between children, and each child's size, stray from `interval` and
+    // `childSize`, as real brokers vary them so that their children are harder to pick out: each
+    // is drawn uniformly within this share either side, so 0.5 waits from half an interval to
+    // one and a half. 0 keeps them exact, and draws nothing.
+    double intervalSpread = 0.0;
+    double sizeSpread = 0.0;
 };
 
 // A parent size drawn from the distribution ExecutionConfig describes.
@@ -56,7 +62,8 @@ class ExecutionTrader final : public Agent {
 public:
     // Throws std::invalid_argument unless 1 <= minParent <= maxParent <= kMaxQuantity, parentTail
     // is positive and finite, the pause is not negative, the interval is positive,
-    // 1 <= childSize <= kMaxQuantity and participation is strictly between 0 and 1.
+    // 1 <= childSize <= kMaxQuantity, participation is strictly between 0 and 1, and the
+    // spreads are from 0 up to, but not including, 1.
     explicit ExecutionTrader(const ExecutionConfig& config);
 
     // It looks at the market only when it acts, so it reads snapshots.
@@ -78,8 +85,12 @@ public:
 private:
     void pauseThenStart(AgentContext& context) const;
     void start(AgentContext& context);
-    // The lots to send now: TWAP's even pace, or what POV's share of the volume allows.
-    [[nodiscard]] Quantity due(AgentContext& context) const;
+    // The lots to send now: TWAP's even pace, or what POV's share of the volume allows, for a
+    // child of `child` lots.
+    [[nodiscard]] Quantity due(AgentContext& context, Quantity child) const;
+    // This child's size and the wait until the next, each drawn within its spread.
+    [[nodiscard]] Quantity childSize(AgentContext& context) const;
+    [[nodiscard]] Duration nextWait(AgentContext& context) const;
 
     ExecutionConfig config_;
     std::uint64_t parent_ = 0;

@@ -57,6 +57,7 @@ std::vector<ServerMessage> serverMessages() {
                                 .maxOrderQuantity = 10}};
     welcome.phase = Phase::HaltAuction;
     welcome.auctionFee = 50;
+    welcome.feeCurve = FeeCurve::Probability;
     welcome.orders.push_back({.clientOrderId = 4,
                               .orderId = 99,
                               .side = Side::Sell,
@@ -203,7 +204,7 @@ TEST(Protocol, DecodesTheSpecificationsExamples) {
         R"({"type":"welcome","protocol":1,"seat":"alice","started":false,"time":0,)"
         R"("duration":60000000000,"reference_price":10000,"max_price":1000000000,)"
         R"("depth_levels":10,"maker_fee":0,)"
-        R"("taker_fee":0,"auction_fee":0,"phase":"continuous",)"
+        R"("taker_fee":0,"auction_fee":0,"fee_curve":"flat","phase":"continuous",)"
         R"("latency":{"to_exchange":1000000,"from_exchange":1000000,"jitter":0},)"
         R"("account":{"initial_cash":0,"initial_position":0,"cash":0,"position":0,"fees":0,)"
         R"("max_position":50,"max_order_quantity":10},"orders":[],"challenge":null,)"

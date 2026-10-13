@@ -313,7 +313,7 @@ TradingDay readTradingDay(const Reader& reader, const toml::table& table) {
 }
 
 ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"depth_levels", "maker_fee", "taker_fee", "auction_fee"},
+    reader.allowOnly(table, {"depth_levels", "maker_fee", "taker_fee", "auction_fee", "fee_curve"},
                      "in [exchange]");
     ExchangeConfig config;
     if (const auto* node = table.get("depth_levels")) {
@@ -336,6 +336,14 @@ ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
     if (config.makerFee + config.takerFee < 0) {
         reader.fail(table, "maker_fee plus taker_fee must not be negative, or the exchange would "
                            "pay out more than it collects on every trade");
+    }
+    if (const auto* node = table.get("fee_curve")) {
+        const std::string curve = reader.text(*node, "fee_curve");
+        if (curve == "probability") {
+            config.feeCurve = FeeCurve::Probability;
+        } else if (curve != "flat") {
+            reader.fail(*node, "'fee_curve' must be \"flat\" or \"probability\"");
+        }
     }
     return config;
 }
@@ -479,7 +487,13 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
         }
     }
     if (const auto* node = root.get("exchange")) {
-        scenario.exchange = readExchange(reader, reader.table(*node, "exchange"));
+        const toml::table& table = reader.table(*node, "exchange");
+        scenario.exchange = readExchange(reader, table);
+        if (scenario.exchange.feeCurve == FeeCurve::Probability && !scenario.prediction) {
+            reader.fail(*table.get("fee_curve"),
+                        "fee_curve = \"probability\" needs a market whose shares pay out: add a "
+                        "[prediction] section");
+        }
     }
     if (const auto* node = root.get("trading_day")) {
         scenario.tradingDay = readTradingDay(reader, reader.table(*node, "trading_day"));

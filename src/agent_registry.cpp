@@ -112,6 +112,8 @@ std::unique_ptr<Agent> makeExecution(const Parameters& parameters,
         .childSize = parameters.integer("child_size", defaults.childSize),
         .participation = parameters.number("participation", defaults.participation),
         .activity = environment.activity,
+        .intervalSpread = parameters.number("interval_spread", defaults.intervalSpread),
+        .sizeSpread = parameters.number("size_spread", defaults.sizeSpread),
     });
 }
 

@@ -215,6 +215,19 @@ void BM_PredictionMarket(benchmark::State& state) {
 }
 BENCHMARK(BM_PredictionMarket)->Unit(benchmark::kMillisecond);
 
+// The fifteen-minute question fitted to Polymarket's: takers pay a fee that depends on the price,
+// and brokers vary the timing and size of their children.
+void BM_UpOrDownMarket(benchmark::State& state) {
+    const Scenario scenario = loadScenario(example("/examples/scenarios/up_or_down.toml"));
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(runScenario(scenario, AgentRegistry::withBuiltIns()));
+    }
+    state.counters["simulated_s_per_s"] = benchmark::Counter(
+        static_cast<double>(state.iterations()) * static_cast<double>(scenario.duration / kSecond),
+        benchmark::Counter::kIsRate);
+}
+BENCHMARK(BM_UpOrDownMarket)->Unit(benchmark::kMillisecond);
+
 // A prediction market's probability at one moment, with news still to come: a sum over how
 // much of it, each term a value of the normal distribution.
 void BM_PredictionValue(benchmark::State& state) {

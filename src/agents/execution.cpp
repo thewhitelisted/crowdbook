@@ -34,6 +34,11 @@ ExecutionTrader::ExecutionTrader(const ExecutionConfig& config) : config_(config
         throw std::invalid_argument(
             std::format("execution child_size must be between 1 and {}", kMaxQuantity));
     }
+    if (!(config.intervalSpread >= 0.0) || !(config.intervalSpread < 1.0) ||
+        !(config.sizeSpread >= 0.0) || !(config.sizeSpread < 1.0)) {
+        throw std::invalid_argument("execution interval_spread and size_spread must be from 0 "
+                                    "up to, but not including, 1");
+    }
     if (!(config.participation > 0.0) || !(config.participation < 1.0)) {
         throw std::invalid_argument("execution participation must be between 0 and 1");
     }
@@ -63,20 +68,38 @@ void ExecutionTrader::start(AgentContext& context) {
     startVolume_ = context.market().volume;
 }
 
-Quantity ExecutionTrader::due(AgentContext& context) const {
+Quantity ExecutionTrader::childSize(AgentContext& context) const {
+    if (config_.sizeSpread == 0.0) {
+        return config_.childSize;
+    }
+    const double stray = config_.sizeSpread * (2.0 * context.random().uniform() - 1.0);
+    return std::max<Quantity>(
+        1, std::llround(static_cast<double>(config_.childSize) * (1.0 + stray)));
+}
+
+Duration ExecutionTrader::nextWait(AgentContext& context) const {
+    if (config_.intervalSpread == 0.0) {
+        return config_.interval;
+    }
+    const double stray = config_.intervalSpread * (2.0 * context.random().uniform() - 1.0);
+    return std::max<Duration>(
+        1, std::llround(static_cast<double>(config_.interval) * (1.0 + stray)));
+}
+
+Quantity ExecutionTrader::due(AgentContext& context, Quantity child) const {
     if (config_.style == ExecutionStyle::Twap) {
-        return std::min(config_.childSize, unsent_);
+        return std::min(child, unsent_);
     }
     if (config_.style == ExecutionStyle::Vwap) {
-        const auto paced = static_cast<Quantity>(std::llround(
-            static_cast<double>(config_.childSize) * config_.activity.at(context.now())));
+        const auto paced = static_cast<Quantity>(
+            std::llround(static_cast<double>(child) * config_.activity.at(context.now())));
         return std::min(paced, unsent_);
     }
     const Quantity traded = context.market().volume - startVolume_;
     const auto allowed =
         static_cast<Quantity>(config_.participation * static_cast<double>(traded));
     const Quantity sent = size_ - unsent_;
-    return std::clamp<Quantity>(allowed - sent, 0, std::min(config_.childSize, unsent_));
+    return std::clamp<Quantity>(allowed - sent, 0, std::min(child, unsent_));
 }
 
 void ExecutionTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
@@ -90,12 +113,12 @@ void ExecutionTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     }
     if (context.market().phase != Phase::Continuous) {
         // Its children are market orders, which cannot wait for an auction: the parent waits.
-    } else if (const Quantity lots = due(context); lots > 0) {
+    } else if (const Quantity lots = due(context, childSize(context)); lots > 0) {
         unsent_ -= lots;
         context.submit(
             {.side = side_, .type = OrderType::Market, .quantity = lots, .parent = parent_});
     }
-    context.wakeAfter(config_.interval);
+    context.wakeAfter(nextWait(context));
 }
 
 void ExecutionTrader::onRejected(AgentContext& context, const OrderRejected& event) {

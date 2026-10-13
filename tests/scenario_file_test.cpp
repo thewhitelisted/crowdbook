@@ -259,6 +259,27 @@ type = "zero_intelligence"
     EXPECT_FALSE(makeFundamental(parseScenario("[[agents]]\ntype = \"momentum\"\n")));
 }
 
+TEST(ScenarioFileTest, ReadsAProbabilityFeeCurveForAPredictionMarket) {
+    const Scenario scenario = parseScenario(R"([prediction]
+[exchange]
+taker_fee = 1.75
+fee_curve = "probability"
+[[agents]]
+type = "momentum"
+)");
+    EXPECT_EQ(scenario.exchange.takerFee, 1'750);
+    EXPECT_EQ(scenario.exchange.feeCurve, FeeCurve::Probability);
+    EXPECT_EQ(parseScenario("[[agents]]\ntype = \"momentum\"\n").exchange.feeCurve,
+              FeeCurve::Flat);
+    const std::string agent = "[[agents]]\ntype = \"momentum\"\n";
+    EXPECT_NE(parseError("[exchange]\nfee_curve = \"steep\"\n" + agent)
+                  .find("test.toml:2: 'fee_curve' must be \"flat\" or \"probability\""),
+              std::string::npos);
+    EXPECT_NE(parseError("[exchange]\nfee_curve = \"probability\"\n" + agent)
+                  .find("needs a market whose shares pay out"),
+              std::string::npos);
+}
+
 TEST(ScenarioFileTest, RejectsPredictionMarketsThatMakeNoSense) {
     const std::string agents = "\n[[agents]]\ntype = \"momentum\"\n";
     for (const auto& [text, expected] : {

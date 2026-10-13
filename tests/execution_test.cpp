@@ -319,6 +319,44 @@ account = { max_position = 100000 }
     EXPECT_GT(result.groups[1].traded, 0);
 }
 
+TEST(ExecutionTest, SpreadsVaryEachChildsWaitAndSizeAroundTheirSettings) {
+    // A parent too large to finish, worked in children of about ten lots about a second apart.
+    ExecutionConfig config = kTwap;
+    config.minParent = 1'000'000;
+    config.maxParent = 1'000'000;
+    config.childSize = 10;
+    config.intervalSpread = 0.5;
+    config.sizeSpread = 0.3;
+    ExecutionTrader trader{config};
+    FakeContext context;
+    trader.onStart(context);
+    std::set<Quantity> sizes;
+    std::set<Duration> waits;
+    double totalSize = 0.0;
+    double totalWait = 0.0;
+    constexpr int kChildren = 2'000;
+    wake(trader, context);
+    for (int i = 0; i < kChildren; ++i) {
+        const NewOrder order = child(context);
+        fillAll(context, order);
+        EXPECT_GE(order.quantity, 7);
+        EXPECT_LE(order.quantity, 13);
+        sizes.insert(order.quantity);
+        totalSize += static_cast<double>(order.quantity);
+        const Timestamp before = context.now();
+        wake(trader, context);
+        const Duration wait = context.now() - before;
+        EXPECT_GE(wait, kSecond / 2);
+        EXPECT_LE(wait, 3 * kSecond / 2);
+        waits.insert(wait);
+        totalWait += static_cast<double>(wait);
+    }
+    EXPECT_EQ(sizes.size(), 7U); // every size from 7 to 13
+    EXPECT_GT(waits.size(), 1'000U);
+    EXPECT_NEAR(totalSize / kChildren, 10.0, 0.15);
+    EXPECT_NEAR(totalWait / kChildren / static_cast<double>(kSecond), 1.0, 0.02);
+}
+
 TEST(ExecutionTest, RejectsInvalidConfigs) {
     const auto invalid = [](auto change) {
         ExecutionConfig config = kTwap;
@@ -337,7 +375,13 @@ TEST(ExecutionTest, RejectsInvalidConfigs) {
           invalid([](ExecutionConfig& c) { c.interval = 0; }),
           invalid([](ExecutionConfig& c) { c.childSize = 0; }),
           invalid([](ExecutionConfig& c) { c.participation = 0.0; }),
-          invalid([](ExecutionConfig& c) { c.participation = 1.0; })}) {
+          invalid([](ExecutionConfig& c) { c.participation = 1.0; }),
+          invalid([](ExecutionConfig& c) { c.intervalSpread = -0.1; }),
+          invalid([](ExecutionConfig& c) { c.intervalSpread = 1.0; }),
+          invalid([](ExecutionConfig& c) { c.sizeSpread = 1.0; }),
+          invalid([](ExecutionConfig& c) {
+              c.sizeSpread = std::numeric_limits<double>::quiet_NaN();
+          })}) {
         EXPECT_THROW(ExecutionTrader{config}, std::invalid_argument);
     }
 }

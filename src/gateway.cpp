@@ -422,6 +422,7 @@ struct Gateway::State {
             .makerFee = scenario.exchange.makerFee,
             .takerFee = scenario.exchange.takerFee,
             .auctionFee = scenario.exchange.auctionFee,
+            .feeCurve = scenario.exchange.feeCurve,
             .phase = sim.marketSeenBy(market.seats[seat].agent).phase,
             .latency = scenario.participant.latency,
             .account = {.initialCash = account.initialCash,
