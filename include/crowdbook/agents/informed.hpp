@@ -19,6 +19,10 @@ struct InformedConfig {
     double threshold = 3.0;
     Quantity orderSize = 5;
     Quantity maxPosition = 50;
+    // 0 sends every order at orderSize. A positive value draws each order's size from a Pareto
+    // tail instead, P(size > q) = (orderSize / q) ^ sizeTail for q of at least orderSize, cut to
+    // the room its position limit leaves.
+    double sizeTail = 0.0;
 };
 
 // A trader with information about the asset's value. Every interval, starting at a random point in
@@ -30,8 +34,8 @@ struct InformedConfig {
 class InformedTrader final : public Agent {
 public:
     // Throws std::invalid_argument without a value, for a non-positive interval, a negative
-    // threshold, a belief Belief refuses, or sizes that do not satisfy 1 <= orderSize <=
-    // maxPosition <= kMaxQuantity.
+    // threshold, a belief Belief refuses, sizes that do not satisfy 1 <= orderSize <=
+    // maxPosition <= kMaxQuantity, or a negative or infinite sizeTail.
     InformedTrader(const InformedConfig& config, std::shared_ptr<Fundamental> fundamental);
 
     // It looks at the book only when it checks the value, so it reads snapshots.
@@ -42,6 +46,9 @@ public:
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
 
 private:
+    // The size of an order on one side, given the room its position limit leaves there.
+    [[nodiscard]] Quantity orderSize(AgentContext& context, Quantity room) const;
+
     InformedConfig config_;
     Belief belief_;
     MarketView market_{0};

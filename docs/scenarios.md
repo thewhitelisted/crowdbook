@@ -193,6 +193,7 @@ limit order that rests is cancelled after its own random lifetime.
 | `cancel_rate` | `0.2` | Per resting order per second: an order that never fills rests 1/`cancel_rate` seconds on average; `0` keeps orders until they fill |
 | `max_offset` | `10` | Limit prices are 1 to `max_offset` ticks inside the opposite best quote |
 | `min_size`, `max_size` | `1`, `10` | Range of order sizes, in lots |
+| `size_tail` | `0` | `0` draws sizes uniformly from the range. A positive value draws them from a Pareto tail, P(size > q) = (`min_size` / q)^`size_tail`, capped at `max_size`: most orders small and a few far larger, as in real markets |
 | `activity_response` | `0` | How the trader's pace follows the market's: its rates are multiplied by (recent trade rate ÷ usual trade rate) to this power, within 0.1 to 10 |
 | `volatility_response` | `0` | How its limit orders stand back when prices jump: `max_offset` is multiplied by (recent volatility ÷ usual volatility) to this power, within 0.25 to 4 |
 | `activity_memory` | `"60s"` | How far back "recent" reaches, for both responses |
@@ -286,6 +287,7 @@ of its own that can smother effects that need the book to thin
 | `threshold` | `3.0` | Ticks of edge needed before trading: half the width of its range of fair values, inside which it does nothing |
 | `order_size` | `5` | Lots per order |
 | `max_position` | `50` | Largest position it builds, counting orders in flight |
+| `size_tail` | `0` | `0` sends every order at `order_size`. A positive value draws each order's size from a Pareto tail, P(size > q) = (`order_size` / q)^`size_tail`, cut to the room `max_position` leaves |
 
 ### How traders see the true value
 
