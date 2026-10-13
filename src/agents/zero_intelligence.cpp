@@ -46,6 +46,10 @@ ZeroIntelligenceTrader::ZeroIntelligenceTrader(const ZeroIntelligenceConfig& con
     if (!(config.sizeTail >= 0.0) || !std::isfinite(config.sizeTail)) {
         throw std::invalid_argument("zero_intelligence size_tail must not be negative");
     }
+    if (config.marketProtection < 0 || config.marketProtection > kMaxPrice) {
+        throw std::invalid_argument(std::format(
+            "zero_intelligence market_protection must be from 0 to {}", kMaxPrice));
+    }
     if (!(config.activityResponse >= 0.0) || !(config.volatilityResponse >= 0.0) ||
         config.activityMemory <= 0 || config.activityBaseline < config.activityMemory) {
         throw std::invalid_argument(
@@ -189,7 +193,17 @@ void ZeroIntelligenceTrader::sendMarket(AgentContext& context) const {
     Random& random = context.random();
     const Side side = randomSide(random);
     const Quantity size = drawSize(random);
-    context.submitMarket(side, size);
+    if (config_.marketProtection == 0) {
+        context.submitMarket(side, size);
+        return;
+    }
+    const Price last =
+        market_.lastTrade().value_or(static_cast<Price>(std::llround(market_.fairPrice())));
+    const Price limit =
+        clampPrice(static_cast<double>(side == Side::Buy ? last + config_.marketProtection
+                                                         : last - config_.marketProtection),
+                   context.maxPrice());
+    context.submitLimit(side, limit, size, TimeInForce::ImmediateOrCancel);
 }
 
 } // namespace crowdbook

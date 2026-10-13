@@ -199,6 +199,7 @@ limit order that rests is cancelled after its own random lifetime.
 | `cancel_rate` | `0.2` | Per resting order per second: an order that never fills rests 1/`cancel_rate` seconds on average; `0` keeps orders until they fill |
 | `max_offset` | `10` | Limit prices are 1 to `max_offset` ticks inside the opposite best quote |
 | `min_size`, `max_size` | `1`, `10` | Range of order sizes, in lots |
+| `market_protection` | `0` | A worst price for market orders, in ticks beyond the last trade price the trader saw (the mid before any trade): the order takes what the book has up to there and the rest is cancelled, as exchanges' price protection and Polymarket's market orders do. `0` sends true market orders, which take the book at any price |
 | `size_tail` | `0` | `0` draws sizes uniformly from the range. A positive value draws them from a Pareto tail, P(size > q) = (`min_size` / q)^`size_tail`, capped at `max_size`: most orders small and a few far larger, as in real markets |
 | `activity_response` | `0` | How the trader's pace follows the market's: its rates are multiplied by (recent trade rate ÷ usual trade rate) to this power, within 0.1 to 10 |
 | `volatility_response` | `0` | How its limit orders stand back when prices jump: `max_offset` is multiplied by (recent volatility ÷ usual volatility) to this power, within 0.25 to 4 |

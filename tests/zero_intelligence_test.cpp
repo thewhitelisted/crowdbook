@@ -226,6 +226,35 @@ TEST(ZeroIntelligenceTest, StandsBackFromTheTouchWhenPricesStartJumping) {
     EXPECT_NEAR(trader.stretch(), 2.24, 0.05);
 }
 
+TEST(ZeroIntelligenceTest, MarketOrdersStopAtTheirWorstPriceWithProtection) {
+    for (const Price protection : {Price{0}, Price{7}}) {
+        ZeroIntelligenceTrader trader{
+            {.limitRate = 0.0, .marketRate = 1.0, .marketProtection = protection}, kReference};
+        FakeContext context;
+        context.snapshot = {.bid = LevelSummary{.price = 990, .quantity = 1},
+                            .ask = LevelSummary{.price = 1'010, .quantity = 1}};
+        std::set<Price> buyLimits;
+        std::set<Price> sellLimits;
+        for (const Request& request : run(trader, context, 200)) {
+            const auto& order = std::get<NewOrder>(request);
+            if (protection == 0) {
+                EXPECT_EQ(order.type, OrderType::Market);
+                continue;
+            }
+            EXPECT_EQ(order.type, OrderType::Limit);
+            EXPECT_EQ(order.timeInForce, TimeInForce::ImmediateOrCancel);
+            (order.side == Side::Buy ? buyLimits : sellLimits).insert(order.price);
+        }
+        if (protection > 0) {
+            // No trade seen yet: the worst price is set from the mid, 1,000.
+            EXPECT_EQ(buyLimits, (std::set<Price>{1'007}));
+            EXPECT_EQ(sellLimits, (std::set<Price>{993}));
+        }
+    }
+    EXPECT_THROW((ZeroIntelligenceTrader{{.marketProtection = -1}, kReference}),
+                 std::invalid_argument);
+}
+
 TEST(ZeroIntelligenceTest, DrawsSizesUniformlyWithoutATail) {
     ZeroIntelligenceTrader trader{{.limitRate = 0.0, .marketRate = 1.0, .minSize = 2,
                                    .maxSize = 4},
