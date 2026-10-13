@@ -93,22 +93,25 @@ class Range:
     whole: bool = False
 
 
+# The ranges five settings first ran into (fast_lag, crowd, crowd_noise, informed_tail and
+# maker_intensity) are wider than when the fitted market was found, so that the next fit can go
+# further if it needs to.
 RANGES = {
     "news_rate": Range(0.002, 0.1),
     "news_share": Range(0.01, 0.5),
     "fast": Range(1, 12, whole=True),
-    "fast_lag": Range(0.1, 5.0),
-    "crowd": Range(2, 40, whole=True),
+    "fast_lag": Range(0.05, 5.0),
+    "crowd": Range(2, 80, whole=True),
     "crowd_lag": Range(1.0, 60.0),
     "crowd_interval": Range(0.5, 30.0),
-    "crowd_noise": Range(0.2, 6.0),
+    "crowd_noise": Range(0.2, 12.0),
     "crowd_threshold": Range(0.5, 12.0),
     "crowd_error": Range(0.2, 10.0),
-    "informed_tail": Range(0.6, 3.0),
+    "informed_tail": Range(0.4, 3.0),
     "noise_rate": Range(0.001, 0.05),
     "limit_rate": Range(0.05, 1.5),
     "size_tail": Range(0.6, 3.0),
-    "maker_intensity": Range(0.1, 2.0),
+    "maker_intensity": Range(0.05, 2.0),
     "brokers": Range(0, 8, log=False, whole=True),
     "broker_interval_spread": Range(0.0, 0.9, log=False),
     "broker_size_spread": Range(0.0, 0.9, log=False),
@@ -147,8 +150,9 @@ TEMPLATE = """\
 #
 # Fast traders see the probability about {fast_lag:.2g} s late and a crowd of slower ones about
 # {crowd_lag:.2g} s late, each with views of their own. Their orders, and the noise traders', are
-# mostly small with a few far larger, and brokers work larger orders in pieces. Takers pay
-# Polymarket's fee: 0.07 p (1 - p) dollars a share at a price of p dollars.
+# mostly small with a few far larger{brokers_clause}. Takers pay Polymarket's fee: 0.07 p (1 - p)
+# dollars a share at a price of p dollars, and noise traders' market orders go at most
+# {market_protection} cents past the last trade.
 #
 #   crowdbook run examples/scenarios/up_or_down.toml
 #   crowdbook play examples/scenarios/up_or_down.toml
@@ -263,8 +267,9 @@ def scenario(settings: Settings) -> str:
                               size_spread=settings.broker_size_spread)
                if settings.brokers > 0 else "")
     values = asdict(settings)
+    clause = ", and brokers work larger orders in pieces" if settings.brokers > 0 else ""
     return TEMPLATE.format(
-        **values, fast_lag_text=_duration(settings.fast_lag),
+        **values, brokers_clause=clause, fast_lag_text=_duration(settings.fast_lag),
         crowd_lag_text=_duration(settings.crowd_lag),
         crowd_interval_text=_duration(settings.crowd_interval), brokers_section=brokers)
 
@@ -458,14 +463,20 @@ def uncertainty(jacobian: np.ndarray, covariance: np.ndarray, tolerance: np.ndar
     return bread @ meat @ bread
 
 
-def settings_table(fitted: Settings, start: Settings, covariance: np.ndarray) -> None:
+def settings_table(fitted: Settings, start: Settings, covariance: np.ndarray,
+                   jacobian: np.ndarray) -> None:
     """Each setting as M18 left it and as fitted, with a 68% interval from its standard error in
-    the unit box, mapped back to the setting's own scale. A setting whose standard error spans
-    half the box or more is not pinned down by these statistics."""
+    the unit box, mapped back to the setting's own scale. Two kinds of setting get no interval: one
+    no statistic moves with at the fit, which the statistics cannot pin down at all (the formula
+    would give it none, not an infinite one), and one at the edge of its range, where the formula
+    does not hold. A setting whose standard error spans half the box or more is not pinned down
+    either, and an interval that runs past the range's edge is marked as cut short. Whole numbers
+    get intervals as if they could take any value between."""
     print("| setting | M18 | fitted | 68% interval |")
     print("|---|---:|---:|---:|")
     center = to_unit(fitted)
     errors = np.sqrt(np.maximum(np.diag(covariance), 0.0))
+    reach = np.linalg.norm(jacobian, axis=0)
     for index, name in enumerate(FITTED):
         span = RANGES[name]
 
@@ -473,9 +484,19 @@ def settings_table(fitted: Settings, start: Settings, covariance: np.ndarray) ->
             u = min(max(u, 0.0), 1.0)
             return s.low * (s.high / s.low) ** u if s.log else s.low + (s.high - s.low) * u
 
-        bounds = (f"{value(center[index] - errors[index]):.3g} to "
-                  f"{value(center[index] + errors[index]):.3g}"
-                  if errors[index] < 0.5 else "not pinned down")
+        if reach[index] <= 1e-9 * reach.max():
+            bounds = "not pinned down: no statistic moves with it here"
+        elif center[index] <= 0.01 or center[index] >= 0.99:
+            bounds = "at the edge of its range"
+        elif errors[index] >= 0.5:
+            bounds = "not pinned down"
+        else:
+            bounds = (f"{value(center[index] - errors[index]):.3g} to "
+                      f"{value(center[index] + errors[index]):.3g}")
+            if center[index] - errors[index] < 0.0 or center[index] + errors[index] > 1.0:
+                # The search could go no further, so the interval is cut short and the formula,
+                # which assumes the best point lies inside the range, is only a guide.
+                bounds += ", cut short by the range's edge"
         print(f"| {name} | {getattr(start, name):.3g} | {getattr(fitted, name):.3g} | "
               f"{bounds} |")
     print()
@@ -562,7 +583,7 @@ def main() -> None:
     print(f"### Held-out seeds ({len(HELD_OUT)} markets each)\n")
     comparison_table(cards, target, tolerance)
     print("### Settings\n")
-    settings_table(fitted, example, covariance)
+    settings_table(fitted, example, covariance, jacobian)
     print("### Ranges of settings\n")
     ranges_table(evaluator, fitted, target, tolerance)
     print(f"market runs in all: {evaluator.runs}")
