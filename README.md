@@ -25,7 +25,8 @@ or writing a program in any language that trades over the network.
 > errors of its own, and some with a tilt, which gives prediction markets the favourite–longshot
 > bias of real ones. Simulated markets are now set against real ones: a scorecard of the same
 > statistics on Polymarket's Bitcoin questions, read from its public blockchain, and a market
-> fitted to them. Next: a learning environment, for stepping markets from Python. See
+> fitted to them. Next: fees as Polymarket charges them and other calibration follow-ups, then a
+> learning environment, for stepping markets from Python. See
 > [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
 > roadmap.
 
@@ -94,8 +95,8 @@ smaller markets ([docs/results.md](docs/results.md)):
   sizes have a power-law tail and order signs remember. A market fitted to the fifteen-minute
   questions matches most of the scorecard, where the prediction example's late crowd does not.
 - **What's missing.** Volatility clusters for an hour, not the weeks of real markets; the fitted
-  market trades too often and does not crowd in at the end as real traders do, and nothing is
-  fitted to a real order book yet.
+  market charges no fees where real takers pay about 2%, trades too often and does not crowd in at
+  the end as real traders do, and nothing is fitted to a real order book yet.
 
 ![Mid move after the aggressive orders of noise traders, trend followers, experts and followers](docs/images/impact.png)
 
