@@ -77,8 +77,8 @@ class Settings:
     taker_fee: float = TAKER_FEE  # not fitted: measured from the chain
     # Not fitted: how far past the last trade a noise trader's market order may go, in cents. It
     # leaves the scorecard as it was, since simulated orders already move the price past 10 cents
-    # more rarely than real ones, and it keeps a maker quoting far from the price from making
-    # money on market orders that would run to its quotes in a one-sided book.
+    # more rarely than real ones, and it stops a market order in a one-sided book from running up
+    # to whatever rests there.
     market_protection: int = MARKET_PROTECTION
 
 

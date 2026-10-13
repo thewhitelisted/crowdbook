@@ -579,8 +579,8 @@ them.
 The fitted market's noise traders also send market orders with a worst price, 10 cents past the
 last trade (`market_protection`), as real market orders carry one. It leaves the scorecard as it
 was, since simulated orders already moved the price past 10 cents more rarely than real ones, and
-it keeps a maker quoting 30 cents from the price from making money on market orders that would run
-up a one-sided book to its quotes, which it otherwise did.
+it stops a market order in a one-sided book from running up to whatever rests there, however far
+from the price.
 
 ### A market fitted to them
 
@@ -716,10 +716,7 @@ the price and the memory in order signs among them, so the fitted point matters 
   resolve yes against 13.7%, and of those priced 0 to 10, 0.3% against 2.2%: a favourite–longshot
   bias the real markets do not have and the market fitted one setting at a time did not (16.5%).
   The joint search traded it for the spread, the pace and the close, since few moments fall at
-  the ends and their tolerances are wide. Betting on the bias does not pay after spread and fees,
-  though: over 400 markets with these settings drawn within a third either way, a trader buying
-  shares priced 80 to 97 and selling those priced 3 to 20, holding them to the end, made −0.72
-  dollars a market, with a 95% interval from −2.36 to +0.93.
+  the ends and their tolerances are wide.
 - **Orders do not crowd in at the end.** In the real fifteen-minute questions the last tenth of the
   window has 15% of the orders and the first tenth 8%; the fitted market has 10% and 11%. Nothing
   in the simulated crowd is drawn to a question as its fate is decided.
