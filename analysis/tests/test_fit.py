@@ -66,7 +66,7 @@ class BoxTest(unittest.TestCase):
         point[fit.FITTED.index("crowd")] = 7.0
         point[fit.FITTED.index("news_rate")] = -1.0
         settings = fit.from_unit(point)
-        self.assertEqual(settings.crowd, 40)
+        self.assertEqual(settings.crowd, fit.RANGES["crowd"].high)
         self.assertAlmostEqual(settings.news_rate, fit.RANGES["news_rate"].low)
         self.assertIsInstance(fit.from_unit(fit.to_unit(fit.Settings()) + 0.01).fast, int)
 
