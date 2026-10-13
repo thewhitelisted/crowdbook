@@ -102,8 +102,10 @@ def _rpc_error(error: urllib.error.HTTPError) -> str | None:
     return str(body["error"]) if isinstance(body, dict) and "error" in body else None
 
 
-# Phrases public nodes use when a request covers too many blocks or would return too many logs.
-_TOO_MUCH = ("more than", "range", "too many", "limit", "exceed", "too large", "response size")
+# Phrases public nodes use when a request covers too many blocks or would return too many logs,
+# or takes too long to answer, which a smaller range fixes too.
+_TOO_MUCH = ("more than", "range", "too many", "limit", "exceed", "too large", "response size",
+             "timed out", "timeout")
 
 
 class Rpc:
