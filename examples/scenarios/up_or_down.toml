@@ -1,11 +1,13 @@
 # A question like "will Bitcoin be up at the end of the next fifteen minutes?": it opens at a coin
 # flip with nothing known and resolves fifteen minutes later. Its settings are fitted to
-# Polymarket's fifteen-minute Bitcoin questions by `crowdbook-fit` in the analysis package; see
-# docs/results.md for how close the fit comes and where it falls short.
+# Polymarket's fifteen-minute Bitcoin questions by `crowdbook-fit` in the analysis package, all at
+# once; see docs/results.md for how close the fit comes, how sure it is and where it falls short.
 #
-# Fast traders see the probability about 1 s late and a crowd of slower ones about
-# 10 s late, each with views of their own. Their orders, and the noise traders', are
-# mostly small with a few far larger, and brokers work larger orders in pieces.
+# Fast traders see the probability about 0.22 s late and a crowd of slower ones about
+# 9.2 s late, each with views of their own. Their orders, and the noise traders', are
+# mostly small with a few far larger. Takers pay Polymarket's fee: 0.07 p (1 - p)
+# dollars a share at a price of p dollars, and noise traders' market orders go at most
+# 10 cents past the last trade.
 #
 #   crowdbook run examples/scenarios/up_or_down.toml
 #   crowdbook play examples/scenarios/up_or_down.toml
@@ -15,12 +17,14 @@ duration = "900s"
 
 [prediction]
 probability = 0.5
-news_rate = 0.0100
-news_share = 0.050
+news_rate = 0.0088
+news_share = 0.180
 step = "1s"
 
 [exchange]
 depth_levels = 10
+taker_fee = 1.75
+fee_curve = "probability"
 
 [participant]
 latency = { to_exchange = "1ms", from_exchange = "1ms" }
@@ -30,13 +34,14 @@ account = { max_position = 500, max_order_quantity = 50 }
 type = "zero_intelligence"
 name = "noise"
 count = 40
-limit_rate = 0.200
-market_rate = 0.0050
+limit_rate = 0.226
+market_rate = 0.0099
 cancel_rate = 0.1
 max_offset = 3
 min_size = 1
 max_size = 2000
-size_tail = 1.000     # P(size > q) = (1 / q)^1.000
+size_tail = 0.988     # P(size > q) = (1 / q)^0.988
+market_protection = 10  # cents past the last trade a market order may go
 latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
 account = { max_position = 1000000, max_order_quantity = 2000 }
 
@@ -44,7 +49,7 @@ account = { max_position = 1000000, max_order_quantity = 2000 }
 type = "market_maker"
 name = "maker"
 volatility = 1.0
-intensity = 0.200
+intensity = 0.111
 quote_size = 10
 max_inventory = 200
 requote_interval = "250ms"
@@ -55,15 +60,15 @@ account = { max_position = 220, max_order_quantity = 10 }
 [[agents]]
 type = "informed"
 name = "fast"
-count = 4
+count = 2
 interval = "500ms"
 noise = 1.0
 error = 1.0
 error_memory = "300s"
-lag = "1s"
+lag = "223ms"
 threshold = 2.0
 order_size = 5
-size_tail = 0.800
+size_tail = 0.648
 max_position = 600
 latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
 account = { max_position = 600, max_order_quantity = 600 }
@@ -71,29 +76,15 @@ account = { max_position = 600, max_order_quantity = 600 }
 [[agents]]
 type = "informed"
 name = "crowd"           # slower, with views of their own
-count = 10
-interval = "10s"
-noise = 1.000
-error = 1.000
+count = 37
+interval = "5463ms"
+noise = 1.472
+error = 0.626
 error_memory = "300s"
-lag = "10s"
-threshold = 5.000
+lag = "9241ms"
+threshold = 8.474
 order_size = 1
-size_tail = 0.800
+size_tail = 0.648
 max_position = 300
 latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
 account = { max_position = 300, max_order_quantity = 300 }
-
-[[agents]]
-type = "execution"
-name = "brokers"
-count = 2
-style = "twap"
-min_parent = 20
-parent_tail = 1.5
-max_parent = 2000
-pause = "60s"
-interval = "1s"
-child_size = 5
-latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
-account = { max_position = 1000000000, max_order_quantity = 5 }

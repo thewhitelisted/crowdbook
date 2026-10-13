@@ -476,34 +476,35 @@ minute, which this value does not model: it agrees 93.4% of the time for fifteen
 [`crowdbook-realism`](../analysis/src/crowdbook_analysis/realism.py) prints the scorecard, with
 the prediction example ([prediction.toml](../examples/scenarios/prediction.toml), thirty minutes)
 and a market fitted to the fifteen-minute questions
-([up_or_down.toml](../examples/scenarios/up_or_down.toml)), each under 400 seeds.
+([up_or_down.toml](../examples/scenarios/up_or_down.toml)), each under 400 seeds the fit never used.
 
 | statistic | real, 5 min | real, 15 min | real, hourly | simulated: prediction | simulated: up_or_down |
 |---|---:|---:|---:|---:|---:|
 | questions | 4319 | 1439 | 359 | 400 | 400 |
-| resolved yes | 50.2% | 49.3% | 49.9% | 51.7% | 55.2% |
-| Brier score of the price | 0.127 | 0.150 | 0.161 | 0.162 | 0.164 |
-| priced 10 to 20: resolved yes | 14.6% | 13.7% | 12.8% | 6.8% | 16.5% |
-| priced 80 to 90: resolved yes | 85.6% | 85.3% | 89.3% | 86.4% | 88.5% |
-| aggressive orders per minute | 279 | 71 | 13 | 478 | 112 |
-| moves in the first tenth, close (cents) | 11.8 | 11.1 | 10.4 | 7.8 | 10.3 |
-| moves in the last tenth, close (cents) | 47.9 | 44.1 | 39.1 | 23.9 | 32.8 |
-| excess kurtosis of moves, close | 2.5 | 3.0 | 2.2 | 2.8 | 2.2 |
-| orders in the first tenth | 12.1% | 8.1% | 14.4% | 13.0% | 11.8% |
-| orders in the last tenth | 3.4% | 15.0% | 10.8% | 8.7% | 9.2% |
-| largest tenth of orders against the median | 8.0 | 7.1 | 4.0 | 1.2 | 4.2 |
-| tail exponent of order sizes | 1.41 | 1.39 | 1.18 | 3.24 | 1.37 |
-| order signs, one apart | +0.23 | +0.30 | +0.27 | +0.08 | +0.32 |
+| resolved yes | 50.2% | 49.3% | 49.9% | 45.2% | 47.8% |
+| Brier score of the price | 0.127 | 0.150 | 0.161 | 0.165 | 0.157 |
+| priced 10 to 20: resolved yes | 14.6% | 13.7% | 12.8% | 6.7% | 6.5% |
+| priced 80 to 90: resolved yes | 85.6% | 85.3% | 89.3% | 87.6% | 83.0% |
+| aggressive orders per minute | 279 | 71 | 13 | 482 | 89 |
+| moves in the first tenth, close (cents) | 11.8 | 11.1 | 10.4 | 7.7 | 9.3 |
+| moves in the last tenth, close (cents) | 47.9 | 44.1 | 39.1 | 26.3 | 34.8 |
+| excess kurtosis of moves, close | 2.5 | 3.0 | 2.2 | 2.7 | 2.5 |
+| orders in the first tenth | 12.1% | 8.1% | 14.4% | 13.0% | 10.9% |
+| orders in the last tenth | 3.4% | 15.0% | 10.8% | 8.8% | 9.9% |
+| largest tenth of orders against the median | 8.0 | 7.1 | 4.0 | 1.2 | 5.4 |
+| tail exponent of order sizes | 1.41 | 1.39 | 1.18 | 3.27 | 1.30 |
+| order signs, one apart | +0.23 | +0.30 | +0.27 | +0.08 | +0.33 |
 | order signs, ten apart | +0.11 | +0.12 | +0.05 | +0.09 | +0.11 |
-| successive price changes | −0.35 | −0.32 | −0.15 | −0.48 | −0.34 |
-| spread implied (cents) | 3.5 | 3.2 | 1.6 | 1.2 | 2.0 |
-| last price below 10 or above 90 | 99.7% | 99.8% | 95.3% | 77.2% | 81.2% |
-| value's moves in the first tenth, close (cents) | 12.5 | 14.1 | 14.8 | 10.1 | 10.8 |
-| value's moves in the last tenth, close (cents) | 35.8 | 41.4 | 40.2 | 45.6 | 42.4 |
-| excess kurtosis of the value's moves, close | 3.3 | 2.2 | 1.6 | 2.9 | 2.1 |
-| Brier score of the value | 0.153 | 0.161 | 0.162 | 0.157 | 0.161 |
-| distance from the value, close (cents) | 14.2 | 7.2 | 4.4 | 4.4 | 2.9 |
-| price closest to the value as it was (seconds before) | 1 | 2 | 3 | 34 | 3 |
+| successive price changes | −0.35 | −0.32 | −0.15 | −0.47 | −0.30 |
+| spread implied (cents) | 3.5 | 3.2 | 1.6 | 1.2 | 2.9 |
+| last price below 10 or above 90 | 99.7% | 99.8% | 95.3% | 75.8% | 92.0% |
+| taker fees (cents a share) | 0.99 | 1.13 | 1.19 | 0.00 | 1.40 |
+| value's moves in the first tenth, close (cents) | 12.6 | 14.2 | 14.8 | 10.3 | 10.3 |
+| value's moves in the last tenth, close (cents) | 35.9 | 41.6 | 40.0 | 43.0 | 41.7 |
+| excess kurtosis of the value's moves, close | 3.2 | 2.1 | 1.6 | 2.4 | 2.2 |
+| Brier score of the value | 0.153 | 0.160 | 0.163 | 0.160 | 0.155 |
+| distance from the value, close (cents) | 14.1 | 7.2 | 4.4 | 4.5 | 3.2 |
+| price closest to the value as it was (seconds before) | 1 | 2 | 3 | 35 | 3 |
 
 Moments are every twentieth of each window, before its end; "close" means a question priced 20 to
 80 when a change starts; a change is over a fifteenth of the window, a minute for the fifteen-minute
@@ -514,38 +515,38 @@ from the largest tenth.
 
 | price | real, 5 min: resolved yes | real, 15 min: resolved yes | real, hourly: resolved yes | simulated: prediction: resolved yes | simulated: up_or_down: resolved yes |
 |---|---:|---:|---:|---:|---:|
-| 0 to 10 | 2.3% (15827) | 2.2% (3797) | 2.4% (712) | 1.1% (547) | 2.5% (721) |
-| 10 to 20 | 14.6% (5978) | 13.7% (1966) | 12.8% (431) | 6.8% (440) | 16.5% (486) |
-| 20 to 30 | 24.9% (6181) | 22.0% (2191) | 23.4% (531) | 15.4% (507) | 34.1% (599) |
-| 30 to 40 | 33.1% (6190) | 33.5% (2506) | 32.4% (725) | 29.1% (803) | 35.4% (842) |
-| 40 to 50 | 44.2% (6440) | 41.9% (2856) | 41.1% (898) | 42.2% (1055) | 49.0% (954) |
-| 50 to 60 | 55.2% (6714) | 52.0% (2945) | 51.5% (913) | 55.0% (1146) | 59.4% (1027) |
-| 60 to 70 | 65.2% (6254) | 63.5% (2556) | 60.1% (722) | 63.1% (852) | 69.8% (805) |
-| 70 to 80 | 74.2% (5710) | 72.3% (2311) | 75.8% (557) | 75.7% (675) | 80.6% (628) |
-| 80 to 90 | 85.6% (5966) | 85.3% (2126) | 89.3% (458) | 86.4% (596) | 88.5% (593) |
-| 90 to 100 | 97.6% (16801) | 97.0% (4087) | 99.1% (874) | 96.6% (979) | 98.3% (945) |
+| 0 to 10 | 2.3% (15827) | 2.2% (3797) | 2.4% (712) | 0.4% (740) | 0.3% (898) |
+| 10 to 20 | 14.6% (5978) | 13.7% (1966) | 12.8% (431) | 6.7% (522) | 6.5% (585) |
+| 20 to 30 | 24.9% (6181) | 22.0% (2191) | 23.4% (531) | 17.5% (629) | 19.9% (584) |
+| 30 to 40 | 33.1% (6190) | 33.5% (2506) | 32.4% (725) | 26.7% (757) | 32.8% (811) |
+| 40 to 50 | 44.2% (6440) | 41.9% (2856) | 41.1% (898) | 42.0% (1187) | 44.0% (945) |
+| 50 to 60 | 55.2% (6714) | 52.0% (2945) | 51.5% (913) | 47.7% (1196) | 57.0% (1057) |
+| 60 to 70 | 65.2% (6254) | 63.5% (2556) | 60.1% (722) | 60.8% (816) | 66.5% (814) |
+| 70 to 80 | 74.2% (5710) | 72.3% (2311) | 75.8% (557) | 72.4% (590) | 75.0% (603) |
+| 80 to 90 | 85.6% (5966) | 85.3% (2126) | 89.3% (458) | 87.6% (477) | 83.0% (548) |
+| 90 to 100 | 97.6% (16801) | 97.0% (4087) | 99.1% (874) | 98.8% (686) | 98.0% (755) |
 
 Moments from one question are alike, so they are worth far fewer independent forecasts than their
-count: the fitted market's 400 questions happened to resolve yes 55% of the time, which lifts its
-whole curve.
+count, and a few hundred simulated questions resolve yes a few percent more or less than half the
+time by chance, which moves the whole curve.
 
 ### What the real markets show
 
 - **They are calibrated, with no favourite–longshot bias.** Of the moments priced 10 to 20, 13 to
   15% resolved yes; of those priced 80 to 90, 85 to 89%. The example's late traders hold its
-  prices back from 0 and 100 (7% and 86%); these traders do not. The bias Snowberg and Wolfers
+  prices back from 0 and 100 (7% and 88%); these traders do not. The bias Snowberg and Wolfers
   (2010) describe is in betting on horses and on questions that run for months; questions that
   resolve in minutes, on a price anyone can watch, do not show it.
 - **Prices keep up within a block or two.** The price is closest to the value as it was 1 to 3
   seconds before, about the time a trade takes to settle on the chain; the example's is closest
-  to the value as it was 34 seconds before. Its followers a minute late are no real crowd's
+  to the value as it was 35 seconds before. Its followers a minute late are no real crowd's
   pace.
 - **The prices forecast as well as the value worked out from Bitcoin, or better.** Their Brier
-  score is 0.150 for fifteen minutes and 0.127 for five, against the value's 0.161 and 0.153:
+  score is 0.150 for fifteen minutes and 0.127 for five, against the value's 0.160 and 0.153:
   traders can watch the very price each question resolves on, of which this value is only a
   stand-in.
 - **Prices move fastest at the end, while the question is open**, from 11 cents a fifteenth of
-  the window to 39 to 48 in the last tenth, four times as fast, as in the example (from 8 to 24).
+  the window to 39 to 48 in the last tenth, four times as fast, as in the example (from 8 to 26).
   For a question still open with a minute left, a small move in Bitcoin decides it.
 - **Order sizes have a power-law tail.** The median order is 10 shares, the largest tenth start
   at seven times that, and the tail's exponent is about 1.4: an order a hundred times the median
@@ -561,81 +562,174 @@ whole curve.
 
 ![Moves while the question is still close, through the window](images/realism_moves.png)
 
+### Fees
+
+Every real order that took liquidity paid a fee, and it is exactly 0.07·q·(1 − q) dollars a share
+for a share priced q dollars. Over the 8.2 million fills of the fifteen days, the fee over
+q·(1 − q) has a median of 0.0700 in every twentieth of the price range, in all three series, and
+all but one fill in 2,000 paid it; summed, fees run 1 to 4% above the formula, as small fills'
+fees are rounded up. It comes to 1.75 cents a share at 50 and a third of a cent below 5 or above
+95. Crowdbook charges it with a fee curve: `taker_fee = 1.75` with `fee_curve = "probability"`
+charges a fill at price p the fee times 4·q·(1 − q), for q = p ÷ 100. The fitted market charges it,
+and its takers pay 1.40 cents a share against 1.13 in the real fifteen-minute questions, because
+they trade nearer 50. No built-in agent looks at fees, so they change who profits and not how
+anyone trades: the crowd's fitted thresholds stand in for the edge real traders wait for to cover
+them.
+
+The fitted market's noise traders also send market orders with a worst price, 10 cents past the
+last trade (`market_protection`), as real market orders carry one. It leaves the scorecard as it
+was, since simulated orders already moved the price past 10 cents more rarely than real ones, and
+it keeps a maker quoting 30 cents from the price from making money on market orders that would run
+up a one-sided book to its quotes, which it otherwise did.
+
 ### A market fitted to them
 
 [up_or_down.toml](../examples/scenarios/up_or_down.toml) is a fifteen-minute question whose
-settings [`crowdbook-fit`](../analysis/src/crowdbook_analysis/fit.py) chose to bring its scorecard
-closest to that of the fifteen-minute questions. Closeness is the sum of squared differences,
-each over a tolerance: 2 cents for early moves and 5 for late ones, 0.05 for a correlation, 15%
-for the pace of orders, and so on. The search first settles the news against how the value moves,
-then sixteen settings of the traders, one at a time over three or four candidates each, against
-how the price and the orders behave, until a round changes nothing.
+settings [`crowdbook-fit`](../analysis/src/crowdbook_analysis/fit.py) chose, all eighteen at once,
+to bring its scorecard closest to that of the fifteen-minute questions. The fit is the method of
+simulated moments (McFadden, 1989):
 
-| statistic | example: off by | fitted: off by |
-|---|---:|---:|
-| value's moves in the first tenth | −1.9 | −1.7 |
-| value's moves in the last tenth | +0.8 | −0.4 |
-| excess kurtosis of the value's moves | +1.5 | −0.4 |
-| Brier score | +0.6 | +1.3 |
-| priced 10 to 20: resolved yes | −2.8 | −0.3 |
-| priced 80 to 90: resolved yes | −0.5 | +0.2 |
-| orders per minute | +12.7 | +3.1 |
-| moves in the first tenth | −1.5 | −0.5 |
-| moves in the last tenth | −4.1 | −2.4 |
-| excess kurtosis of moves | −0.7 | −1.4 |
-| orders in the first tenth | +2.4 | +1.8 |
-| orders in the last tenth | −3.1 | −3.0 |
-| largest tenth of sizes against the median | −8.9 | −2.7 |
-| tail exponent of sizes | +5.7 | −0.1 |
-| order signs one apart | −4.5 | +0.3 |
-| order signs ten apart | −0.9 | −0.3 |
-| successive price changes | −3.0 | −0.4 |
-| spread implied | −5.0 | −2.5 |
-| price closest to the value as it was | +16.0 | +0.5 |
+- **Tolerances from sampling error.** Twenty-two statistics of the scorecard are compared, each
+  over a tolerance: the spread of the real statistic over 100 resamples of the real questions and
+  of the simulated one over resamples of 120 simulated questions, together. How far the price is
+  from the value is left out, since part of it is the stand-in value's own error.
+- **A joint search.** CMA-ES (Hansen, 2016) moves every setting at once, 80 generations of 12
+  candidates, each judged on the same 120 seeds so that their differences are not noise.
+- **Judged on other seeds**: 400 the search never used.
+- **Uncertainties** from the sandwich formula of simulated moments: the statistics' derivatives
+  with respect to the settings at the fit, by central differences on 400 common seeds, around the
+  covariance of the real and simulated statistics.
 
-In tolerances, from the fit's own 150 seeds; rates and ratios are compared as logarithms, so a
-spread off by −2.5 is about 0.7 times the real one. What it chose:
+| statistic | tolerance | M18: off by | fitted: off by |
+|---|---:|---:|---:|
+| value's moves in the first tenth | 0.503 | −8.0 | −7.8 |
+| value's moves in the last tenth | 4.89 | +0.4 | +0.0 |
+| excess kurtosis of the value's moves | 0.609 | +0.3 | +0.1 |
+| Brier score | 0.0117 | +0.8 | +0.6 |
+| priced 10 to 20: resolved yes | 0.0481 | −0.3 | −1.5 |
+| priced 80 to 90: resolved yes | 0.0644 | −0.0 | −0.4 |
+| moves in the first tenth | 0.467 | −2.6 | −3.7 |
+| moves in the fifth tenth | 0.638 | −0.9 | −1.3 |
+| moves in the last tenth | 3.41 | −3.2 | −2.7 |
+| excess kurtosis of moves | 0.324 | −2.2 | −1.5 |
+| last price below 10 or above 90 | 0.0275 | −4.3 | −2.8 |
+| orders per minute | 4% | +12.9 | +6.4 |
+| orders in the first tenth | 0.00381 | +9.7 | +7.2 |
+| orders in the fifth tenth | 0.00392 | +5.8 | +5.2 |
+| orders in the last tenth | 0.00769 | −8.0 | −6.6 |
+| largest tenth of sizes against the median | 2% | −27.2 | −14.3 |
+| tail exponent of sizes | 2% | −0.3 | −2.9 |
+| order signs one apart | 0.00692 | +2.5 | +4.0 |
+| order signs ten apart | 0.00492 | −2.0 | −2.6 |
+| successive price changes | 0.00917 | −2.5 | +2.4 |
+| spread implied | 4% | −12.2 | −2.8 |
+| price closest to the value as it was | 0.273 | +3.7 | +3.7 |
+| **distance** | | 1381 | 524 |
 
-- **News is rare and small**, a twentieth of the question's uncertainty: Bitcoin's price moves a
-  little at a time, and the value's moves have the thin tails of the real one's (excess kurtosis
-  2.1 against 2.2).
-- **Four fast traders see the probability a second late, and a crowd of ten looks every ten
-  seconds, ten seconds late**, each with a view of its own. The price is then closest to the value
-  as it was 3 seconds before, as in the real markets, and calibrated: of the moments priced 10 to
-  20, 13% resolve yes in the fit's own 150 runs and 16.5% in the 400 above.
-- **Order sizes have Pareto tails**, with exponents 1.0 for noise traders and 0.8 for those who
-  follow the value, which `size_tail` now sets for both; between them the orders' tail has the
-  real exponent, 1.37 against 1.39.
-- **Order signs remember** as the real ones do, +0.32 one apart and +0.11 ten apart, with two
-  brokers working parent orders among the traders.
-- **A market maker quoting wider and fewer noise traders' limit orders** widen the spread from
-  1.2 cents to 2.0, and the bounce matches the real one (−0.34 against −0.32).
+In tolerances, on 400 seeds the search never used; rates and ratios are compared as logarithms.
+M18 is the market fitted one setting at a time, with the fee and the worst price added. The
+distance falls from 1,381 to 524. On the search's own 120 seeds it was 277: a search that picks
+the best of many candidates on the same seeds fits their noise too, which is why it is judged on
+others.
+
+| setting | M18 | fitted | 68% interval |
+|---|---:|---:|---:|
+| news_rate | 0.01 | 0.00879 | 0.00617 to 0.0125 |
+| news_share | 0.05 | 0.18 | 0.109 to 0.297 |
+| fast | 4 | 2 | 1.76 to 2.28 |
+| fast_lag | 1 | 0.223 | 0.1 to 0.595, cut short by the range's edge |
+| crowd | 10 | 37 | 32.9 to 40, cut short by the range's edge |
+| crowd_lag | 10 | 9.24 | 5.03 to 17 |
+| crowd_interval | 10 | 5.46 | 3.43 to 8.7 |
+| crowd_noise | 1 | 1.47 | 0.329 to 6, cut short by the range's edge |
+| crowd_threshold | 5 | 8.47 | 6.56 to 10.9 |
+| crowd_error | 1 | 0.626 | 0.36 to 1.09 |
+| informed_tail | 0.8 | 0.648 | 0.6 to 0.788, cut short by the range's edge |
+| noise_rate | 0.005 | 0.00987 | 0.00737 to 0.0132 |
+| limit_rate | 0.2 | 0.226 | 0.162 to 0.314 |
+| size_tail | 1 | 0.988 | 0.902 to 1.08 |
+| maker_intensity | 0.2 | 0.111 | 0.1 to 0.132, cut short by the range's edge |
+| brokers | 2 | 0 | at the edge of its range |
+| broker_interval_spread | 0 | 0.34 | not pinned down: no statistic moves with it here |
+| broker_size_spread | 0 | 0.387 | not pinned down: no statistic moves with it here |
+
+68% intervals from the sandwich formula; whole numbers are treated as if they could take any value
+between. They count sampling error in the real statistics and the simulation's noise, not the ways
+the simulated market differs from the real one. Five run into the edge of the range the search was
+given, so the best point may lie beyond it and those intervals are only a guide: the next fit
+widens those ranges. The fit chose no brokers, so their spreads move nothing and nothing pins them
+down. What it chose:
+
+- **News carries more of the uncertainty**, 18% of it against 5%, and the value's late moves and
+  their tails are the real ones: 41.7 cents a fifteenth in the last tenth against 41.6, and excess
+  kurtosis 2.2 against 2.1, on the scorecard's 400 seeds.
+- **Two fast traders a fifth of a second late, and a crowd of 37** looking every five seconds about
+  nine seconds late, waiting for 8.5 cents of edge. The price is closest to the value as it was 3
+  seconds before, against 2 in the real markets.
+- **No brokers.** The crowd's own orders give order signs the real memory, +0.33 one apart and
+  +0.11 ten apart against +0.30 and +0.12.
+- **A market maker quoting wider and more market orders from noise traders** widen the spread to
+  2.9 cents against 3.2, from 2.0 one setting at a time, and the bounce is the real one, −0.30
+  against −0.32.
+- **Prices go further at the end**: 92% of questions last trade below 10 or above 90, from 81%,
+  against nearly all real ones; and the pace is 89 orders a minute against 71, from 112.
+
+### How far the statistics move with the settings
+
+Each setting drawn a third either way of the fit, 40 draws each scored on 80 seeds: the 5th to 95th
+percentile of each statistic over the draws, and how often a draw lands within two tolerances of the
+real value.
+
+| statistic | real | fitted | 5th to 95th percentile over the draws | within two tolerances |
+|---|---:|---:|---:|---:|
+| value's moves in the first tenth | 14.2 | 9.67 | 9.68 to 9.89 | 0% |
+| value's moves in the last tenth | 41.6 | 35.9 | 32.4 to 48.5 | 100% |
+| excess kurtosis of the value's moves | 2.09 | 0.953 | 1.1 to 2.78 | 98% |
+| Brier score | 0.15 | 0.17 | 0.159 to 0.181 | 30% |
+| priced 10 to 20: resolved yes | 0.137 | 0.136 | 0.0713 to 0.248 | 85% |
+| priced 80 to 90: resolved yes | 0.853 | 0.955 | 0.931 to 1 | 65% |
+| moves in the first tenth | 11.1 | 9.1 | 6.63 to 9.85 | 2% |
+| moves in the fifth tenth | 12.2 | 9.77 | 7.93 to 11.6 | 20% |
+| moves in the last tenth | 44.1 | 31.2 | 24.2 to 40.5 | 15% |
+| excess kurtosis of moves | 2.96 | 0.879 | 1.06 to 3.49 | 30% |
+| last price below 10 or above 90 | 0.998 | 0.875 | 0.747 to 0.912 | 0% |
+| orders per minute | 70.9 | 96.3 | 74.4 to 137 | 8% |
+| orders in the first tenth | 0.0814 | 0.101 | 0.0868 to 0.104 | 12% |
+| orders in the fifth tenth | 0.0787 | 0.0908 | 0.0892 to 0.0959 | 0% |
+| orders in the last tenth | 0.15 | 0.103 | 0.1 to 0.116 | 0% |
+| largest tenth of sizes against the median | 7.14 | 5.4 | 4.79 to 10.7 | 15% |
+| tail exponent of sizes | 1.39 | 1.28 | 1.06 to 1.52 | 22% |
+| order signs one apart | 0.3 | 0.33 | 0.237 to 0.543 | 12% |
+| order signs ten apart | 0.12 | 0.116 | 0.0418 to 0.342 | 12% |
+| successive price changes | −0.324 | −0.321 | −0.354 to −0.247 | 42% |
+| spread implied | 3.23 | 3.12 | 1.33 to 4.44 | 22% |
+| price closest to the value as it was | 2 | 3 | 2 to 13.2 | 28% |
+
+Some statistics hardly move whatever the settings: the value's early moves, the last price at the
+end, the share of orders in the middle and last tenths of the window. Those are where the model,
+not its settings, falls short. Others move a long way with settings a third off, the lateness of
+the price and the memory in order signs among them, so the fitted point matters for them.
 
 ### Where the fit falls short
 
-- **No fees.** Every real order that took liquidity paid a fee: 2.0% of what it traded in the
-  five-minute questions, 2.3% in the others. The fee depends on the price, about 0.07·p·(1 − p)
-  dollars a share for a share priced p dollars: a median 1.73 cents a share at prices of 40 to 60,
-  1.31 at 20 to 30 and 70 to 80, 0.89 at 10 to 20 and 80 to 90 and 0.33 below 10 and above 90, in
-  the fifteen-minute questions. The fitted market charges nothing, and crowdbook's fees are flat per
-  lot, so it cannot yet charge them as Polymarket does. Fees may also be part of why the spread is
-  too narrow: market makers facing takers who pay fees can quote wider.
-- **Too many orders**, 112 a minute against 71: no candidate the search tried brought the pace
-  down without moving other statistics further away.
-- **Orders do not crowd in at the end.** In the real fifteen-minute questions the last tenth of
-  the window has 15% of the orders and the first tenth 8%; the fitted market has 9% and 12%.
-  Nothing in the simulated crowd is drawn to a question as its fate is decided.
+- **Cheap and dear shares are mispriced at the ends.** Of the moments priced 10 to 20, 6.5%
+  resolve yes against 13.7%, and of those priced 0 to 10, 0.3% against 2.2%: a favourite–longshot
+  bias the real markets do not have and the market fitted one setting at a time did not (16.5%).
+  The joint search traded it for the spread, the pace and the close, since few moments fall at
+  the ends and their tolerances are wide. A market built on this crowd offers something to whoever
+  sells longshots.
+- **Orders do not crowd in at the end.** In the real fifteen-minute questions the last tenth of the
+  window has 15% of the orders and the first tenth 8%; the fitted market has 10% and 11%. Nothing
+  in the simulated crowd is drawn to a question as its fate is decided.
 
   ![When aggressive orders come through the window](images/realism_activity.png)
 
-- **Prices do not go all the way at the end.** The value is below 10 or above 90 in the last
-  second of 96% of questions, real and simulated alike, but only 81% of simulated questions last
-  trade there, against nearly all real ones. Real trading stops a median of twenty seconds before
-  the end, once the price is there; simulated trading goes on to the last second at prices that
-  have not followed the value all the way. Moves late in the window are smaller than the real
-  ones too, 33 cents a fifteenth against 44.
-- **The spread is still too narrow**, 2.0 cents against 3.2.
-- **The value moves less early in the window**, 11 cents a fifteenth against 14. A simulated
+- **Still too many orders**, 89 a minute against 71.
+- **Prices still do not go all the way at the end**, 92% of questions against nearly all, and moves
+  late in the window are smaller than the real ones, 35 cents a fifteenth against 44. Real trading
+  stops a median of twenty seconds before the end, once the price is there; simulated trading goes
+  on to the last second.
+- **The value moves less early in the window**, 10 cents a fifteenth against 14. A simulated
   question's uncertainty is the same in every run; Bitcoin is calmer in some windows than the
   hour before and wilder in others, which the stand-in value does not know, so its early moves
   are partly that difference.
@@ -658,11 +752,9 @@ spread off by −2.5 is about 0.7 times the real one. What it chose:
 - **Shares against lots.** Real order sizes are in shares, which a fixed amount of money buys more
   of at low prices; simulated sizes are lots, whatever the price. The matching tail exponents may
   partly compare different things.
-- **A local search, judged on its own seeds.** The fit changes one setting at a time from a first
-  guess, among a few candidates each, and keeps any improvement on its 150 seeds, which are among
-  the 400 of the scorecard; its tolerances are set by hand rather than from the real statistics'
-  sampling error, and it gives no uncertainty for the settings it chose. A broader search, judged on
-  seeds it did not fit, may find a closer market and say how sure it is.
+- **Sampling error, not misspecification.** The settings' intervals say how much they could move by
+  chance. Where no setting brings a statistic to the real one, as for the value's early moves or
+  the crowding at the end, the model itself falls short, and the intervals do not say so.
 
 ## Market-maker experiments
 
@@ -809,6 +901,7 @@ give other markets. Making that easy to explore is the point of the toolkit.
   financial markets. *PNAS* 102(6), 2254–2259.
 - Glosten, L. and Milgrom, P. (1985). Bid, ask and transaction prices in a specialist market with
   heterogeneously informed traders. *Journal of Financial Economics* 14(1), 71–100.
+- Hansen, N. (2016). The CMA evolution strategy: a tutorial. arXiv:1604.00772.
 - Hill, B. (1975). A simple general approach to inference about the tail of a distribution.
   *Annals of Statistics* 3(5), 1163–1174.
 - Hong, H. and Stein, J. (1999). A unified theory of underreaction, momentum trading, and
@@ -816,6 +909,8 @@ give other markets. Making that easy to explore is the point of the toolkit.
 - Kyle, A. (1985). Continuous auctions and insider trading. *Econometrica* 53(6), 1315–1335.
 - Lillo, F., Mike, S. and Farmer, J. D. (2005). Theory for long memory in supply and demand.
   *Physical Review E* 71, 066122.
+- McFadden, D. (1989). A method of simulated moments for estimation of discrete response models
+  without numerical integration. *Econometrica* 57(5), 995–1026.
 - Roll, R. (1984). A simple implicit measure of the effective bid-ask spread in an efficient
   market. *Journal of Finance* 39(4), 1127–1139.
 - Snowberg, E. and Wolfers, J. (2010). Explaining the favorite–long shot bias: is it risk-love
