@@ -5,6 +5,7 @@ one request may cover and how often requests may come, so ranges are split when 
 them and requests are retried with backoff when it is busy. Only the standard library is used.
 """
 
+import http.client
 import json
 import time
 import urllib.error
@@ -90,6 +91,15 @@ class RpcError(RuntimeError):
     """An error the node returned, as opposed to one in getting its answer."""
 
 
+def _rpc_error(error: urllib.error.HTTPError) -> str | None:
+    """The JSON-RPC error in an HTTP error's body, if it holds one."""
+    try:
+        body = json.loads(error.read())
+    except (ValueError, OSError):
+        return None
+    return str(body["error"]) if isinstance(body, dict) and "error" in body else None
+
+
 # Phrases public nodes use when a request covers too many blocks or would return too many logs.
 _TOO_MUCH = ("more than", "range", "too many", "limit", "exceed", "too large", "response size")
 
@@ -117,8 +127,14 @@ class Rpc:
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     answer = json.load(response)
-            except (urllib.error.URLError, TimeoutError, ConnectionError,
-                    json.JSONDecodeError) as error:
+            except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError,
+                    http.client.HTTPException) as error:
+                # Some nodes refuse a request with an HTTP error whose body is the JSON-RPC error,
+                # such as a range of blocks too large: that is the node's answer, not a failure.
+                if isinstance(error, urllib.error.HTTPError) and error.code == 400:
+                    refusal = _rpc_error(error)
+                    if refusal is not None:
+                        raise RpcError(refusal) from error
                 retryable = not isinstance(error, urllib.error.HTTPError) or error.code in (
                     408, 429, 499, 500, 502, 503, 504)
                 failures += 1

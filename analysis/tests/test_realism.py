@@ -80,5 +80,19 @@ class BounceTest(unittest.TestCase):
         self.assertAlmostEqual(found["spread"], 2.0, delta=0.05)
 
 
+class FeeTest(unittest.TestCase):
+    def test_a_probability_curve_charges_the_whole_fee_at_50_and_less_toward_the_ends(self):
+        fee = realism.taker_fees('[exchange]\ntaker_fee = 1.75\nfee_curve = "probability"\n')
+        np.testing.assert_allclose(fee(np.array([50.0, 10.0, 90.0])), [1.75, 0.63, 0.63])
+        flat = realism.taker_fees("[exchange]\ntaker_fee = 0.5\n")
+        np.testing.assert_allclose(flat(np.array([50.0, 10.0])), [0.5, 0.5])
+        np.testing.assert_allclose(realism.taker_fees("seed = 1\n")(np.array([50.0])), [0.0])
+
+    def test_fees_per_share_pool_every_window(self):
+        windows = [window([0.1], [50.0], sizes=[4.0]), window([0.2], [50.0], sizes=[6.0])]
+        windows[0].fees, windows[1].fees = 7.0, 3.0
+        self.assertAlmostEqual(realism.fee_per_share(windows), 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

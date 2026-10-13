@@ -1,5 +1,8 @@
 import hashlib
+import io
 import unittest
+import urllib.error
+from unittest import mock
 
 from crowdbook_analysis import polygon, polymarket
 
@@ -115,6 +118,22 @@ class LogsTest(unittest.TestCase):
 
         with self.assertRaises(polygon.RpcError):
             list(Broken("http://unused").logs("0x0", [], 0, 10))
+
+
+class RefusalTest(unittest.TestCase):
+    def test_a_json_rpc_error_sent_as_http_400_is_the_nodes_answer(self):
+        body = b'{"jsonrpc":"2.0","id":1,"error":{"code":35,"message":"ranges over 10000 blocks"}}'
+        refusal = urllib.error.HTTPError("http://node", 400, "Bad Request", {}, io.BytesIO(body))
+        with mock.patch("urllib.request.urlopen", side_effect=refusal):
+            with self.assertRaisesRegex(polygon.RpcError, "ranges over"):
+                polygon.Rpc("http://node").call("eth_getLogs", [])
+
+    def test_an_http_400_without_one_is_a_failure(self):
+        refusal = urllib.error.HTTPError("http://node", 400, "Bad Request", {},
+                                         io.BytesIO(b"<html>"))
+        with mock.patch("urllib.request.urlopen", side_effect=refusal):
+            with self.assertRaises(urllib.error.HTTPError):
+                polygon.Rpc("http://node").call("eth_getLogs", [])
 
 
 if __name__ == "__main__":

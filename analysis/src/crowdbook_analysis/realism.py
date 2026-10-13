@@ -32,7 +32,8 @@ The statistics:
   `bitcoin`), which `--no-bitcoin` leaves out.
 
 The simulated markets are the prediction example and the market fitted by `crowdbook-fit`, under
-400 seeds each. The charts go to docs/images; the numbers are printed as Markdown.
+400 seeds each, none of them seeds the fit used. The charts go to docs/images; the numbers are
+printed as Markdown.
 """
 
 import argparse
@@ -40,6 +41,7 @@ import datetime as dt
 import math
 import os
 import tempfile
+import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +55,8 @@ from crowdbook_analysis.runner import REPO, Run, find_tool, run
 
 MARKET = REPO / "examples" / "scenarios" / "prediction.toml"
 SEEDS = 400
+# Simulated markets are scored on seeds from here, which crowdbook-fit never fits on.
+FIRST_SEED = 100_001
 MOMENTS = 20  # moments per window set against the outcome
 PARTS = 15  # changes per window measured for their size
 TENTHS = 10
@@ -77,6 +81,7 @@ class Window:
     # The true value in cents at each second of the window, where it is known: exactly in a
     # simulation, from Bitcoin's price for a real up-or-down question.
     value: np.ndarray | None = None
+    fees: float = 0.0  # cents the orders paid in taker fees
 
 
 def real_windows(series: str, data: Path = polymarket.DATA, *,
@@ -113,6 +118,7 @@ def real_windows(series: str, data: Path = polymarket.DATA, *,
             sign=np.where(during["side"].to_numpy() == "buy", 1.0, -1.0),
             yes=float(market["yes_payout"]),
             opening=float(before["price"][-1]) if len(before) else 50.0,
+            fees=100.0 * float(during["fee"].sum()),
             value=(bitcoin.up_probability(prices, market["start"], market["end"])
                    if prices is not None else None)))
     return windows
@@ -130,22 +136,36 @@ def orders_from_trades(prints: pl.DataFrame) -> pl.DataFrame:
                  .alias("price"), pl.col("quantity").sum().alias("size")))
 
 
+def taker_fees(scenario: str):
+    """The taker fee a scenario's exchange charges a lot traded at each price, in cents."""
+    exchange = tomllib.loads(scenario).get("exchange", {})
+    fee = float(exchange.get("taker_fee", 0.0))
+    if exchange.get("fee_curve", "flat") == "probability":
+        return lambda price: fee * 4.0 * (price / 100.0) * (1.0 - price / 100.0)
+    return lambda price: np.full(np.shape(price), fee)
+
+
 def simulated_window(tool: Path, job: Run, scratch: Path, index: int) -> Window:
     log_path, prices_path = scratch / f"log{index}.csv", scratch / f"prices{index}.csv"
     result = run(tool, job, log=log_path, log_only="trade", prices=prices_path)
-    orders = orders_from_trades(trades(read_log(log_path)))
+    prints = trades(read_log(log_path))
+    orders = orders_from_trades(prints)
     value = read_prices(prices_path)["value"].to_numpy()
     log_path.unlink()
     prices_path.unlink()
     length = result["duration_ns"] / 1e9
+    # Each print's taker pays the fee at that print's price, as the exchange charges it.
+    fee = taker_fees(job.scenario)
+    paid = float(np.sum(fee(prints["price"].to_numpy().astype(float))
+                        * prints["quantity"].to_numpy()))
     return Window(length=length, time=orders["time"].to_numpy() / 1e9 / length,
                   price=orders["price"].to_numpy().astype(float),
                   size=orders["size"].to_numpy().astype(float),
                   sign=np.where(orders["side"].to_numpy() == "buy", 1.0, -1.0),
-                  yes=result["final_value"] / 100.0, value=value[: int(length)])
+                  yes=result["final_value"] / 100.0, value=value[: int(length)], fees=paid)
 
 
-def simulated_windows(tool: Path, scenario: str, seeds: range) -> list[Window]:
+def simulated_windows(tool: Path, scenario: str, seeds) -> list[Window]:
     with tempfile.TemporaryDirectory() as scratch, ThreadPoolExecutor(
         max_workers=os.cpu_count()
     ) as pool:
@@ -341,7 +361,14 @@ def scorecard(windows: list[Window]) -> dict:
         "closing": closing(windows),
         "lateness": lateness(windows),
         "value": _value_card(value_paths(windows)),
+        "fee_per_share": fee_per_share(windows),
     }
+
+
+def fee_per_share(windows: list[Window]) -> float:
+    """Taker fees in cents for each share or lot the aggressive orders took."""
+    shares = sum(float(w.size.sum()) for w in windows)
+    return sum(w.fees for w in windows) / shares if shares else float("nan")
 
 
 def _value_card(paths: list[Window]) -> dict:
@@ -371,6 +398,7 @@ ROWS = [
     ("successive price changes", lambda s: f"{s['bounce']['correlation']:+.2f}"),
     ("spread implied (cents)", lambda s: f"{s['bounce']['spread']:.1f}"),
     ("last price below 10 or above 90", lambda s: f"{s['closing']:.1%}"),
+    ("taker fees (cents a share)", lambda s: f"{s['fee_per_share']:.2f}"),
     ("value's moves in the first tenth, close (cents)",
      lambda s: f"{s['value']['first']:.1f}" if s["value"] else "—"),
     ("value's moves in the last tenth, close (cents)",
@@ -466,7 +494,8 @@ def main() -> None:
             columns[NAMES.get(series, series)] = scorecard(windows)
     for path in args.scenario:
         if path.exists():
-            simulated = simulated_windows(tool, path.read_text(), range(1, args.seeds + 1))
+            simulated = simulated_windows(tool, path.read_text(),
+                                          range(FIRST_SEED, FIRST_SEED + args.seeds))
             columns[f"simulated: {path.stem}"] = scorecard(simulated)
     print_scorecard(columns)
     print_calibration(columns)
