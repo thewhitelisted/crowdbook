@@ -17,8 +17,8 @@ The comparison with real markets reads Polymarket's trades from the Polygon bloc
 the data is kept under `analysis/data`, so it is read once:
 
 ```bash
-uv run --project analysis crowdbook-polymarket --from 2026-09-28 --to 2026-10-12  # an hour or so
-uv run --project analysis crowdbook-fit           # about ten minutes on four cores
+uv run --project analysis crowdbook-polymarket --from 2026-09-28 --to 2026-10-12  # an hour or two
+uv run --project analysis crowdbook-fit           # about an hour on four cores
 uv run --project analysis crowdbook-realism       # a few minutes
 ```
 
