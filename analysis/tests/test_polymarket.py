@@ -111,6 +111,17 @@ class LogsTest(unittest.TestCase):
         blocks = [int(log["blockNumber"], 16) for log in node.logs("0x0", [], 10, 2_009)]
         self.assertEqual(blocks, list(range(10, 2_010)))
 
+    def test_splits_ranges_the_node_takes_too_long_over(self):
+        class Slow(FakeNode):
+            def call(self, method, params):
+                first, last = int(params[0]["fromBlock"], 16), int(params[0]["toBlock"], 16)
+                if last - first + 1 > self.most:
+                    raise polygon.RpcError("{'code': -32002, 'message': 'request timed out'}")
+                return super().call(method, params)
+
+        blocks = [int(log["blockNumber"], 16) for log in Slow(most=200).logs("0x0", [], 0, 999)]
+        self.assertEqual(blocks, list(range(1_000)))
+
     def test_passes_on_other_errors(self):
         class Broken(polygon.Rpc):
             def call(self, method, params):
