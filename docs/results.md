@@ -613,6 +613,13 @@ spread off by −2.5 is about 0.7 times the real one. What it chose:
 
 ### Where the fit falls short
 
+- **No fees.** Every real order that took liquidity paid a fee: 2.0% of what it traded in the
+  five-minute questions, 2.3% in the others. The fee depends on the price, about 0.07·p·(1 − p)
+  dollars a share for a share priced p dollars: a median 1.73 cents a share at prices of 40 to 60,
+  1.31 at 20 to 30 and 70 to 80, 0.89 at 10 to 20 and 80 to 90 and 0.33 below 10 and above 90, in
+  the fifteen-minute questions. The fitted market charges nothing, and crowdbook's fees are flat per
+  lot, so it cannot yet charge them as Polymarket does. Fees may also be part of why the spread is
+  too narrow: market makers facing takers who pay fees can quote wider.
 - **Too many orders**, 112 a minute against 71: no candidate the search tried brought the pace
   down without moving other statistics further away.
 - **Orders do not crowd in at the end.** In the real fifteen-minute questions the last tenth of
@@ -644,9 +651,18 @@ spread off by −2.5 is about 0.7 times the real one. What it chose:
   and the moves within each hour's volatility, so the distance between price and value is partly
   the stand-in's error: 4 cents for hourly questions, 7 for fifteen minutes, 14 for five.
 - **Times are when trades settled**, a second or two after they matched, so the real market's
-  lateness is at most what is shown and may be less.
-- **A local search.** The fit changes one setting at a time from a first guess, among a few
-  candidates each; a broader search may find a closer market.
+  lateness is at most what is shown and may be less. Most orders share their block's time with
+  another order in the same question, 86% for fifteen minutes and 97% for five, so the order of
+  orders within a block is the order in which they settled, and the memory in order signs is
+  measured at that resolution.
+- **Shares against lots.** Real order sizes are in shares, which a fixed amount of money buys more
+  of at low prices; simulated sizes are lots, whatever the price. The matching tail exponents may
+  partly compare different things.
+- **A local search, judged on its own seeds.** The fit changes one setting at a time from a first
+  guess, among a few candidates each, and keeps any improvement on its 150 seeds, which are among
+  the 400 of the scorecard; its tolerances are set by hand rather than from the real statistics'
+  sampling error, and it gives no uncertainty for the settings it chose. A broader search, judged on
+  seeds it did not fit, may find a closer market and say how sure it is.
 
 ## Market-maker experiments
 

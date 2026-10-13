@@ -26,7 +26,7 @@ from crowdbook_analysis.runner import REPO, find_tool
 
 SERIES = "btc-up-or-down-15m"
 OUTPUT = REPO / "examples" / "scenarios" / "up_or_down.toml"
-SEEDS = 120
+SEEDS = 150
 
 
 @dataclass(frozen=True)
