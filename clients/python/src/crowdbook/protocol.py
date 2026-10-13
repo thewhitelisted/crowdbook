@@ -196,6 +196,9 @@ class Welcome:
     scoring: Optional[Scoring] = None
     auction_fee: int = 0
     phase: str = "continuous"
+    # "flat", or "probability": a fill at price p pays the fees times 4 p (1 - p), for p the
+    # price as a share of the payout, max_price + 1
+    fee_curve: str = "flat"
     max_price: int = 1_000_000_000  # the highest limit price: 99 in a prediction market
 
 

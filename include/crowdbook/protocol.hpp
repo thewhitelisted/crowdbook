@@ -80,7 +80,8 @@ struct Welcome {
     Fee makerFee = 0;
     Fee takerFee = 0;
     Fee auctionFee = 0;
-    Phase phase = Phase::Continuous; // the market's phase as the seat sees it now
+    FeeCurve feeCurve = FeeCurve::Flat; // how the fees vary with a fill's price
+    Phase phase = Phase::Continuous;    // the market's phase as the seat sees it now
     Latency latency{};
     AccountState account{};
     std::vector<OwnOrder> orders{}; // the seat's live orders, by the client's ids

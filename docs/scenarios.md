@@ -78,10 +78,16 @@ Rules and market data that apply to everyone.
 | `maker_fee` | number | `0` | Ticks per lot paid by the owner of the resting order in every trade; negative is a rebate |
 | `taker_fee` | number | `0` | Ticks per lot paid by the owner of the incoming order |
 | `auction_fee` | number | `0` | Ticks per lot paid by both sides of a trade in an auction's uncross; not negative |
+| `fee_curve` | string | `"flat"` | How fees vary with the price of a fill: `"flat"`, or `"probability"` in a prediction market, where a fill at price p pays each fee times 4·q·(1 − q) for q = p ÷ 100, the share of the payout: the whole fee at 50 and less toward either end |
 
 Fees take at most three decimals, such as `-0.25`, and `maker_fee + taker_fee` must not be
 negative: no exchange pays out more in rebates than it collects. Fees are kept apart from cash,
 which only trades move, and every fill reports its own fee.
+
+Polymarket charges takers about 0.07·q·(1 − q) dollars a share for a share priced at q dollars,
+1.75 cents at 50; `taker_fee = 1.75` with `fee_curve = "probability"` charges the same, in cents.
+Under the curve each fill's fee per lot is rounded to the nearest thousandth of a tick, so it is
+the same on every platform.
 
 A depth feed lets agents see the book beyond the best prices, both in `context.market()` and, for
 agents that stream market data, in `onDepth`. It costs time: ten levels add about half again to
@@ -335,6 +341,12 @@ them.
 | `interval` | `"1s"` | Between child orders |
 | `child_size` | `5` | Lots per child; for `pov`, the most per child |
 | `participation` | `0.1` | For `pov`: its share of all the volume while it works a parent |
+| `interval_spread` | `0` | How far each wait between children strays from `interval`: drawn uniformly within this share either side, so `0.5` waits from half an interval to one and a half. From 0 up to, but not including, 1 |
+| `size_spread` | `0` | How far each child's size strays from `child_size`, in the same way, at least 1 lot |
+
+Real brokers' algorithms vary the timing and size of their children, so that others cannot pick
+them out of the order flow; with both spreads at 0 the children come exactly `interval` apart and
+exactly `child_size` large.
 
 ## Your own agents
 

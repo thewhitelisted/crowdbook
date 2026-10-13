@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <optional>
 #include <stdexcept>
+#include <tuple>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -402,6 +403,36 @@ TEST(ExchangeFeeTest, ChargesMakersAndTakersTheirOwnRateOnEveryFill) {
     // Fees are kept apart from cash, which trading alone moves.
     EXPECT_EQ(exchange.account(kAlice).cash, -303);
     EXPECT_EQ(exchange.audit(), std::nullopt);
+}
+
+TEST(ExchangeFeeTest, AProbabilityCurveChargesLessTowardEitherEndOfThePrices) {
+    // A prediction market's taker fee of 1.75 cents a share at 50, as Polymarket charges, with a
+    // maker rebate of half a cent.
+    const ExchangeConfig config{
+        .makerFee = -500, .takerFee = 1'750, .feeCurve = FeeCurve::Probability, .maxPrice = 99};
+    // At price p, 4 p (1 - p) of the fee: all of it at 50, 0.36 of it at 10 and at 90, 0.0396 at
+    // 1. Fees are in thousandths of a cent here, rounded half away from zero.
+    for (const auto& [price, taker, maker] :
+         {std::tuple{50, 1'750, -500}, std::tuple{10, 630, -180}, std::tuple{90, 630, -180},
+          std::tuple{1, 69, -20}, std::tuple{99, 69, -20}}) {
+        Exchange exchange{config};
+        exchange.addAgent(kAlice);
+        exchange.addAgent(kBob);
+        std::vector<Event> events;
+        exchange.handle(kBob, limitOrder(1, Side::Sell, price, 2), events);
+        events.clear();
+        exchange.handle(kAlice, limitOrder(1, Side::Buy, price, 2), events);
+        ASSERT_GE(events.size(), 3U);
+        EXPECT_EQ(std::get<OrderFilled>(events[1]).fee, 2 * maker) << price;
+        EXPECT_EQ(std::get<OrderFilled>(events[2]).fee, 2 * taker) << price;
+        EXPECT_EQ(exchange.feesCollected(), 2 * (maker + taker));
+        EXPECT_EQ(exchange.audit(), std::nullopt);
+    }
+}
+
+TEST(ExchangeFeeTest, AProbabilityCurveNeedsAMarketWhoseSharesPayOut) {
+    EXPECT_NO_THROW((Exchange{{.feeCurve = FeeCurve::Probability, .maxPrice = 99}}));
+    EXPECT_THROW((Exchange{{.feeCurve = FeeCurve::Probability}}), std::invalid_argument);
 }
 
 TEST(ExchangeFeeTest, RejectsRebatesLargerThanFeesAndOutlandishRates) {

@@ -36,6 +36,21 @@ void settleSide(Account& account, Side side, Quantity quantity, Cash notional) {
     }
 }
 
+// The fee per lot on a fill at `price`, under the exchange's curve. The probability curve's
+// 4 p (1 - p) is worked out in whole numbers and rounded half away from zero, so that it is the
+// same everywhere and a rebate is exactly the fee it offsets.
+Fee feeAt(const ExchangeConfig& config, Fee perLot, Price price) noexcept {
+    if (config.feeCurve == FeeCurve::Flat || perLot == 0) {
+        return perLot;
+    }
+    const Price payout = config.maxPrice + 1;
+    const std::int64_t numerator = 4 * perLot * price * (payout - price);
+    const std::int64_t denominator = payout * payout;
+    const std::int64_t half = denominator / 2;
+    return numerator >= 0 ? (numerator + half) / denominator
+                          : -((-numerator + half) / denominator);
+}
+
 } // namespace
 
 Exchange::Exchange(const ExchangeConfig& config) : config_(config) {
@@ -49,6 +64,13 @@ Exchange::Exchange(const ExchangeConfig& config) : config_(config) {
         throw std::invalid_argument(
             "the maker fee plus the taker fee must not be negative, or the exchange would pay "
             "out more than it collects on every trade");
+    }
+    // A market whose shares pay out at maxPrice + 1 has a highest price far below kMaxPrice, and
+    // under this bound the curve's products stay well inside 64 bits.
+    constexpr Price kLargestPayout = 1'000'000;
+    if (config.feeCurve == FeeCurve::Probability && config.maxPrice >= kLargestPayout) {
+        throw std::invalid_argument(
+            "the probability fee curve needs a market whose shares pay out, a prediction market");
     }
     if (config.depthLevels > kMaxDepthLevels) {
         throw std::invalid_argument(
@@ -219,7 +241,7 @@ void Exchange::settleAuction(const std::vector<RestingOrder>& selfTrades,
         AgentState& takerState = agents_.at(fill.takerOwner);
         const Side makerSide = opposite(fill.takerSide);
         const Cash notional = fill.price * fill.quantity;
-        const Fee fee = config_.auctionFee * fill.quantity;
+        const Fee fee = feeAt(config_, config_.auctionFee, fill.price) * fill.quantity;
 
         settleSide(makerState.account, makerSide, fill.quantity, notional);
         settleSide(takerState.account, fill.takerSide, fill.quantity, notional);
@@ -522,8 +544,8 @@ void Exchange::settle(const IncomingOrder& incoming, std::vector<Event>& events)
         AgentState& takerState = agents_.at(fill.takerOwner);
         const Side makerSide = opposite(fill.takerSide);
         const Cash notional = fill.price * fill.quantity;
-        const Fee makerFee = config_.makerFee * fill.quantity;
-        const Fee takerFee = config_.takerFee * fill.quantity;
+        const Fee makerFee = feeAt(config_, config_.makerFee, fill.price) * fill.quantity;
+        const Fee takerFee = feeAt(config_, config_.takerFee, fill.price) * fill.quantity;
 
         settleSide(makerState.account, makerSide, fill.quantity, notional);
         settleSide(takerState.account, fill.takerSide, fill.quantity, notional);

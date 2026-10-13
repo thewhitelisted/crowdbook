@@ -97,7 +97,7 @@ exchange produced them, in the order the exchange produced them.
 ```json
 {"type":"welcome","protocol":1,"seat":"alice","started":false,"time":0,"duration":60000000000,
  "reference_price":10000,"max_price":1000000000,"depth_levels":10,"maker_fee":0,"taker_fee":0,
- "auction_fee":0,
+ "auction_fee":0,"fee_curve":"flat",
  "phase":"continuous",
  "latency":{"to_exchange":1000000,"from_exchange":1000000,"jitter":0},
  "account":{"initial_cash":0,"initial_position":0,"cash":0,"position":0,"fees":0,
@@ -111,7 +111,9 @@ exchange produced them, in the order the exchange produced them.
 Sent on one line. `duration` is the market's length, `max_price` the highest limit price the
 exchange takes (99 in a prediction market, whose shares pay 100), `depth_levels` the levels per
 side in `depth` messages (0 for none), and `maker_fee`, `taker_fee` and `auction_fee` are per lot.
-`phase` is where the market is in its trading day, as `phase` messages name it. `account` gives the
+`fee_curve` is `flat`, or `probability` in a prediction market whose fees fall toward either end
+of its prices: a fill at price p pays each fee times 4·q·(1 − q), for q = p ÷ (`max_price` + 1),
+rounded half away from zero to a whole fee unit. `phase` is where the market is in its trading day, as `phase` messages name it. `account` gives the
 seat's starting balances, its balances now and its limits, and `orders` its live orders, each as
 `{"id","order_id","side","order_type","price","leaves","acknowledged","cancel_requested"}`, so a
 client claiming a seat again can carry on.

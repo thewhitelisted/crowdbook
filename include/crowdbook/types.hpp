@@ -37,6 +37,16 @@ inline constexpr Quantity kMaxQuantity = 1'000'000'000;
 // The largest fee or rebate per lot, in fee units: 1,000 ticks per lot.
 inline constexpr Fee kMaxFeeRate = 1'000'000;
 
+// How the fees on a fill vary with its price.
+enum class FeeCurve : std::uint8_t {
+    Flat, // every lot pays the fee as set
+    // A lot pays the fee times 4 p (1 - p), for p the price as a share of what a share pays at
+    // resolution: the whole fee at the middle price and less toward either end, where a share
+    // has less left to gain or lose. Polymarket's taker fee has this shape. Only a market whose
+    // shares pay out, a prediction market, can use it.
+    Probability,
+};
+
 // Simulation time, in nanoseconds since the start of the run.
 using Timestamp = std::int64_t;
 using Duration = std::int64_t;

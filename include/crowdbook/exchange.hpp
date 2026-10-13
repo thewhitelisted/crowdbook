@@ -29,6 +29,8 @@ struct ExchangeConfig {
     Fee takerFee = 0;
     // Charged to both sides, per lot, of a trade in an auction's uncross; not negative.
     Fee auctionFee = 0;
+    // How every one of these fees varies with the price of the fill.
+    FeeCurve feeCurve = FeeCurve::Flat;
     // Where auctions break ties and halts measure from until the first auction sets a price.
     Price referencePrice = 0;
     // A continuous trade more than this many ticks from the reference halts the market into an

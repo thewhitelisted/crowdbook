@@ -51,6 +51,8 @@ constexpr std::array kPhases{
     std::pair{std::string_view{"halt"}, Phase::HaltAuction},
     std::pair{std::string_view{"closing-auction"}, Phase::ClosingAuction},
     std::pair{std::string_view{"closed"}, Phase::Closed}};
+constexpr std::array kFeeCurves{std::pair{std::string_view{"flat"}, FeeCurve::Flat},
+                                std::pair{std::string_view{"probability"}, FeeCurve::Probability}};
 constexpr std::array kCancelReasons{
     std::pair{std::string_view{"requested"}, CancelReason::Requested},
     std::pair{std::string_view{"immediate-or-cancel"}, CancelReason::ImmediateOrCancel},
@@ -586,6 +588,7 @@ Welcome readWelcome(Fields& fields) {
                     .makerFee = fields.integer("maker_fee"),
                     .takerFee = fields.integer("taker_fee"),
                     .auctionFee = fields.integer("auction_fee", 0),
+                    .feeCurve = fields.choice("fee_curve", kFeeCurves),
                     .phase = fields.choice("phase", kPhases),
                     .latency = readLatency(fields.required("latency")),
                     .account = readAccount(fields.required("account"))};
@@ -777,6 +780,7 @@ void encodeTo(std::string& out, const ServerMessage& message) {
                            .field("maker_fee", m.makerFee)
                            .field("taker_fee", m.takerFee)
                            .field("auction_fee", m.auctionFee)
+                           .field("fee_curve", nameOf(m.feeCurve, kFeeCurves))
                            .field("phase", nameOf(m.phase, kPhases));
                        ObjectWriter{writer.open("latency")}
                            .field("to_exchange", m.latency.toExchange)
