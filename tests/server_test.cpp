@@ -111,6 +111,25 @@ private:
     std::string buffered_;
 };
 
+// Stops a test's server and waits for it however the test leaves, so that a failed assertion is
+// reported rather than ending the process with the server's thread still running.
+class StopOnExit {
+public:
+    StopOnExit(std::thread& server, std::atomic<bool>& stop) : server_(server), stop_(stop) {}
+    StopOnExit(const StopOnExit&) = delete;
+    StopOnExit& operator=(const StopOnExit&) = delete;
+    ~StopOnExit() {
+        stop_ = true;
+        if (server_.joinable()) {
+            server_.join();
+        }
+    }
+
+private:
+    std::thread& server_;
+    std::atomic<bool>& stop_;
+};
+
 TEST(ServerTest, AClientTradesOverARealSocket) {
     const Scenario scenario = parseScenario(kScenario);
     Gateway gateway{scenario, std::string{kScenario}, AgentRegistry::withBuiltIns(), {}};
@@ -120,6 +139,7 @@ TEST(ServerTest, AClientTradesOverARealSocket) {
         serve(gateway, {.host = "127.0.0.1", .port = 0}, stop,
               [&](std::uint16_t port) { listening.set_value(port); });
     }};
+    const StopOnExit stopOnExit{server, stop};
     const std::uint16_t port = listening.get_future().get();
     ASSERT_NE(port, 0);
     {
@@ -165,6 +185,7 @@ TEST(ServerTest, BatchedMarketDataLeavesOrderEventsOnTime) {
                .feedInterval = 300 * kMillisecond},
               stop, [&](std::uint16_t port) { listening.set_value(port); });
     }};
+    const StopOnExit stopOnExit{server, stop};
     const std::uint16_t port = listening.get_future().get();
     {
         LineClient client{port};
@@ -213,6 +234,7 @@ TEST(ServerTest, AnswersLeaveWhenTheMarketMakesThem) {
         serve(gateway, {.host = "127.0.0.1", .port = 0}, stop,
               [&](std::uint16_t port) { listening.set_value(port); });
     }};
+    const StopOnExit stopOnExit{server, stop};
     const std::uint16_t port = listening.get_future().get();
     {
         LineClient client{port};
@@ -265,10 +287,17 @@ cancel_rate = 10.0
     Gateway gateway{scenario, std::string{kBusy}, AgentRegistry::withBuiltIns(), options};
     std::atomic<bool> stop{false};
     std::promise<std::uint16_t> listening;
+    // The grace is how long the server waits, once the market stops, for the client to read what
+    // piled up, and past it the server hangs up without sending the end. About 19,000 messages
+    // pile up, read in a fifth of a second in a release build and in four seconds in a debug one;
+    // under the sanitizers the server notices the stop later, up to 52,000 pile up, and reading
+    // them takes 15 to 40 seconds. At most the market's whole minute can pile up, about six times
+    // the usual, which the grace leaves time to read.
     std::thread server{[&] {
-        serve(gateway, {.host = "127.0.0.1", .port = 0, .closeGrace = 20 * kSecond}, stop,
+        serve(gateway, {.host = "127.0.0.1", .port = 0, .closeGrace = 180 * kSecond}, stop,
               [&](std::uint16_t port) { listening.set_value(port); });
     }};
+    const StopOnExit stopOnExit{server, stop};
     const std::uint16_t port = listening.get_future().get();
     {
         LineClient client{port};
@@ -290,6 +319,7 @@ TEST(ServerTest, AClientThatHangsUpHasItsOrdersCancelled) {
         serve(gateway, {.host = "127.0.0.1", .port = 0}, stop,
               [&](std::uint16_t port) { listening.set_value(port); });
     }};
+    const StopOnExit stopOnExit{server, stop};
     const std::uint16_t port = listening.get_future().get();
     {
         LineClient client{port};
@@ -327,6 +357,7 @@ TEST(ServerTest, ASessionOverSocketsReplaysByteForByte) {
         serve(gateway, {.host = "127.0.0.1", .port = 0}, stop,
               [&](std::uint16_t port) { listening.set_value(port); });
     }};
+    const StopOnExit stopOnExit{server, stop};
     const std::uint16_t port = listening.get_future().get();
     {
         LineClient alice{port};
@@ -370,6 +401,7 @@ TEST(ServerTest, AClientStillSendingWhenTheSessionEndsGetsTheEnd) {
         serve(gateway, {.host = "127.0.0.1", .port = 0}, stop,
               [&](std::uint16_t port) { listening.set_value(port); });
     }};
+    const StopOnExit stopOnExit{server, stop};
     const std::uint16_t port = listening.get_future().get();
     {
         LineClient client{port};
