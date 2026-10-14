@@ -69,6 +69,13 @@ public:
     // then on runUntil and act throw std::logic_error rather than run on.
     void runUntil(Timestamp endTime);
 
+    // Called from inside a run, by an agent or a sink, makes runUntil return once everything due
+    // at the current time has run, with the clock left there instead of at its end time. Running
+    // on from there processes the same items in the same order as a run that was never stopped,
+    // so a driver can stop the market when something happens to its agent, act, and carry on.
+    // Outside a run it does nothing.
+    void interrupt() noexcept { interrupted_ = true; }
+
     // Runs `action` with the agent's context at the current time, as if one of its callbacks
     // were running: whatever it sends leaves now. This is how an agent driven from outside the
     // simulation, such as a person trading live, acts between calls to runUntil. Throws
@@ -182,6 +189,7 @@ private:
     std::uint64_t nextSequence_ = 0;
     Timestamp now_ = 0;
     bool failed_ = false; // set while a run is under way, and left set if an exception escapes
+    bool interrupted_ = false; // asked to stop after the current time
     EventSink* sink_ = nullptr;
     std::vector<Event> events_; // reused for every request
 
