@@ -2,12 +2,16 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "crowdbook/agents/zero_intelligence.hpp"
+#include "crowdbook/event_log.hpp"
 #include "crowdbook/simulation.hpp"
 #include "test_agents.hpp"
 
@@ -46,6 +50,85 @@ TEST(SimulationTest, RequestsAndRepliesTakeEachAgentsLatency) {
                               }));
     // Bob only gets the public update, after his own delay from the exchange.
     EXPECT_EQ(bob.received, (std::vector<Received>{{.time = 120, .event = top}}));
+}
+
+TEST(SimulationTest, AnInterruptStopsOnceEverythingDueThenHasRun) {
+    Simulation simulation{1};
+    auto& alice = add<RecordingAgent>(simulation, {});
+    alice.startHook = [](AgentContext& context) {
+        context.wakeAt(100, 1);
+        context.wakeAt(100, 2);
+        context.wakeAt(200, 3);
+    };
+    alice.wakeupHook = [&simulation](AgentContext& /*context*/, std::uint64_t tag) {
+        if (tag == 1) {
+            simulation.interrupt();
+        }
+    };
+
+    simulation.runUntil(1'000);
+    EXPECT_EQ(simulation.now(), 100);
+    EXPECT_EQ(alice.wakeups,
+              (std::vector<std::pair<Timestamp, std::uint64_t>>{{100, 1}, {100, 2}}));
+    simulation.runUntil(1'000);
+    EXPECT_EQ(simulation.now(), 1'000);
+    EXPECT_EQ(alice.wakeups.size(), 3U);
+
+    // Outside a run it does nothing.
+    simulation.interrupt();
+    simulation.runUntil(2'000);
+    EXPECT_EQ(simulation.now(), 2'000);
+}
+
+// Passes everything on to a log, and stops the run at every trade when asked to.
+class InterruptingSink final : public EventSink {
+public:
+    InterruptingSink(EventSink& next, bool interrupting) : next_(next), interrupting_(interrupting) {}
+
+    Simulation* simulation = nullptr;
+
+    void onRequest(Timestamp time, AgentId agent, const Request& request) override {
+        next_.onRequest(time, agent, request);
+    }
+    void onEvent(Timestamp time, const Event& event) override {
+        next_.onEvent(time, event);
+        if (interrupting_ && std::holds_alternative<Trade>(event)) {
+            simulation->interrupt();
+        }
+    }
+
+private:
+    EventSink& next_;
+    bool interrupting_;
+};
+
+TEST(SimulationTest, AnInterruptedRunCarriesOnExactlyAsOneThatWasNot) {
+    const auto run = [](bool interrupting) {
+        std::ostringstream out;
+        CsvEventLog log{out};
+        InterruptingSink sink{log, interrupting};
+        Simulation simulation{5};
+        sink.simulation = &simulation;
+        simulation.setEventSink(&sink);
+        for (int i = 0; i < 20; ++i) {
+            simulation.addAgent(
+                std::make_unique<ZeroIntelligenceTrader>(
+                    ZeroIntelligenceConfig{.limitRate = 2.0, .marketRate = 0.5, .cancelRate = 1.0},
+                    10'000),
+                {.latency = {.toExchange = 300'000, .fromExchange = 300'000, .jitter = 50'000}});
+        }
+        int runs = 0;
+        while (simulation.now() < 30 * kSecond) {
+            simulation.runUntil(30 * kSecond);
+            ++runs;
+        }
+        return std::pair{out.str(), runs};
+    };
+    const auto [interrupted, runs] = run(true);
+    const auto [straight, once] = run(false);
+    EXPECT_GT(runs, 100);
+    EXPECT_EQ(once, 1);
+    EXPECT_EQ(interrupted, straight);
 }
 
 TEST(SimulationTest, LinksKeepMessagesInOrderDespiteJitter) {

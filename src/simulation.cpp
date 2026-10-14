@@ -120,7 +120,11 @@ void Simulation::runUntil(Timestamp endTime) {
     // simulation stopped. Nothing is cleaned up then, since nothing will run again, and the
     // simulation frees everything it holds when it is destroyed.
     failed_ = true;
+    interrupted_ = false;
     while (!queue_.empty() && queue_.front().time <= endTime) {
+        if (interrupted_ && queue_.front().time > now_) {
+            break;
+        }
         std::ranges::pop_heap(queue_, Later{});
         const Scheduled item = queue_.back();
         queue_.pop_back();
@@ -128,7 +132,10 @@ void Simulation::runUntil(Timestamp endTime) {
         std::visit([this](const auto& action) { process(action); }, actions_[item.action]);
         freeActions_.push_back(item.action); // only now, as processing may schedule more
     }
-    now_ = std::max(now_, endTime);
+    if (!interrupted_) {
+        now_ = std::max(now_, endTime);
+    }
+    interrupted_ = false;
     failed_ = false;
 }
 
