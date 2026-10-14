@@ -131,15 +131,16 @@ scores are reported in tick-lots.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `mark` | text | `"last"` | What positions are valued at: `"last"`, the last trade price; `"value"`, the true value at the end, which needs a `[fundamental]` section; or `"book"`, what closing the position through the book would bring, taking the book best price first and paying the taker fee, with the seat's own orders left out and lots beyond the book at its deepest price |
+| `mark` | text | `"last"` | What positions are valued at: `"last"`, the last trade price; `"value"`, the true value at the end, which needs a `[fundamental]` section; or `"book"`, what closing the position through the book would bring, taking the book best price first and paying the taker fee, with the seat's own orders left out and lots beyond the book at its deepest price, or at the last trade when that side holds nothing but the seat's own orders |
 | `inventory_penalty` | number | 0 | Charged per lot held per second |
 | `close_penalty` | number | 0 | Charged per lot still held at the end |
 | `max_loss` | whole number | 0 | A loss this large, in tick-lots, valued at the latest trade, stops the seat: its orders are cancelled and it can send no more. 0 for no limit |
 
 ### `[scoring.target]` (optional)
 
-A large order to work. The score is measured against a paper portfolio that traded the whole
-target at the benchmark price.
+A large order to work. The score is measured against a paper portfolio that traded the whole target
+at the benchmark price. With `mark = "book"`, the paper portfolio closes through the book only as
+much of the target as the seat has done, and values the rest at the last trade.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -188,7 +189,7 @@ obs, rewards, terminated, truncated, info = pool.step(actions)  # 64 rows of (ac
 | `max_depth_updates` | whole number | 32 | Depth updates kept with their levels; 0 for none |
 | `depth_levels` | whole number | 10 | Levels a side of each depth update and of the latest book; 0 for none. The exchange's `depth_levels` sets how many it sends |
 | `max_orders` | whole number | 8 | Rows of the seat's open orders |
-| `feed` | table | none | A view of the underlying, which needs a `[fundamental]` or `[prediction]` section: `interval`, how often it comes, `"1s"`; `lag`, how late, 0; `noise`, the standard deviation of the normal noise added to each, 0 |
+| `feed` | table | none | A view of the underlying, which needs a `[fundamental]` or `[prediction]` section: `interval`, how often it comes, `"1s"`, at least `"1ms"`; `lag`, how late, 0; `noise`, the standard deviation of the normal noise added to each, 0 |
 | `ranges` | table | none | Settings drawn for each episode ([ranges](#learningranges-optional)) |
 
 The actions, each taken at one of the sizes:
@@ -200,8 +201,8 @@ The actions, each taken at one of the sizes:
 | `bid_improve`, `ask_improve`, `both_improve` | A tick better than the best price on that side, but never at or through the other side; where the spread leaves no room for both, `both_improve` joins both |
 | `bid_behind`, `ask_behind`, `both_behind` | A tick behind the best price on that side |
 | `cancel_bid`, `cancel_ask`, `cancel_all` | Cancels its bid, its offer, or both |
-| `buy`, `sell` | Takes the other side at its best price, `take_ticks` past it, immediate-or-cancel |
-| `close` | Cancels both and takes its position off the same way |
+| `buy`, `sell` | Takes the other side at its best price, `take_ticks` past it, immediate-or-cancel, having cancelled its own order on that side |
+| `close` | Cancels both and takes its position off the same way, as much as one order of `max_order_quantity` may; a larger position needs another `close` |
 
 The best prices are those the seat has heard, its own order left out: where its order is alone at
 the best price, the next level of the depth it heard. The seat keeps at most one order a side,
@@ -210,15 +211,16 @@ where it is in the queue if the price is the same. Sizes are cut to what the pos
 `max_order_quantity` allow. An action that needs a price the seat has not heard does nothing.
 
 The observation, in whole numbers: `state`, the seat's time, time left, position, cash, fees, open
-quantity, the best prices, the last trade, the phase, the reference price and its limits, and how
-many requests were rejected; `events`, everything heard since the last decision, a row
-`[type, time, a, b, c, d, e]` each, the latest `max_events` kept; `depth`, the levels of the depth
-updates in the stream, which their rows point into; `book`, the latest depth heard; `orders`, the
-seat's open orders; and `counts`, how many events, depth updates and orders there were in all.
-`STATE_NAMES` and `EVENT_NAMES` in the Python module name the columns and types, and
-`include/crowdbook/learning.hpp` describes each field. The reward is the change in the seat's score
-since the last decision, in tick-lots; the score as the episode would end now and the true value
-come beside it, in `info`, never in the observation.
+quantity, the best prices, the last trade, the phase, the reference and highest prices, its position
+and order limits, and how many requests were rejected; `events`, everything heard since the last
+decision, a row `[type, time, a, b, c, d, e]` each, the latest `max_events` kept; `depth`, the
+levels of the depth updates in the stream, which their rows point into; `book`, the latest depth
+heard; `orders`, the seat's open orders; and `counts`, how many events, depth updates and orders
+there were in all. `STATE_NAMES` and `EVENT_NAMES` in the Python module name the columns and types,
+and `include/crowdbook/learning.hpp` describes each field. The reward is the change in the seat's
+score since the last decision, in tick-lots, the first counting from the start, so that an episode's
+rewards add up to its score; the score as the episode would end now and the true value come beside
+it, in `info`, never in the observation.
 
 ### `[learning.ranges]` (optional)
 
@@ -228,7 +230,7 @@ has no name; each value is how it is drawn:
 
 | Form | Draws |
 |---|---|
-| `[low, high]` | Uniformly between the ends: whole numbers, numbers, or durations; whole numbers and durations can be either end |
+| `[low, high]` | Uniformly between the ends: whole numbers, numbers, or durations, with both ends included for whole numbers and durations |
 | `{ range = [low, high], step = s }` | One of low, low + s, low + 2s, ... up to high, each as likely |
 | `{ log = [low, high] }` | Uniformly in the logarithm, between two positive numbers |
 | `{ choices = [a, b, ...] }` | One of the choices, each as likely: numbers, text, or true or false |
@@ -243,13 +245,13 @@ agents.followers.lag = ["10s", "60s"]
 ```
 
 Each range draws from its own random stream, keyed by the episode's settings seed and the range's
-key, so the same seed always draws the same settings and adding a range changes no other's draw.
-The drawn values are set in the scenario and read with every check a scenario file gets. So that a
-range no market can be built from fails at once rather than in an episode, the scenario is built
-when it is loaded with every range at its low end, at its high end, at each choice and at sixteen
-draws. Settings whose values must be multiples of something, such as fees in thousandths of a tick,
-want a step. `info["settings"]` reports each episode's values, a choice of text by its position in
-the list.
+key, so the same seed always draws the same settings and adding a range changes no other's draw. The
+drawn values are set in the scenario and read with every check a scenario file gets. So that a range
+no market can be built from fails at once rather than in an episode, the scenario is built when it
+is loaded with every range at its low end, at the highest value it draws, at each choice and at
+sixteen draws. Settings whose values must be multiples of something, such as fees in thousandths of
+a tick, want a step. `info["settings"]` reports each episode's values, a choice of text by its
+position in the list.
 
 [examples/learning](../examples/learning) has a market to step, with its settings drawn for each
 episode.

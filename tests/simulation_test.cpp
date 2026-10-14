@@ -83,7 +83,8 @@ TEST(SimulationTest, AnInterruptStopsOnceEverythingDueThenHasRun) {
 // Passes everything on to a log, and stops the run at every trade when asked to.
 class InterruptingSink final : public EventSink {
 public:
-    InterruptingSink(EventSink& next, bool interrupting) : next_(next), interrupting_(interrupting) {}
+    InterruptingSink(EventSink& next, bool interrupting)
+        : next_(next), interrupting_(interrupting) {}
 
     Simulation* simulation = nullptr;
 

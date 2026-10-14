@@ -415,8 +415,8 @@ LearningFeed readFeed(const Reader& reader, const toml::table& table) {
     LearningFeed feed;
     if (const auto* node = table.get("interval")) {
         feed.interval = reader.duration(*node, "interval");
-        if (feed.interval <= 0) {
-            reader.fail(*node, "'interval' must be positive");
+        if (feed.interval < kMinFeedInterval) {
+            reader.fail(*node, "the feed's 'interval' must be at least 1ms");
         }
     }
     if (const auto* node = table.get("lag")) {

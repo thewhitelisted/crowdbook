@@ -163,7 +163,8 @@ void printBriefing(std::ostream& out, const Scenario& scenario) {
     const ScoringConfig& scoring = *scenario.scoring;
     const std::string_view valuedAt =
         scoring.mark == Mark::Value  ? "the true value at the end"
-        : scoring.mark == Mark::Book ? "what closing them through the book would bring"
+        : scoring.mark == Mark::Book ? "what closing them through the book would bring, after the "
+                                       "taker fee"
                                      : "the last trade price";
     out << std::format("scored on pnl net of fees, with positions valued at {}", valuedAt);
     if (scoring.inventoryPenalty != 0) {

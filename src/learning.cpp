@@ -169,10 +169,34 @@ DrawnSetting drawSetting(const SettingRange& range, std::uint64_t seed) {
     }
     const Duration low = parseDuration(std::get<std::string>(range.low));
     const Duration high = parseDuration(std::get<std::string>(range.high));
-    const Duration drawn = range.step
-                               ? stepsOf(low, high, parseDuration(std::get<std::string>(*range.step)))
-                               : random.uniformInt(low, high);
+    const Duration drawn =
+        range.step ? stepsOf(low, high, parseDuration(std::get<std::string>(*range.step)))
+                   : random.uniformInt(low, high);
     return {.value = std::format("{}ns", drawn), .setting = static_cast<double>(drawn)};
+}
+
+// The highest value a range draws: its last choice, its high end, or the last step below it.
+Parameters::Value highestDrawn(const SettingRange& range) {
+    if (range.form == SettingRange::Form::Choices) {
+        return range.choices.back();
+    }
+    if (!range.step) {
+        return range.high;
+    }
+    if (const auto* low = std::get_if<std::int64_t>(&range.low)) {
+        const std::int64_t step = std::get<std::int64_t>(*range.step);
+        return *low + (std::get<std::int64_t>(range.high) - *low) / step * step;
+    }
+    if (const auto* low = std::get_if<double>(&range.low)) {
+        const double step = std::get<double>(*range.step);
+        const auto steps = static_cast<std::int64_t>(
+            std::floor((std::get<double>(range.high) - *low) / step + 1e-9));
+        return *low + static_cast<double>(steps) * step;
+    }
+    const Duration low = parseDuration(std::get<std::string>(range.low));
+    const Duration step = parseDuration(std::get<std::string>(*range.step));
+    const Duration high = parseDuration(std::get<std::string>(range.high));
+    return std::format("{}ns", low + (high - low) / step * step);
 }
 
 // Calls task(i) for each i below a count, on a fixed set of threads and the calling one, and
@@ -340,7 +364,8 @@ EpisodeScenarios::EpisodeScenarios(std::string text, std::string source,
     if (!check || impl_->ranges().empty()) {
         return;
     }
-    // Every range at its low end, at its high end, and each choice in turn, the rest low.
+    // Every range at its low end and at the highest value it draws, then each choice in turn
+    // with the rest low.
     const auto build = [&](std::string_view what, const auto& choose) {
         try {
             const Scenario scenario = detail::readScenario(impl_->with(choose), impl_->source);
@@ -359,9 +384,7 @@ EpisodeScenarios::EpisodeScenarios(std::string text, std::string source,
         return range.form == SettingRange::Form::Choices ? range.choices.front() : range.low;
     };
     build("every range at its low end", low);
-    build("every range at its high end", [](const SettingRange& range) {
-        return range.form == SettingRange::Form::Choices ? range.choices.back() : range.high;
-    });
+    build("every range at its highest", highestDrawn);
     for (const SettingRange& varied : impl_->ranges()) {
         for (std::size_t i = 1; i + 1 < varied.choices.size(); ++i) {
             build(std::format("'{}' at choice {}", varied.path(), i + 1),
@@ -615,7 +638,8 @@ struct LearningMarket::Episode {
                 [&](const OrderRejected& rejected) {
                     ++rejections;
                     push(rows, rowCount, LearningEvent::Rejected, time,
-                         sideOf(rejected.clientOrderId), static_cast<std::int64_t>(rejected.request),
+                         sideOf(rejected.clientOrderId),
+                         static_cast<std::int64_t>(rejected.request),
                          static_cast<std::int64_t>(rejected.reason));
                     if (rejected.request == RequestKind::New) {
                         forget(rejected.clientOrderId);
@@ -649,7 +673,8 @@ struct LearningMarket::Episode {
     void clearStale(std::size_t slot, std::span<std::int64_t> out, std::size_t size) {
         Written& last = written[slot];
         const std::size_t from = std::min(size, out.size());
-        const std::size_t to = last.data == out.data() ? std::min(last.size, out.size()) : out.size();
+        const std::size_t to =
+            last.data == out.data() ? std::min(last.size, out.size()) : out.size();
         if (to > from) {
             std::fill(out.begin() + static_cast<std::ptrdiff_t>(from),
                       out.begin() + static_cast<std::ptrdiff_t>(to), 0);
@@ -765,15 +790,16 @@ struct LearningMarket::Episode {
         return order != nullptr && !order->cancelRequested ? order : nullptr;
     }
 
-    // The best price on a side as the seat has heard it, its own resting order there left out:
-    // the next level of the depth it heard when its order is alone at the best price, or nothing
-    // when it has no depth to say.
+    // The best price on a side as the seat has heard it, its own resting order there left out,
+    // a cancel of it on its way or not: the next level of the depth it heard when its order is
+    // alone at the best price, or nothing when it has no depth to say.
     [[nodiscard]] std::optional<Price> othersBest(const Ledger& ledger, Side side) const {
         const std::optional<LevelSummary>& best = side == Side::Buy ? bid : ask;
         if (!best) {
             return std::nullopt;
         }
-        const OwnOrder* own = quote(ledger, side);
+        const ClientOrderId id = quotes[index(side)];
+        const OwnOrder* own = id != 0 ? ledger.find(id) : nullptr;
         if (own == nullptr || !own->acknowledged || own->price != best->price ||
             best->quantity > own->leaves) {
             return best->price;
@@ -886,7 +912,8 @@ struct LearningMarket::Episode {
             context_.modify(id, price, quantity);
             episode_.actions.push_back(
                 {.time = context_.now(),
-                 .request = ModifyOrder{.clientOrderId = id, .price = price, .quantity = quantity}});
+                 .request =
+                     ModifyOrder{.clientOrderId = id, .price = price, .quantity = quantity}});
         }
 
         void quoteAt(Side side, LearningAction how, Quantity size) {
@@ -948,7 +975,12 @@ struct LearningMarket::Episode {
             submit(side, price, quantity, TimeInForce::ImmediateOrCancel);
         }
 
-        void take(Side side, Quantity size) { takeAt(side, sized(size, room(side, 0))); }
+        // Cancels the seat's own order on the side it takes from first, which the book would
+        // otherwise meet before anyone else's and turn the order away as a trade with itself.
+        void take(Side side, Quantity size) {
+            cancelQuote(opposite(side));
+            takeAt(side, sized(size, room(side, 0)));
+        }
 
         void close() {
             cancelQuote(Side::Buy);
@@ -988,9 +1020,27 @@ LearningMarket::LearningMarket(LearningMarket&&) noexcept = default;
 LearningMarket& LearningMarket::operator=(LearningMarket&&) noexcept = default;
 LearningMarket::~LearningMarket() = default;
 
+namespace {
+
+// Throws std::invalid_argument unless `out` has the sizes the shape gives every buffer.
+void checkSizes(const LearningConfig& shape, const LearningObservation& out) {
+    const std::size_t levels = 2 * shape.depthLevels * 2;
+    if (out.state.size() != kLearningStateNames.size() ||
+        out.orders.size() != shape.maxOrders * kOrderColumns ||
+        out.events.size() != shape.maxEvents * kEventColumns ||
+        out.depth.size() != shape.maxDepthUpdates * levels || out.book.size() != levels ||
+        out.counts.size() != kCountColumns) {
+        throw std::invalid_argument("the observation's buffers are not the sizes the learning "
+                                    "market's shape gives them");
+    }
+}
+
+} // namespace
+
 LearningStep LearningMarket::reset(Scenario scenario, const LearningObservation& out,
                                    std::optional<std::string> text) {
-    episode_.reset();
+    // Everything is checked before the episode there is gives way to the new one.
+    checkSizes(shape_, out);
     const LearningConfig config = scenario.learning.value_or(shape_);
     if (!sameShape(config, shape_)) {
         throw ScenarioError("the scenario's [learning] section gives other actions, sizes or "
@@ -998,6 +1048,9 @@ LearningStep LearningMarket::reset(Scenario scenario, const LearningObservation&
     }
     if (config.warmup >= scenario.duration) {
         throw ScenarioError("the first decision, at 'warmup', must come before the end of the run");
+    }
+    if (config.interval <= 0 || (config.feed && config.feed->interval < kMinFeedInterval)) {
+        throw ScenarioError("decisions need a positive interval, and a feed one of at least 1ms");
     }
     if (config.feed && !hasValue(scenario)) {
         throw ScenarioError("a feed of the underlying needs a fundamental or a prediction market");
@@ -1038,9 +1091,11 @@ LearningStep LearningMarket::reset(Scenario scenario, const LearningObservation&
         e.simulation->runUntil(config.warmup);
     }
     e.lastDecision = e.now();
-    e.lastScore = e.scoreAt(e.rewardMark);
+    // The first reward counts from the start, so that the rewards add up to the score even when
+    // the seat starts with one, as with a target or a position held from the start.
+    e.lastScore = 0;
     LearningStep report{.elapsed = e.now(),
-                        .score = e.closeMark == e.rewardMark ? e.lastScore : e.scoreAt(e.closeMark),
+                        .score = e.scoreAt(e.closeMark),
                         .value = e.value ? e.value->valueAt(e.now())
                                          : std::numeric_limits<double>::quiet_NaN()};
     e.observe(out);
@@ -1056,6 +1111,7 @@ LearningStep LearningMarket::step(std::size_t action, std::size_t size,
     if (e.finished) {
         throw std::logic_error("the episode is over: reset the market for another");
     }
+    checkSizes(shape_, out);
     if (action >= shape_.actions.size() || size >= shape_.sizes.size()) {
         throw std::invalid_argument(std::format(
             "action {} at size {}: there are {} actions and {} sizes", action, size,
@@ -1141,6 +1197,8 @@ struct LearningPool::State {
     std::vector<std::uint64_t> seedBuffer, settingsSeedBuffer;
     std::vector<std::exception_ptr> errors;
     Workers workers;
+    // Held by reset, step and session, so that calls from several threads take turns.
+    std::mutex calls;
 
     template <typename T>
     static std::span<T> slice(std::vector<T>& buffer, std::size_t market, std::size_t size) {
@@ -1194,7 +1252,8 @@ LearningPool::LearningPool(std::string text, std::string source, std::size_t mar
         threads = std::max(1U, std::thread::hardware_concurrency());
     }
     threads = std::min(threads, markets);
-    state_ = std::make_unique<State>(std::move(text), std::move(source), markets, threads, registry);
+    state_ =
+        std::make_unique<State>(std::move(text), std::move(source), markets, threads, registry);
     State& s = *state_;
     s.each.reserve(markets);
     for (std::size_t i = 0; i < markets; ++i) {
@@ -1227,6 +1286,7 @@ void LearningPool::reset(std::span<const std::uint64_t> seeds,
                          std::span<const std::uint8_t> mask,
                          std::span<const std::optional<std::string>> scenarios) {
     State& s = *state_;
+    const std::scoped_lock lock{s.calls};
     const auto check = [&](std::size_t size, std::string_view what, bool required) {
         if ((required || size != 0) && size != s.markets) {
             throw std::invalid_argument(
@@ -1247,8 +1307,9 @@ void LearningPool::reset(std::span<const std::uint64_t> seeds,
         const bool own = !scenarios.empty() && scenarios[market].has_value();
         std::optional<EpisodeScenarios> replacement;
         if (own) {
-            replacement.emplace(*scenarios[market], std::format("the scenario for market {}", market),
-                                s.registry, false);
+            replacement.emplace(*scenarios[market],
+                                std::format("the scenario for market {}", market), s.registry,
+                                false);
         }
         const EpisodeScenarios& from = own ? *replacement : s.scenarios;
         EpisodeScenarios::Drawn drawn = from.draw(settingsSeed);
@@ -1270,6 +1331,7 @@ void LearningPool::reset(std::span<const std::uint64_t> seeds,
 
 void LearningPool::step(std::span<const std::int64_t> actions) {
     State& s = *state_;
+    const std::scoped_lock lock{s.calls};
     if (actions.size() != 2 * s.markets) {
         throw std::invalid_argument(std::format(
             "the actions must be two numbers a market, the action and the size: {} for {} "
@@ -1305,7 +1367,15 @@ std::size_t LearningPool::threads() const noexcept { return state_->workers.thre
 const LearningConfig& LearningPool::config() const noexcept { return state_->config; }
 std::vector<std::string> LearningPool::settingNames() const { return state_->names; }
 
-Session LearningPool::session(std::size_t market) const { return state_->each.at(market).session(); }
+Session LearningPool::session(std::size_t market) const {
+    State& s = *state_;
+    if (market >= s.markets) {
+        throw std::out_of_range(
+            std::format("there is no market {} in a pool of {}", market, s.markets));
+    }
+    const std::scoped_lock lock{s.calls};
+    return s.each[market].session();
+}
 
 std::span<std::int64_t> LearningPool::state() noexcept { return state_->stateBuffer; }
 std::span<std::int64_t> LearningPool::orders() noexcept { return state_->orderBuffer; }

@@ -40,8 +40,10 @@ enum class LearningEvent : std::int64_t {
 };
 
 inline constexpr std::size_t kEventColumns = 7;
-inline constexpr std::size_t kOrderColumns = 5; // side, price, open quantity, acknowledged, cancel asked
-inline constexpr std::size_t kCountColumns = 3; // events, depth updates and open orders, all of them
+// An open order's row: side, price, open quantity, acknowledged, cancel asked.
+inline constexpr std::size_t kOrderColumns = 5;
+// How many events, depth updates and open orders there were, all of them.
+inline constexpr std::size_t kCountColumns = 3;
 
 // The seat's state at a decision, in this order.
 inline constexpr std::array<std::string_view, 18> kLearningStateNames{
@@ -98,8 +100,9 @@ public:
     };
 
     // Parses the scenario. With `check`, builds its market with every range at its low end, at
-    // its high end and at each choice, and draws it with settings seeds 1 to 16, so that a range
-    // no market can be built from fails now. Throws ScenarioError naming the range at fault.
+    // the highest value it draws and at each choice, and draws it with settings seeds 1 to 16, so
+    // that a range no market can be built from fails now. Throws ScenarioError naming the range at
+    // fault.
     EpisodeScenarios(std::string text, std::string source, const AgentRegistry& registry,
                      bool check = true);
     EpisodeScenarios(EpisodeScenarios&&) noexcept;
@@ -138,13 +141,15 @@ public:
     // whose observation it writes. The scenario's [learning] section sets the episode's timing,
     // feed and valuation, or the shape's do without one; its actions, sizes and capacity must be
     // the shape's. `text`, the scenario's text, is what session() records. Returns the first
-    // decision's report, with no reward and the time since the start as elapsed. Throws
-    // ScenarioError for a scenario no market can be built from.
+    // decision's report, with no reward and the time since the start as elapsed; the first
+    // step's reward counts from the start, so that an episode's rewards add up to its score.
+    // Throws ScenarioError for a scenario no market can be built from, leaving the episode
+    // there was, and std::invalid_argument for buffers of other sizes than the shape gives.
     LearningStep reset(Scenario scenario, const LearningObservation& out,
                        std::optional<std::string> text = std::nullopt);
     // Takes action number `action` at size number `size` now, runs to the next decision and
-    // writes its observation. Throws std::invalid_argument for an action or size out of range,
-    // and std::logic_error once the episode is over.
+    // writes its observation. Throws std::invalid_argument for an action or size out of range
+    // or buffers of the wrong sizes, and std::logic_error once the episode is over.
     LearningStep step(std::size_t action, std::size_t size, const LearningObservation& out);
 
     [[nodiscard]] bool started() const noexcept;
@@ -167,6 +172,7 @@ private:
 // reward and flag is written into buffers the pool owns, which never move, so a caller can read
 // them in place; each step overwrites them. Each market is a LearningMarket on its own, so what
 // one does depends only on its seeds and actions, never on the number of threads or of markets.
+// Calls to reset, step and session from several threads take turns.
 class LearningPool {
 public:
     // Builds `markets` markets of the scenario in `text`, stepped on `threads` threads, the calling
@@ -211,7 +217,8 @@ public:
     [[nodiscard]] std::span<std::int64_t> counts() noexcept;
     [[nodiscard]] std::span<double> rewards() noexcept;
     [[nodiscard]] std::span<std::uint8_t> terminated() noexcept;
-    [[nodiscard]] std::span<std::uint8_t> truncated() noexcept; // always 0: the end is part of the task
+    // Always 0: the end is part of the task.
+    [[nodiscard]] std::span<std::uint8_t> truncated() noexcept;
     [[nodiscard]] std::span<std::uint8_t> stopped() noexcept;
     [[nodiscard]] std::span<std::int64_t> elapsed() noexcept;
     [[nodiscard]] std::span<std::int64_t> score() noexcept;

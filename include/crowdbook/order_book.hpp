@@ -86,8 +86,9 @@ public:
     void visitLevels(Side side, Visit&& visit) const {
         const auto walk = [&visit](const auto& levels) {
             for (const auto& [price, level] : levels) {
-                if (!visit(LevelSummary{
-                        .price = price, .quantity = level.quantity, .orderCount = level.orderCount})) {
+                if (!visit(LevelSummary{.price = price,
+                                        .quantity = level.quantity,
+                                        .orderCount = level.orderCount})) {
                     return;
                 }
             }

@@ -123,7 +123,8 @@ public:
     // at any price, best price first, paying the taker fee: positive sells into the bids,
     // negative buys from the asks. The agent's own resting orders are left out, as it would
     // cancel them first. Lots beyond what the book has are valued at its deepest price on that
-    // side, with the fee there, or at `fallback` when that side is empty. Nothing changes.
+    // side, with the fee there, or at `fallback` when that side holds nothing but the agent's own
+    // orders. Nothing changes.
     // Throws std::out_of_range for an agent without an account.
     [[nodiscard]] BookClose closeThroughBook(AgentId agent, Quantity quantity,
                                              Price fallback) const;

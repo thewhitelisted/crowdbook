@@ -365,7 +365,7 @@ Linux, macOS or a BSD; `connect` needs any POSIX system. Scenario files use
 pinned versions, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has toml++'s license, since it
 is compiled into the `crowdbook` command. The analysis in `analysis/` is a
 [uv](https://docs.astral.sh/uv/) project using polars, NumPy and matplotlib; nothing in the C++
-build depends on it. When CMake finds Python 3.11 or later with its development files, the build
+build depends on it. When CMake finds Python 3.12 or later with its development files, the build
 also makes the learning module, `crowdbook_learn`, with
 [nanobind](https://github.com/wjakob/nanobind) fetched at a pinned version, in
 `build/<preset>/python`; put that directory on `PYTHONPATH`. It needs NumPy, and Gymnasium for
