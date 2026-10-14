@@ -133,20 +133,27 @@ Score Scorer::score(AgentId agent, Timestamp end, std::optional<double> value,
             target->benchmark == Benchmark::Vwap && tradedVolume_ > 0
                 ? static_cast<double>(tradedValue_) / static_cast<double>(tradedVolume_)
                 : static_cast<double>(referencePrice_);
+        const Quantity done = target->side == Side::Buy
+                                  ? seat.position - seat.initialPosition
+                                  : seat.initialPosition - seat.position;
         if (markedAt == Mark::Book) {
-            // The paper portfolio closes through the same book, without fees, as it pays none.
+            // The paper portfolio closes through the same book, without fees, as it pays none,
+            // only as much of the target as the seat has done, as the seat's close does; the
+            // rest is at the last trade, as with that mark, so that leaving a target undone
+            // saves no spread.
             const Quantity held = target->side == Side::Buy ? target->quantity : -target->quantity;
-            const BookClose close = exchange_->closeThroughBook(agent, held, lastPrice);
-            score.paper = points((static_cast<double>(close.cash) -
+            const Quantity doneLots = std::clamp<Quantity>(done, 0, target->quantity);
+            const Quantity closed = target->side == Side::Buy ? doneLots : -doneLots;
+            const BookClose close = exchange_->closeThroughBook(agent, closed, lastPrice);
+            score.paper = points((static_cast<double>(close.cash) +
+                                  static_cast<double>(held - closed) *
+                                      static_cast<double>(lastPrice) -
                                   static_cast<double>(held) * benchmark) *
                                  perTickLot);
         } else {
             score.paper = points(sign(target->side) * static_cast<double>(target->quantity) *
                                  (mark - benchmark) * perTickLot);
         }
-        const Quantity done = target->side == Side::Buy
-                                  ? seat.position - seat.initialPosition
-                                  : seat.initialPosition - seat.position;
         score.unfinishedLots = std::max<Quantity>(0, target->quantity - done);
         score.unfinished = target->unfinishedPenalty * score.unfinishedLots;
     }

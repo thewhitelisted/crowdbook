@@ -82,6 +82,42 @@ TEST(ScoringTest, ThroughTheBookPositionsCloseNetOfTheTakerFee) {
     EXPECT_EQ(score.total, -700);
 }
 
+TEST(ScoringTest, ThroughTheBookATargetLeftUndoneSavesNoSpread) {
+    // Someone else bids 1 at 99 and offers 1 at 101, with nothing traded: the last price is the
+    // reference, 100.
+    Exchange exchange{{}};
+    exchange.addAgent(kSeat);
+    exchange.addAgent(kOther);
+    std::vector<Event> events;
+    exchange.handle(kOther, NewOrder{.clientOrderId = 1, .price = 99, .quantity = 1}, events);
+    exchange.handle(kOther,
+                    NewOrder{.clientOrderId = 2, .side = Side::Sell, .price = 101, .quantity = 1},
+                    events);
+    for (const Side side : {Side::Buy, Side::Sell}) {
+        const Target target{.side = side,
+                            .quantity = 10,
+                            .benchmark = Benchmark::Reference,
+                            .unfinishedPenalty = 500};
+        // A seat that does nothing scores as it does at the last trade: the penalty, no more.
+        Scorer idle{{.mark = Mark::Book, .target = target}, 100};
+        idle.addSeat(kSeat, 0, 0);
+        idle.watch(exchange);
+        const Score score = idle.score(kSeat, kSecond, std::nullopt);
+        EXPECT_EQ(score.paper, 0);
+        EXPECT_EQ(score.total, -5'000);
+
+        // One that did 1 lot at the reference closes it through the book, as the paper does.
+        Scorer started{{.mark = Mark::Book, .target = target}, 100};
+        started.addSeat(kSeat, 0, 0);
+        started.watch(exchange);
+        started.onEvent(kSecond, fill(kSeat, side, 100, 1));
+        const Score one = started.score(kSeat, kSecond, std::nullopt);
+        EXPECT_EQ(one.paper, -1'000); // 1 lot closed a tick worse than the reference
+        EXPECT_EQ(one.pnl, -1'000);
+        EXPECT_EQ(one.total, -4'500); // the 9 lots left undone
+    }
+}
+
 TEST(ScoringTest, HoldingAndClosingCost) {
     Scorer scorer{{.inventoryPenalty = 100, .closePenalty = 1'000}, 100};
     playScript(scorer);

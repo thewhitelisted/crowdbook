@@ -23,13 +23,15 @@ pool.reset(seeds=range(64, 128), mask=terminated.copy())        # new episodes w
   one size, and runs every market to its next decision. A market whose episode is over must be
   reset before it steps again.
 - `observation` and `info` are dicts of read-only arrays, the same arrays after every call: copy
-  what you keep. `STATE_NAMES`, `EVENT_NAMES`, `action_names`, `sizes` and `setting_names` name
-  their columns and numbers.
+  what you keep. `reset` and `step` return new dicts of those arrays, which callers may change.
+  Calls to one pool from several threads take turns. `STATE_NAMES`, `EVENT_NAMES`, `action_names`,
+  `sizes` and `setting_names` name their columns and numbers.
 - `session(i)` is market i's episode as a session file, which `crowdbook replay` and
   `crowdbook report` read.
 - `VectorEnv(path, num_envs, threads=0)` puts a pool behind Gymnasium's vector API, with automatic
   resets disabled: reset the episodes that ended with
-  `reset(seed=..., options={"reset_mask": terminated})`.
+  `reset(seed=..., options={"reset_mask": terminated})`. A whole-number seed also seeds the
+  environment's generator, which draws the seeds of later resets given none.
 
 The scenario's `[learning]` section sets the decisions, the actions, the sizes and the settings
 drawn for each episode; [docs/scenarios.md](../docs/scenarios.md#learning-optional) lists its keys
@@ -37,7 +39,7 @@ and [docs/design.md](../docs/design.md#learning-environment) describes the envir
 
 ## Building
 
-CMake builds the module with the rest of crowdbook when it finds Python 3.11 or later with its
+CMake builds the module with the rest of crowdbook when it finds Python 3.12 or later with its
 development files, into `build/<preset>/python`:
 
 ```bash

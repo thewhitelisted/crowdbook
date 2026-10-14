@@ -1,9 +1,9 @@
 # The learning pool for Python: crowdbook::learning bound with nanobind, with the package around it
 # laid out in this build directory, which imports as it is (PYTHONPATH=build/<preset>/python).
-# Built when Python 3.11 or later is found with the files for building modules.
-find_package(Python 3.11 COMPONENTS Interpreter Development.Module)
+# Built when Python 3.12 or later is found with the files for building modules.
+find_package(Python 3.12 COMPONENTS Interpreter Development.Module)
 if(NOT Python_FOUND)
-    message(STATUS "Python 3.11 or later with its development files not found: the Python module "
+    message(STATUS "Python 3.12 or later with its development files not found: the Python module "
                    "for learning is skipped")
     return()
 endif()

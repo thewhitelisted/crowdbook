@@ -38,7 +38,8 @@ nb::object view(nb::handle pool, const T* data, std::initializer_list<std::size_
 }
 
 template <typename T>
-std::span<const T> span(const nb::ndarray<const T, nb::ndim<1>, nb::c_contig, nb::device::cpu>& array) {
+std::span<const T>
+span(const nb::ndarray<const T, nb::ndim<1>, nb::c_contig, nb::device::cpu>& array) {
     return {array.data(), array.shape(0)};
 }
 
@@ -49,8 +50,10 @@ nb::dict buffers(nb::handle self) {
     const std::size_t levels = config.depthLevels;
     nb::dict out;
     out["state"] = view(self, pool.state().data(), {n, crowdbook::kLearningStateNames.size()});
-    out["orders"] = view(self, pool.orders().data(), {n, config.maxOrders, crowdbook::kOrderColumns});
-    out["events"] = view(self, pool.events().data(), {n, config.maxEvents, crowdbook::kEventColumns});
+    out["orders"] =
+        view(self, pool.orders().data(), {n, config.maxOrders, crowdbook::kOrderColumns});
+    out["events"] =
+        view(self, pool.events().data(), {n, config.maxEvents, crowdbook::kEventColumns});
     out["depth"] = view(self, pool.depth().data(), {n, config.maxDepthUpdates, 2, levels, 2});
     out["book"] = view(self, pool.book().data(), {n, 2, levels, 2});
     out["counts"] = view(self, pool.counts().data(), {n, crowdbook::kCountColumns});
@@ -129,7 +132,8 @@ std::vector<std::string> eventNames() {
 } // namespace
 
 NB_MODULE(_core, module) {
-    module.doc() = "crowdbook's learning pool: many markets stepped at once on threads of their own";
+    module.doc() =
+        "crowdbook's learning pool: many markets stepped at once on threads of their own";
 
     nb::exception<crowdbook::ScenarioError>(module, "ScenarioError", PyExc_ValueError);
 

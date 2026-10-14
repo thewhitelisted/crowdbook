@@ -50,11 +50,14 @@ inline constexpr std::array kLearningActions{
 // The action with this name, if there is one.
 [[nodiscard]] std::optional<LearningAction> learningActionNamed(std::string_view name) noexcept;
 
+inline constexpr Duration kMinFeedInterval = kMillisecond;
+
 // A public feed of the market's underlying, which only the learning seat hears: every interval,
 // the underlying as it stood `lag` earlier, plus fresh normal noise. The underlying is the true
 // value of a market with a fundamental, in ticks, and in a prediction market the hidden quantity
 // whose end decides the question, whose change over the run has variance 1.
 struct LearningFeed {
+    // At least kMinFeedInterval, which bounds the publications a step can bring.
     Duration interval = kSecond;
     Duration lag = 0;
     double noise = 0.0; // standard deviation, in the underlying's units

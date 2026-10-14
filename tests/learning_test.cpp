@@ -39,7 +39,8 @@ public:
 // Sends one market order at a given time.
 class Hitter final : public Agent {
 public:
-    Hitter(Timestamp at, Side side, Quantity quantity) : at_(at), side_(side), quantity_(quantity) {}
+    Hitter(Timestamp at, Side side, Quantity quantity)
+        : at_(at), side_(side), quantity_(quantity) {}
 
     void onStart(AgentContext& context) override { context.wakeAt(at_, 0); }
     void onWakeup(AgentContext& context, std::uint64_t /*tag*/) override {
@@ -381,6 +382,16 @@ TEST(LearningConfigTest, ReportsBadSettings) {
         EXPECT_NE(error(learning).find(expected), std::string::npos)
             << "for " << learning << ": " << error(learning);
     }
+    // A feed comes at most every millisecond.
+    std::string fed{kBusy};
+    const std::string_view every = "interval = \"500ms\", lag";
+    fed.replace(fed.find(every), every.size(), "interval = \"500us\", lag");
+    try {
+        static_cast<void>(parseScenario(fed));
+        ADD_FAILURE() << "a feed every 500us was accepted";
+    } catch (const ScenarioError& caught) {
+        EXPECT_NE(std::string{caught.what()}.find("at least 1ms"), std::string::npos);
+    }
 }
 
 TEST(LearningTest, ActionsQuoteAndTakeAtTheBestPricesOthersShow) {
@@ -452,13 +463,54 @@ TEST(LearningTest, TheSeatsOwnOrderIsNotTheBestPriceItQuotesAgainst) {
     EXPECT_EQ(started.buffers.field("bid_price"), 99);
     std::vector<SessionAction> sent = started.market.session().actions;
     ASSERT_EQ(sent.size(), 2U);
-    EXPECT_EQ(sent[1].request, (Request{ModifyOrder{.clientOrderId = 1, .price = 98, .quantity = 1}}));
+    EXPECT_EQ(sent[1].request,
+              (Request{ModifyOrder{.clientOrderId = 1, .price = 98, .quantity = 1}}));
     started.step(LearningAction::BidImprove, 0); // others' best is 99: back to 100
     started.step(LearningAction::BidJoin, 0);    // alone there again: join others at 99
     sent = started.market.session().actions;
     ASSERT_EQ(sent.size(), 4U);
-    EXPECT_EQ(sent[2].request, (Request{ModifyOrder{.clientOrderId = 1, .price = 100, .quantity = 1}}));
-    EXPECT_EQ(sent[3].request, (Request{ModifyOrder{.clientOrderId = 1, .price = 99, .quantity = 1}}));
+    EXPECT_EQ(sent[2].request,
+              (Request{ModifyOrder{.clientOrderId = 1, .price = 100, .quantity = 1}}));
+    EXPECT_EQ(sent[3].request,
+              (Request{ModifyOrder{.clientOrderId = 1, .price = 99, .quantity = 1}}));
+}
+
+TEST(LearningTest, TakingAndClosingGoPastTheSeatsOwnOrders) {
+    // The seat's bid of 3 at 100 is alone at the top until the hitter sells 2 into it at 5.5s:
+    // closing cancels the lot left and sells the 2 to others at 99, not at its own 100.
+    Started closing{kScripted};
+    closing.step(LearningAction::BidImprove, 1);
+    while (closing.buffers.field("position") == 0) {
+        closing.step(LearningAction::Hold);
+    }
+    EXPECT_EQ(closing.buffers.field("position"), 2);
+    closing.step(LearningAction::Close);
+    closing.step(LearningAction::Hold);
+    EXPECT_EQ(closing.buffers.field("position"), 0);
+    std::vector<SessionAction> sent = closing.market.session().actions;
+    ASSERT_EQ(sent.size(), 3U);
+    EXPECT_EQ(sent[1].request, (Request{CancelOrder{.clientOrderId = 1}}));
+    EXPECT_EQ(sent[2].request, (Request{NewOrder{.clientOrderId = 2,
+                                                 .side = Side::Sell,
+                                                 .timeInForce = TimeInForce::ImmediateOrCancel,
+                                                 .price = 99,
+                                                 .quantity = 2}}));
+
+    // With its own offer alone at 100, buying cancels it and takes others' 101, where the book
+    // would otherwise meet the seat's own offer first and turn the order away.
+    Started buying{kScripted};
+    buying.step(LearningAction::AskImprove, 0);
+    buying.step(LearningAction::Buy, 0);
+    buying.step(LearningAction::Hold);
+    EXPECT_EQ(buying.buffers.field("position"), 1);
+    sent = buying.market.session().actions;
+    ASSERT_EQ(sent.size(), 3U);
+    EXPECT_EQ(sent[1].request, (Request{CancelOrder{.clientOrderId = 1}}));
+    EXPECT_EQ(sent[2].request, (Request{NewOrder{.clientOrderId = 2,
+                                                 .side = Side::Buy,
+                                                 .timeInForce = TimeInForce::ImmediateOrCancel,
+                                                 .price = 101,
+                                                 .quantity = 1}}));
 }
 
 TEST(LearningTest, DecisionsComeEveryIntervalAndWhenTheSeatsOrdersFill) {
@@ -504,7 +556,8 @@ TEST(LearningTest, DecisionsComeEveryIntervalAndWhenTheSeatsOrdersFill) {
     const std::vector<SessionAction> sent = started.market.session().actions;
     ASSERT_EQ(sent.size(), 2U);
     EXPECT_EQ(sent[1].time, 2 * kSecond);
-    EXPECT_EQ(sent[1].request, (Request{ModifyOrder{.clientOrderId = 1, .price = 100, .quantity = 1}}));
+    EXPECT_EQ(sent[1].request,
+              (Request{ModifyOrder{.clientOrderId = 1, .price = 100, .quantity = 1}}));
 
     // At 5.5s a market order sells 2: the seat's bid fills and it hears so 1ms later, a decision
     // of its own. Closing through the book now would sell at 99 and pay 0.5: a reward of -1.5.
@@ -607,6 +660,52 @@ TEST(LearningTest, RewardsAddUpToTheScoreClosedThroughTheBook) {
     const Score score = replayedScore(session, "book");
     EXPECT_NEAR(rewards, static_cast<double>(score.total) / 1'000.0, 1e-6);
     EXPECT_NE(score.total, 0);
+}
+
+TEST(LearningTest, RewardsCountFromTheStartWhenTheSeatStartsWithAScore) {
+    // A target's penalty, or a position held from the start, gives the seat a score before its
+    // first decision: the first reward counts it, so the rewards still add up to the score.
+    const auto holding = [](const std::string& text) {
+        Started started{text};
+        EXPECT_NE(started.first.score, 0);
+        double rewards = 0.0;
+        LearningStep step = started.first;
+        while (!step.terminated) {
+            step = started.step(LearningAction::Hold);
+            rewards += step.reward;
+        }
+        EXPECT_NEAR(rewards * 1'000.0, static_cast<double>(step.score), 1e-6);
+    };
+    holding(std::string{kScripted} +
+            "\n[scoring]\ntarget = { side = \"buy\", quantity = 5, unfinished_penalty = 1 }\n");
+    std::string positioned{kScripted};
+    const std::string_view account = "account = { max_position = 10";
+    positioned.replace(positioned.find(account), account.size(),
+                       "account = { initial_position = 3, max_position = 10");
+    holding(positioned + "\n[scoring]\nclose_penalty = 1\ninventory_penalty = 0.1\n");
+}
+
+TEST(LearningTest, AResetThatIsRefusedLeavesTheEpisodeThereWas) {
+    Started started{kScripted};
+    started.step(LearningAction::Hold);
+    const Timestamp now = started.market.now();
+    // Other sizes than the market's, and buffers of other sizes, are refused before anything
+    // changes, and the episode goes on.
+    std::string resized{kScripted};
+    resized.replace(resized.find("sizes = [1, 3, 8]"), 17, "sizes = [1, 3]");
+    EXPECT_THROW(static_cast<void>(started.market.reset(parseScenario(resized),
+                                                        started.buffers.view())),
+                 ScenarioError);
+    LearningConfig smaller = started.market.shape();
+    smaller.maxEvents = 4;
+    Buffers small{smaller};
+    EXPECT_THROW(static_cast<void>(started.market.step(0, 0, small.view())),
+                 std::invalid_argument);
+    EXPECT_THROW(static_cast<void>(started.market.reset(started.scenario, small.view())),
+                 std::invalid_argument);
+    EXPECT_EQ(started.market.now(), now);
+    started.step(LearningAction::Hold);
+    EXPECT_EQ(started.market.now(), now + kSecond);
 }
 
 TEST(LearningTest, APredictionMarketIsValuedAtResolutionAndRewardedAtTheValue) {
@@ -861,6 +960,8 @@ TEST(LearningTest, RangesAreCheckedAtTheirEndsWhenLoaded) {
         {"exchange.taker_fee = [0.1, 0.3]", "drawn with settings seed"},
         {"exchange.fee_curve = { choices = [\"flat\", \"curly\", \"flat\"] }",
          "'exchange.fee_curve' at choice 2"},
+        // Checked at 0.3, the highest it draws, not at 0.3005, which no fee may be.
+        {"exchange.taker_fee = { range = [0.1, 0.3005], step = 0.05 }", "no error"},
     };
     for (const auto& [ranges, expected] : cases) {
         EXPECT_NE(error(ranges).find(expected), std::string::npos)

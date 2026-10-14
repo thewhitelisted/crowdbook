@@ -137,7 +137,7 @@ constexpr std::uint64_t kTradingDayLog = 0x64bb6a9ec98c87b9;
 constexpr std::uint64_t kPredictionLog = 0x31f395923b73bddc;
 // The example learning market in four markets on two threads, stepped at random: every
 // observation, reward, value and drawn setting.
-constexpr std::uint64_t kLearningPool = 0x70ede3eb5223d7fe;
+constexpr std::uint64_t kLearningPool = 0x3264cf15430843fd;
 
 TEST(GoldenTest, AMarketsOutputsAreTheSameOnEveryPlatform) {
     const Scenario scenario = parseScenario(kMarket, "golden");

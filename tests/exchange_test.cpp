@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <stdexcept>
 #include <tuple>
@@ -7,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include "crowdbook/exchange.hpp"
+#include "crowdbook/random.hpp"
 #include "exchange_test_support.hpp"
 
 namespace crowdbook {
@@ -464,6 +467,79 @@ TEST(ExchangeCloseTest, AnEmptySideIsValuedAtTheFallbackWithTheFeeCurve) {
               (BookClose{.cash = 120, .fees = 5'040, .unfilled = 3}));
     EXPECT_EQ(exchange.takerFeeAt(40), 1'680);
     EXPECT_EQ(exchange.takerFeeAt(50), 1'750);
+}
+
+// Fills a book at random from four agents, Alice's orders among them, partly filled by market
+// orders, and returns the ids of Alice's orders.
+std::vector<ClientOrderId> randomBook(Exchange& exchange, std::uint64_t seed, Price mid) {
+    Random random{seed, 1};
+    std::vector<Event> events;
+    std::vector<ClientOrderId> next(5, 1);
+    std::vector<ClientOrderId> alices;
+    for (AgentId agent = 1; agent <= 4; ++agent) {
+        exchange.addAgent(agent);
+    }
+    for (int i = 0; i < 60; ++i) {
+        const auto agent = static_cast<AgentId>(1 + random.below(4));
+        const Side side = random.below(2) == 0 ? Side::Buy : Side::Sell;
+        const auto offset = static_cast<Price>(1 + random.below(8));
+        const ClientOrderId id = next[agent]++;
+        exchange.handle(agent,
+                        limitOrder(id, side, side == Side::Buy ? mid - offset : mid + offset,
+                                   static_cast<Quantity>(1 + random.below(7))),
+                        events);
+        if (agent == kAlice) {
+            alices.push_back(id);
+        }
+    }
+    for (int i = 0; i < 6; ++i) {
+        const auto agent = static_cast<AgentId>(2 + random.below(3));
+        exchange.handle(agent,
+                        marketOrder(next[agent]++, random.below(2) == 0 ? Side::Buy : Side::Sell,
+                                    static_cast<Quantity>(1 + random.below(4))),
+                        events);
+    }
+    return alices;
+}
+
+TEST(ExchangeCloseTest, AClosePaysWhatCancellingAndTakingTheBookWould) {
+    // In random books with Alice's own orders at many levels, some partly filled, under both fee
+    // curves and taker fees and rebates, a close through the book brings what cancelling her
+    // orders and sending a market order for the same lots does.
+    int checked = 0;
+    for (std::uint64_t seed = 1; seed <= 1'000; ++seed) {
+        Random settings{seed, 2};
+        ExchangeConfig config{.makerFee = 1'500,
+                              .takerFee = static_cast<Fee>(settings.uniformInt(-1'000, 3'000))};
+        Price mid = 1'000;
+        if (seed % 2 == 0) {
+            config.feeCurve = FeeCurve::Probability;
+            config.maxPrice = 99;
+            mid = 50;
+        }
+        const auto quantity = static_cast<Quantity>(settings.uniformInt(-20, 20));
+        Exchange valued{config};
+        randomBook(valued, seed, mid);
+        const BookClose close = valued.closeThroughBook(kAlice, quantity, 1);
+        if (close.unfilled != 0 || quantity == 0) {
+            continue;
+        }
+        Exchange closed{config};
+        std::vector<Event> events;
+        for (const ClientOrderId id : randomBook(closed, seed, mid)) {
+            closed.handle(kAlice, CancelOrder{.clientOrderId = id}, events);
+        }
+        const Account before = closed.account(kAlice);
+        closed.handle(kAlice,
+                      marketOrder(1'000, quantity > 0 ? Side::Sell : Side::Buy, std::abs(quantity)),
+                      events);
+        const Account after = closed.account(kAlice);
+        EXPECT_EQ(after.cash - before.cash, close.cash) << "seed " << seed;
+        EXPECT_EQ(after.fees - before.fees, close.fees) << "seed " << seed;
+        EXPECT_EQ(after.position - before.position, -quantity) << "seed " << seed;
+        ++checked;
+    }
+    EXPECT_GT(checked, 500);
 }
 
 TEST(ExchangeFeeTest, AProbabilityCurveNeedsAMarketWhoseSharesPayOut) {

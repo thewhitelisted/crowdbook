@@ -88,8 +88,9 @@ public:
     // that is not a seat.
     [[nodiscard]] std::optional<Timestamp> stoppedAt(AgentId agent) const;
     // The agent's score if the session ended at `end`, with `value` the true value then, which
-    // Mark::Value needs. Throws std::out_of_range for an agent that is not a seat, and
-    // std::invalid_argument for Mark::Value without a value.
+    // Mark::Value needs. Throws std::out_of_range for an agent that is not a seat,
+    // std::invalid_argument for Mark::Value without a value, and std::logic_error for Mark::Book
+    // without an exchange to watch.
     [[nodiscard]] Score score(AgentId agent, Timestamp end, std::optional<double> value) const;
     // The same with positions valued at `mark` instead of the configured one. Mark::Book needs
     // the exchange it watches, and throws std::logic_error without one.

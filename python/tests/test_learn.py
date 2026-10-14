@@ -56,11 +56,14 @@ class PoolTest(unittest.TestCase):
         time = crowdbook_learn.STATE_NAMES.index("time")
         np.testing.assert_array_equal(obs["state"][:, time], 5_000_000_000)
 
-        # The same arrays, at the same addresses, after every step.
+        # The same arrays, at the same addresses, after every step, in new dicts each time.
         address = obs["events"].__array_interface__["data"][0]
         before = obs["state"].copy()
         returned = pool.step(np.zeros((3, 2), dtype=np.int64))
         self.assertIs(returned[0]["events"], obs["events"])
+        self.assertIsNot(returned[0], obs)
+        returned[4]["episode"] = "a wrapper's own"
+        self.assertNotIn("episode", pool.info)
         self.assertEqual(obs["events"].__array_interface__["data"][0], address)
         np.testing.assert_array_equal(obs["state"][:, time], 6_000_000_000)
         self.assertFalse(np.array_equal(before, obs["state"]))
@@ -94,13 +97,13 @@ class PoolTest(unittest.TestCase):
     def test_stepping_releases_the_interpreters_lock(self):
         # The pool steps in another thread while this one counts. With the lock released for
         # each step, the count keeps going as fast as it does alone; held, this thread waits for
-        # every step, and runs only in the short switches between them.
+        # every step, and runs only in the short switches between them, a hundredth as often.
+        # The best of three tries, so that a burst of load on the machine cannot fail it.
         pool = crowdbook_learn.Pool(MARKET, markets=32, threads=1)
         pool.reset(seeds=0)
         holds = np.zeros((32, 2), dtype=np.int64)
-        switching = sys.getswitchinterval()
-        sys.setswitchinterval(1e-4)
-        try:
+
+        def ratio() -> float:
             alone, began = 0, time.perf_counter()
             while time.perf_counter() - began < 0.05:
                 alone += 1
@@ -119,9 +122,43 @@ class PoolTest(unittest.TestCase):
                 counted += 1
             elapsed = time.perf_counter() - began
             stepper.join()
+            return counted / (rate * elapsed)
+
+        switching = sys.getswitchinterval()
+        sys.setswitchinterval(1e-4)
+        try:
+            best = max(ratio() for _ in range(3))
         finally:
             sys.setswitchinterval(switching)
-        self.assertGreater(counted, 0.25 * rate * elapsed)
+        self.assertGreater(best, 0.25)
+
+    def test_calls_from_several_threads_take_turns(self):
+        # Two threads stepping one pool end where one thread stepping as often does.
+        text = MARKET.read_text()
+        shared, alone = (crowdbook_learn.Pool.from_text(text, 8, 2) for _ in range(2))
+        for pool in (shared, alone):
+            pool.reset(seeds=3)
+        holds = np.zeros((8, 2), dtype=np.int64)
+        failures = []
+
+        def steps():
+            try:
+                for _ in range(10):
+                    shared.step(holds)
+                    shared.session(0)
+            except Exception as error:  # noqa: BLE001 - reported below
+                failures.append(error)
+
+        threads = [threading.Thread(target=steps) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(failures, [])
+        for _ in range(20):
+            alone.step(holds)
+        for name in shared.observation:
+            np.testing.assert_array_equal(shared.observation[name], alone.observation[name])
 
     def test_mistakes_are_reported(self):
         pool = crowdbook_learn.Pool(MARKET, markets=2)
@@ -135,9 +172,21 @@ class PoolTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             pool.step(np.zeros(2, dtype=np.int64))  # two sizes: a pair is needed
         with self.assertRaises(crowdbook_learn.ScenarioError):
-            crowdbook_learn.Pool.from_text("[learning]\nspeed = 1\n[[agents]]\ntype = \"momentum\"\n",
-                                           1)
+            crowdbook_learn.Pool.from_text(
+                "[learning]\nspeed = 1\n[[agents]]\ntype = \"momentum\"\n", 1)
         self.assertTrue(issubclass(crowdbook_learn.ScenarioError, ValueError))
+        with self.assertRaises(TypeError):
+            pool.step(np.array([[1.5, 0], [0, 0]]))  # actions are whole numbers
+        with self.assertRaises(TypeError):
+            pool.reset(seeds=[1.5, 2.0])
+        with self.assertRaises(ValueError):
+            pool.reset(seeds=[-1, 2])
+        with self.assertRaises(ValueError):
+            pool.reset(seeds=-1)
+        with self.assertRaises(TypeError):
+            pool.reset(seeds=1, scenarios="seed = 1")  # one text a market, not one text
+        with self.assertRaisesRegex(IndexError, "no market 7"):
+            pool.session(7)
 
     def test_an_episode_is_a_session_that_crowdbook_replays(self):
         pool = crowdbook_learn.Pool.from_text(short(MARKET.read_text()), 1)
@@ -174,6 +223,24 @@ class VectorEnvTest(unittest.TestCase):
         self.assertFalse(truncated.any())
         obs, info = env.reset(seed=[20, 21, 22], options={"reset_mask": np.array([0, 1, 0])})
         self.assertEqual(list(info["seeds"]), [7, 21, 9])
+
+        # A seeded environment draws the same seeds for resets given none, or None for a market.
+        def drawn(seed):
+            other = crowdbook_learn.VectorEnv(MARKET, num_envs=3, threads=1)
+            other.reset(seed=seed)
+            first = other.reset()[1]["seeds"].copy()
+            second = other.reset(seed=[5, None, 6])[1]["seeds"].copy()
+            other.close()
+            with self.assertRaises(RuntimeError):
+                other.step(other.action_space.sample())
+            return first, second
+
+        first, second = drawn(11)
+        again = drawn(11)
+        np.testing.assert_array_equal(first, again[0])
+        np.testing.assert_array_equal(second, again[1])
+        self.assertEqual((second[0], second[2]), (5, 6))
+        env.close()
 
 
 if __name__ == "__main__":
