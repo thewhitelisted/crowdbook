@@ -21,6 +21,10 @@ inline constexpr Points kPointsPerTickLot = kFeeUnitsPerTickLot;
 enum class Mark : std::uint8_t {
     LastTrade, // the last trade price
     Value,     // the true value at the end; the scenario needs a fundamental value
+    // What closing the position through the book would bring, net of the taker fee: the change
+    // in position undone against the book as one order that takes it at any price, with the
+    // seat's own resting orders left out (Exchange::closeThroughBook).
+    Book,
 };
 
 // The price a target's paper portfolio trades at.
@@ -74,6 +78,8 @@ public:
 
     // Scores this agent, which starts with these balances.
     void addSeat(AgentId agent, Cash initialCash, Quantity initialPosition);
+    // The exchange whose book Mark::Book closes positions through; not owned.
+    void watch(const Exchange& exchange) noexcept { exchange_ = &exchange; }
 
     void onRequest(Timestamp time, AgentId agent, const Request& request) override;
     void onEvent(Timestamp time, const Event& event) override;
@@ -85,6 +91,10 @@ public:
     // Mark::Value needs. Throws std::out_of_range for an agent that is not a seat, and
     // std::invalid_argument for Mark::Value without a value.
     [[nodiscard]] Score score(AgentId agent, Timestamp end, std::optional<double> value) const;
+    // The same with positions valued at `mark` instead of the configured one. Mark::Book needs
+    // the exchange it watches, and throws std::logic_error without one.
+    [[nodiscard]] Score score(AgentId agent, Timestamp end, std::optional<double> value,
+                              Mark mark) const;
     [[nodiscard]] const ScoringConfig& config() const noexcept { return config_; }
 
 private:
@@ -101,6 +111,7 @@ private:
 
     ScoringConfig config_;
     Price referencePrice_;
+    const Exchange* exchange_ = nullptr;
     std::unordered_map<AgentId, Seat> seats_;
     std::vector<AgentId> order_; // seats in the order added, for checks in a fixed order
     std::optional<Price> lastPrice_;

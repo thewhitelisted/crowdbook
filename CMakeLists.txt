@@ -11,6 +11,9 @@ option(CROWDBOOK_BUILD_EXAMPLES "Build the example programs" ${PROJECT_IS_TOP_LE
 option(CROWDBOOK_BUILD_BENCHMARKS "Build the crowdbook benchmarks" OFF)
 option(CROWDBOOK_BUILD_SCENARIOS "Build TOML scenario file support (fetches toml++)"
     ${PROJECT_IS_TOP_LEVEL})
+option(CROWDBOOK_BUILD_PYTHON
+    "Build the learning pool's Python module, when Python is found (fetches nanobind)"
+    ${PROJECT_IS_TOP_LEVEL})
 option(CROWDBOOK_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(CROWDBOOK_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
@@ -60,4 +63,9 @@ endif()
 
 if(CROWDBOOK_BUILD_BENCHMARKS)
     add_subdirectory(bench)
+endif()
+
+# A Python module loaded into an interpreter without the sanitizers' runtime cannot carry them.
+if(CROWDBOOK_BUILD_PYTHON AND CROWDBOOK_BUILD_SCENARIOS AND NOT CROWDBOOK_SANITIZE)
+    add_subdirectory(python)
 endif()

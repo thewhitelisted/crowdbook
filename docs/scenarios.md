@@ -131,7 +131,7 @@ scores are reported in tick-lots.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `mark` | text | `"last"` | What positions are valued at: `"last"`, the last trade price, or `"value"`, the true value at the end, which needs a `[fundamental]` section |
+| `mark` | text | `"last"` | What positions are valued at: `"last"`, the last trade price; `"value"`, the true value at the end, which needs a `[fundamental]` section; or `"book"`, what closing the position through the book would bring, taking the book best price first and paying the taker fee, with the seat's own orders left out and lots beyond the book at its deepest price |
 | `inventory_penalty` | number | 0 | Charged per lot held per second |
 | `close_penalty` | number | 0 | Charged per lot still held at the end |
 | `max_loss` | whole number | 0 | A loss this large, in tick-lots, valued at the latest trade, stops the seat: its orders are cancelled and it can send no more. 0 for no limit |
@@ -160,6 +160,99 @@ and briefing before the clock starts.
 
 [examples/challenges](../examples/challenges) has four: making markets within a risk limit,
 working a large order, trading the news, and making markets against informed traders.
+
+## `[learning]` (optional)
+
+How a learning agent steps the market from Python or C++ through one seat, `learner`, which has the
+`[participant]` account and latency and is scored by `[scoring]`;
+[design.md](design.md#learning-environment) describes the environment. Runs, plays and served
+sessions ignore it. A scenario without it can still be stepped, with every setting at its default.
+
+```python
+import crowdbook_learn
+pool = crowdbook_learn.Pool("examples/learning/market.toml", markets=64)
+obs, info = pool.reset(seeds=range(64))
+obs, rewards, terminated, truncated, info = pool.step(actions)  # 64 rows of (action, size)
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `interval` | duration | `"1s"` | Decisions come at every multiple of it, and whenever one of the seat's orders fills |
+| `warmup` | duration | `"1s"` | The first decision; before the end of the run |
+| `actions` | list of text | all sixteen | The actions the seat can take, numbered in this order |
+| `sizes` | list of whole numbers | `[1, 5]` | The sizes an action can be taken at, in lots, numbered in this order |
+| `take_ticks` | whole number | 0 | How far past the other side's best price `buy`, `sell` and `close` will trade |
+| `reward_mark` | text | `"value"` with a `[fundamental]` or `[prediction]` section, else `"book"` | What positions are valued at between decisions: `"last"`, `"value"` or `"book"`, as `mark` in `[scoring]` |
+| `close` | text | `"value"` in a prediction market, else `"book"` | What positions are valued at when the episode ends: the same choices |
+| `max_events` | whole number | 256 | Rows of the event stream; the latest are kept |
+| `max_depth_updates` | whole number | 32 | Depth updates kept with their levels; 0 for none |
+| `depth_levels` | whole number | 10 | Levels a side of each depth update and of the latest book; 0 for none. The exchange's `depth_levels` sets how many it sends |
+| `max_orders` | whole number | 8 | Rows of the seat's open orders |
+| `feed` | table | none | A view of the underlying, which needs a `[fundamental]` or `[prediction]` section: `interval`, how often it comes, `"1s"`; `lag`, how late, 0; `noise`, the standard deviation of the normal noise added to each, 0 |
+| `ranges` | table | none | Settings drawn for each episode ([ranges](#learningranges-optional)) |
+
+The actions, each taken at one of the sizes:
+
+| Action | What the seat does |
+|---|---|
+| `hold` | Nothing |
+| `bid_join`, `ask_join`, `both_join` | Bids, offers, or both, at the best price on that side |
+| `bid_improve`, `ask_improve`, `both_improve` | A tick better than the best price on that side, but never at or through the other side; where the spread leaves no room for both, `both_improve` joins both |
+| `bid_behind`, `ask_behind`, `both_behind` | A tick behind the best price on that side |
+| `cancel_bid`, `cancel_ask`, `cancel_all` | Cancels its bid, its offer, or both |
+| `buy`, `sell` | Takes the other side at its best price, `take_ticks` past it, immediate-or-cancel |
+| `close` | Cancels both and takes its position off the same way |
+
+The best prices are those the seat has heard, its own order left out: where its order is alone at
+the best price, the next level of the depth it heard. The seat keeps at most one order a side,
+post-only; quoting a side again moves that order to the new price with a modify, or leaves it
+where it is in the queue if the price is the same. Sizes are cut to what the position limit and
+`max_order_quantity` allow. An action that needs a price the seat has not heard does nothing.
+
+The observation, in whole numbers: `state`, the seat's time, time left, position, cash, fees, open
+quantity, the best prices, the last trade, the phase, the reference price and its limits, and how
+many requests were rejected; `events`, everything heard since the last decision, a row
+`[type, time, a, b, c, d, e]` each, the latest `max_events` kept; `depth`, the levels of the depth
+updates in the stream, which their rows point into; `book`, the latest depth heard; `orders`, the
+seat's open orders; and `counts`, how many events, depth updates and orders there were in all.
+`STATE_NAMES` and `EVENT_NAMES` in the Python module name the columns and types, and
+`include/crowdbook/learning.hpp` describes each field. The reward is the change in the seat's score
+since the last decision, in tick-lots; the score as the episode would end now and the true value
+come beside it, in `info`, never in the observation.
+
+### `[learning.ranges]` (optional)
+
+Settings drawn at random for each episode, from a seed of its own. Each key is a setting's place in
+the scenario file, where `agents.<group>` names an agent group by its `name`, or by its `type` if it
+has no name; each value is how it is drawn:
+
+| Form | Draws |
+|---|---|
+| `[low, high]` | Uniformly between the ends: whole numbers, numbers, or durations; whole numbers and durations can be either end |
+| `{ range = [low, high], step = s }` | One of low, low + s, low + 2s, ... up to high, each as likely |
+| `{ log = [low, high] }` | Uniformly in the logarithm, between two positive numbers |
+| `{ choices = [a, b, ...] }` | One of the choices, each as likely: numbers, text, or true or false |
+
+```toml
+[learning.ranges]
+duration = ["300s", "900s"]
+fundamental.volatility = { log = [0.25, 1.0] }
+exchange.taker_fee = { range = [0.1, 0.3], step = 0.05 }
+agents.noise.count = [40, 80]
+agents.followers.lag = ["10s", "60s"]
+```
+
+Each range draws from its own random stream, keyed by the episode's settings seed and the range's
+key, so the same seed always draws the same settings and adding a range changes no other's draw.
+The drawn values are set in the scenario and read with every check a scenario file gets. So that a
+range no market can be built from fails at once rather than in an episode, the scenario is built
+when it is loaded with every range at its low end, at its high end, at each choice and at sixteen
+draws. Settings whose values must be multiples of something, such as fees in thousandths of a tick,
+want a step. `info["settings"]` reports each episode's values, a choice of text by its position in
+the list.
+
+[examples/learning](../examples/learning) has a market to step, with its settings drawn for each
+episode.
 
 ## `[[agents]]`
 

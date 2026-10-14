@@ -1,0 +1,120 @@
+# A market to step from Python, many at once: the playable market, with the volatility of its true
+# value, how often news comes, its fees and its crowd drawn at random for each episode, and a
+# feed of the true value that the learning seat hears a second late, with noise. The
+# [learning] section is described in docs/scenarios.md.
+#
+#   python3 python/examples/random_policy.py examples/learning/market.toml
+
+seed = 1
+duration = "600s"
+reference_price = 10000
+
+[fundamental]
+volatility = 0.5          # ticks per square root of a second
+step = "250ms"
+jump_rate = 0.01          # news a second
+jump_size = 4.0           # ticks
+
+[exchange]
+depth_levels = 10
+maker_fee = -0.1          # ticks per lot
+taker_fee = 0.2
+
+# The learning seat: a millisecond from the exchange, and limited to 50 lots either way.
+[participant]
+latency = { to_exchange = "1ms", from_exchange = "1ms" }
+account = { max_position = 50, max_order_quantity = 10 }
+
+[learning]
+interval = "1s"           # a decision every second, and whenever an order of the seat's fills
+warmup = "5s"             # the first decision
+sizes = [1, 5]            # a probe and a full order
+depth_levels = 10
+feed = { interval = "1s", lag = "1s", noise = 1.0 }
+
+# Drawn for each episode, each from its own random stream.
+[learning.ranges]
+duration = ["300s", "900s"]
+fundamental.volatility = { log = [0.25, 1.0] }
+fundamental.jump_rate = [0.0, 0.02]
+exchange.taker_fee = { range = [0.1, 0.3], step = 0.05 }
+agents.noise.count = [40, 80]
+agents.noise.limit_rate = [0.3, 0.7]
+agents.noise.market_rate = { log = [0.02, 0.1] }
+agents.followers.lag = ["10s", "60s"]
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 60
+limit_rate = 0.5
+market_rate = 0.05
+cancel_rate = 0.1
+max_offset = 8
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 200, max_order_quantity = 10 }
+
+[[agents]]
+type = "market_maker"
+name = "maker"
+intensity = 1.0
+quote_size = 5
+max_inventory = 100
+requote_interval = "250ms"
+post_only = true
+latency = { to_exchange = "20us", from_exchange = "20us" }
+account = { max_position = 110, max_order_quantity = 10 }
+
+[[agents]]
+type = "market_maker"
+name = "slow maker"
+intensity = 0.5
+quote_size = 10
+max_inventory = 100
+requote_interval = "1s"
+post_only = true
+latency = { to_exchange = "200us", from_exchange = "200us" }
+account = { max_position = 110, max_order_quantity = 10 }
+
+[[agents]]
+type = "momentum"
+name = "trend"
+count = 5
+interval = "500ms"
+fast_half_life = "2s"
+slow_half_life = "20s"
+threshold = 1.0
+order_size = 3
+max_position = 30
+latency = { to_exchange = "500us", from_exchange = "500us", jitter = "200us" }
+account = { max_position = 33, max_order_quantity = 3 }
+
+[[agents]]
+type = "informed"
+name = "experts"          # fast and close to right
+count = 2
+interval = "2s"
+noise = 1.0
+error = 1.0
+error_memory = "300s"
+lag = "1s"
+threshold = 2.0
+order_size = 3
+max_position = 300
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 303, max_order_quantity = 3 }
+
+[[agents]]
+type = "informed"
+name = "followers"        # slower, with views of their own
+count = 30
+interval = "5s"
+noise = 1.0
+error = 3.0
+error_memory = "300s"
+lag = "30s"
+threshold = 4.0
+order_size = 3
+max_position = 200
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 203, max_order_quantity = 3 }

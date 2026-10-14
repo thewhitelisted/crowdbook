@@ -125,7 +125,7 @@ TEST(ScenarioFileTest, RejectsUnknownKeysWithTheirLine) {
     EXPECT_EQ(parseError("seed = 1\nduraton = \"5s\"\n[[agents]]\ntype = \"momentum\"\n"),
               "test.toml:2: unknown key 'duraton' at the top level; expected one of: "
               "scenario_version, seed, duration, reference_price, fundamental, prediction, "
-              "exchange, trading_day, agents, participant, scoring, challenge");
+              "exchange, trading_day, agents, participant, scoring, challenge, learning");
     EXPECT_EQ(parseError("[[agents]]\ntype = \"momentum\"\n"
                          "latency = { to_exchange = \"1us\", jiter = \"1us\" }\n"),
               "test.toml:3: unknown key 'jiter' in latency; expected one of: to_exchange, "
@@ -156,7 +156,8 @@ TEST(ScenarioFileTest, RejectsValuesOfTheWrongKindOrRange) {
         {"duration = \"1000000000s\"\n" + agent, "it must be shorter than 1000000000s"},
         {"[scoring]\nmark = \"value\"\n" + agent,
          "scoring at the true value needs a [fundamental] or [prediction] section"},
-        {"[scoring]\nmark = \"mid\"\n" + agent, "'mark' must be \"last\" or \"value\""},
+        {"[scoring]\nmark = \"mid\"\n" + agent,
+         "'mark' must be \"last\", \"value\" or \"book\""},
         {"[scoring]\ninventory_penalty = -0.1\n" + agent, "not negative"},
         {"[scoring]\nclose_penalty = 0.0001\n" + agent, "at most three decimals"},
         {"[scoring]\nmax_loss = -5\n" + agent, "'max_loss' must be between 0"},
@@ -213,6 +214,10 @@ type = "momentum"
     EXPECT_EQ(scenario.scoring->target->quantity, 300);
     EXPECT_EQ(scenario.scoring->target->benchmark, Benchmark::Reference);
     EXPECT_EQ(scenario.scoring->target->unfinishedPenalty, 10'500);
+
+    EXPECT_EQ(parseScenario("[scoring]\nmark = \"book\"\n[[agents]]\ntype = \"momentum\"\n")
+                  .scoring->mark,
+              Mark::Book);
     EXPECT_FALSE(parseScenario("[[agents]]\ntype = \"momentum\"\n").scoring);
     EXPECT_NO_THROW(static_cast<void>(
         parseScenario("scenario_version = 1\n[[agents]]\ntype = \"momentum\"\n")));

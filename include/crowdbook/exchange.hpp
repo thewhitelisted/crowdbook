@@ -49,6 +49,15 @@ struct AccountConfig {
     Quantity maxOrderQuantity = kMaxQuantity;
 };
 
+// What closing a position through the book would bring: see Exchange::closeThroughBook.
+struct BookClose {
+    Cash cash = 0;         // received for lots sold, negative for lots bought back
+    Fee fees = 0;          // the taker fee on every lot, in fee units
+    Quantity unfilled = 0; // lots the book did not have, valued at its deepest price
+
+    friend bool operator==(const BookClose&, const BookClose&) = default;
+};
+
 // An agent's balances as the exchange keeps them. Cash may go negative: risk is bounded by the
 // position limit alone.
 struct Account {
@@ -108,6 +117,16 @@ public:
     [[nodiscard]] const ExchangeConfig& config() const noexcept { return config_; }
     // Fees collected from every agent, net of rebates, in fee units.
     [[nodiscard]] Fee feesCollected() const noexcept { return feesCollected_; }
+    // The taker fee on one lot traded at `price`, in fee units, under the fee curve.
+    [[nodiscard]] Fee takerFeeAt(Price price) const noexcept;
+    // What trading `quantity` lots against the book now would bring, as one order that takes it
+    // at any price, best price first, paying the taker fee: positive sells into the bids,
+    // negative buys from the asks. The agent's own resting orders are left out, as it would
+    // cancel them first. Lots beyond what the book has are valued at its deepest price on that
+    // side, with the fee there, or at `fallback` when that side is empty. Nothing changes.
+    // Throws std::out_of_range for an agent without an account.
+    [[nodiscard]] BookClose closeThroughBook(AgentId agent, Quantity quantity,
+                                             Price fallback) const;
 
     // Cross-checks accounts, live orders and the book, including conservation of cash, shares
     // and fees, and describes the first inconsistency found. Walks everything, so it is meant for

@@ -79,6 +79,8 @@ std::vector<ServerMessage> serverMessages() {
                                                        .unfinishedPenalty = 5'000}};
     Welcome plain{.seat = "dave"};
     plain.scoring = ScoringConfig{};
+    Welcome booked{.seat = "erin"};
+    booked.scoring = ScoringConfig{.mark = Mark::Book};
     TopOfBook top;
     top.bid = LevelSummary{.price = 10'003, .quantity = 12, .orderCount = 3};
     BookDepth depth;
@@ -133,6 +135,7 @@ std::vector<ServerMessage> serverMessages() {
         End{.time = 60'000'000'000, .cash = -50'012, .position = 5, .fees = 1'000, .pnl = 45},
         challenge,
         plain,
+        booked,
         End{.time = 1,
             .score = Score{.pnl = -3'500,
                            .inventory = 12,

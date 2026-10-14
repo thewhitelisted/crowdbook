@@ -1,13 +1,17 @@
 #include <cstdint>
 #include <format>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <gtest/gtest.h>
 
 #include "crowdbook/agent_registry.hpp"
 #include "crowdbook/event_log.hpp"
+#include "crowdbook/learning.hpp"
+#include "crowdbook/random.hpp"
 #include "crowdbook/scenario.hpp"
 #include "crowdbook/scenario_file.hpp"
 #include "crowdbook/session.hpp"
@@ -131,6 +135,9 @@ constexpr std::uint64_t kTradingDayLog = 0x64bb6a9ec98c87b9;
 // Two minutes of the example prediction market: the probability of yes, worked out with the
 // normal distribution, and partisans who see it tilted.
 constexpr std::uint64_t kPredictionLog = 0x31f395923b73bddc;
+// The example learning market in four markets on two threads, stepped at random: every
+// observation, reward, value and drawn setting.
+constexpr std::uint64_t kLearningPool = 0x70ede3eb5223d7fe;
 
 TEST(GoldenTest, AMarketsOutputsAreTheSameOnEveryPlatform) {
     const Scenario scenario = parseScenario(kMarket, "golden");
@@ -215,6 +222,43 @@ TEST(GoldenTest, APredictionMarketIsTheSameOnEveryPlatform) {
     const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), &sink);
     ASSERT_TRUE(result.finalValue);
     EXPECT_EQ(hex(hashOf(log.str())), hex(kPredictionLog));
+}
+
+TEST(GoldenTest, ALearningPoolIsTheSameOnEveryPlatform) {
+    std::ifstream file{std::string{CROWDBOOK_SOURCE_DIR} + "/examples/learning/market.toml"};
+    std::ostringstream text;
+    text << file.rdbuf();
+    LearningPool pool{text.str(), "golden", 4, 2};
+    pool.reset(std::vector<std::uint64_t>{1, 2, 3, 4});
+    std::string out;
+    const auto record = [&] {
+        for (const auto buffer : {pool.state(), pool.orders(), pool.events(), pool.depth(),
+                                  pool.book(), pool.counts(), pool.elapsed(), pool.score()}) {
+            for (const std::int64_t value : buffer) {
+                out += std::format("{},", value);
+            }
+        }
+        for (const auto buffer : {pool.rewards(), pool.value(), pool.settings()}) {
+            for (const double value : buffer) {
+                out += std::format("{},", value);
+            }
+        }
+    };
+    record();
+    std::vector<std::int64_t> actions(8);
+    for (std::uint64_t step = 0; step < 60; ++step) {
+        Random random{2026, step};
+        for (std::size_t market = 0; market < 4; ++market) {
+            const auto action = static_cast<std::int64_t>(random.below(kLearningActions.size()));
+            const auto size = static_cast<std::int64_t>(random.below(2));
+            actions[2 * market] = action;
+            actions[2 * market + 1] = size;
+        }
+        pool.step(actions);
+        record();
+    }
+    EXPECT_TRUE(pool.score()[0] != 0 || pool.score()[1] != 0); // the seats traded
+    EXPECT_EQ(hex(hashOf(out)), hex(kLearningPool));
 }
 
 } // namespace

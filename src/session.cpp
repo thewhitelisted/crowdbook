@@ -224,6 +224,9 @@ SessionMarket openSession(const Scenario& scenario, const AgentRegistry& registr
     SessionMarket market{.scorer = std::move(scorer),
                          .sinks = std::move(sinks),
                          .run = ScenarioRun{scenario, registry, sink}};
+    if (market.scorer) {
+        market.scorer->watch(market.run.simulation().exchange());
+    }
     for (const std::string& name : seats) {
         auto participant = std::make_unique<Participant>();
         Seat seat{.name = name, .participant = participant.get()};

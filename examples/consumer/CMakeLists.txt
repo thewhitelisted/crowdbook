@@ -6,5 +6,5 @@ project(crowdbook_consumer LANGUAGES CXX)
 find_package(crowdbook 0.12 REQUIRED)
 
 add_executable(consumer main.cpp)
-target_link_libraries(consumer PRIVATE crowdbook::gateway)
+target_link_libraries(consumer PRIVATE crowdbook::gateway crowdbook::learning)
 target_compile_features(consumer PRIVATE cxx_std_23)

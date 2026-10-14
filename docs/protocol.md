@@ -120,7 +120,8 @@ client claiming a seat again can carry on.
 
 `challenge` is `null` unless the scenario is a challenge, and `scoring` is `null` unless the seat
 is scored. Scoring amounts are in points, thousandths of a tick-lot: `mark` is `last` (positions
-valued at the last trade price) or `value` (at the true value at the end); `inventory_penalty` is
+valued at the last trade price), `value` (at the true value at the end) or `book` (at what closing
+them through the book would bring, net of the taker fee); `inventory_penalty` is
 per lot per second held, `close_penalty` per lot held at the end, `max_loss` in tick-lots (0 for
 no limit), and `target`, if not `null`, is
 `{"side","quantity","benchmark","unfinished_penalty"}` with `benchmark` either `vwap` or

@@ -1,8 +1,10 @@
 #include <optional>
 #include <stdexcept>
+#include <vector>
 
 #include <gtest/gtest.h>
 
+#include "crowdbook/exchange.hpp"
 #include "crowdbook/scoring.hpp"
 
 namespace crowdbook {
@@ -43,6 +45,41 @@ TEST(ScoringTest, PnlIsNetOfFeesAtTheMark) {
     EXPECT_EQ(atValue.score(kSeat, 5 * kSecond, 103.5).pnl, 6'700); // 2 lots at 103.5
     EXPECT_THROW(static_cast<void>(atValue.score(kSeat, 5 * kSecond, std::nullopt)),
                  std::invalid_argument);
+}
+
+TEST(ScoringTest, ThroughTheBookPositionsCloseNetOfTheTakerFee) {
+    // Someone else bids 1 at 101 and 5 at 99; the seat's own bid at 100 is left out.
+    Exchange exchange{{.takerFee = 200}};
+    exchange.addAgent(kSeat);
+    exchange.addAgent(kOther);
+    std::vector<Event> events;
+    exchange.handle(kOther, NewOrder{.clientOrderId = 1, .price = 101, .quantity = 1}, events);
+    exchange.handle(kOther, NewOrder{.clientOrderId = 2, .price = 99, .quantity = 5}, events);
+    exchange.handle(kSeat, NewOrder{.clientOrderId = 1, .price = 100, .quantity = 4}, events);
+
+    Scorer scorer{{.mark = Mark::Book}, 100};
+    playScript(scorer);
+    EXPECT_THROW(static_cast<void>(scorer.score(kSeat, 5 * kSecond, std::nullopt)),
+                 std::logic_error);
+    scorer.watch(exchange);
+    // -200 cash; the 2 lots sell at 101 and 99 for 200; 0.3 in fees and 0.4 more to close.
+    EXPECT_EQ(scorer.score(kSeat, 5 * kSecond, std::nullopt).pnl, -700);
+    // Any mark can be asked for: at the last trade, 105, it is 9.7 as before.
+    EXPECT_EQ(scorer.score(kSeat, 5 * kSecond, std::nullopt, Mark::LastTrade).pnl, 9'700);
+    EXPECT_EQ(scorer.score(kSeat, 5 * kSecond, 103.5, Mark::Value).pnl, 6'700);
+
+    // A target's paper portfolio closes through the same book, without fees: bought 2 at the
+    // reference, 100, and sold at 101 and 99, it made nothing.
+    Scorer target{{.mark = Mark::Book,
+                   .target = Target{.side = Side::Buy,
+                                    .quantity = 2,
+                                    .benchmark = Benchmark::Reference}},
+                  100};
+    playScript(target);
+    target.watch(exchange);
+    const Score score = target.score(kSeat, 5 * kSecond, std::nullopt);
+    EXPECT_EQ(score.paper, 0);
+    EXPECT_EQ(score.total, -700);
 }
 
 TEST(ScoringTest, HoldingAndClosingCost) {

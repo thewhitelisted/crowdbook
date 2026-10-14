@@ -30,5 +30,6 @@ if(CROWDBOOK_BUILD_TESTS AND NOT CROWDBOOK_SANITIZE)
     set_tests_properties(package.consumer_build PROPERTIES
         FIXTURES_REQUIRED consumer_configured FIXTURES_SETUP consumer_built)
     set_tests_properties(package.consumer_run PROPERTIES
-        FIXTURES_REQUIRED consumer_built PASS_REGULAR_EXPRESSION "the session ended")
+        FIXTURES_REQUIRED consumer_built
+        PASS_REGULAR_EXPRESSION "the session ended.*stepped the market that held to 2000000000 ns")
 endif()

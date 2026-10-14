@@ -11,6 +11,7 @@
 #include "crowdbook/agent_registry.hpp"
 #include "crowdbook/event_log.hpp"
 #include "crowdbook/fundamental.hpp"
+#include "crowdbook/learning_config.hpp"
 #include "crowdbook/parameters.hpp"
 #include "crowdbook/scoring.hpp"
 #include "crowdbook/simulation.hpp"
@@ -73,6 +74,8 @@ struct Scenario {
     // How live participants are scored, if they are; unused by runScenario.
     std::optional<ScoringConfig> scoring{};
     std::optional<Challenge> challenge{};
+    // How a learning agent steps the market; unused by runScenario.
+    std::optional<LearningConfig> learning{};
 };
 
 // Totals over the agents of one group.

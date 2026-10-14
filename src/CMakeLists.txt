@@ -12,6 +12,7 @@ add_library(crowdbook
     event_log.cpp
     exchange.cpp
     fundamental.cpp
+    learning_config.cpp
     ledger.cpp
     live.cpp
     math.cpp
@@ -74,15 +75,25 @@ if(CROWDBOOK_BUILD_SCENARIOS)
     add_library(crowdbook::gateway ALIAS crowdbook_gateway)
     target_link_libraries(crowdbook_gateway PUBLIC crowdbook::scenario crowdbook::protocol)
     crowdbook_set_warnings(crowdbook_gateway)
+
+    # Markets stepped by learning agents, many at once on threads of their own. It draws each
+    # episode's settings into the scenario's TOML document, so it compiles toml++ in as well.
+    add_library(crowdbook_learning
+        learning.cpp)
+    add_library(crowdbook::learning ALIAS crowdbook_learning)
+    target_link_libraries(crowdbook_learning
+        PUBLIC crowdbook::scenario Threads::Threads
+        PRIVATE $<BUILD_INTERFACE:tomlplusplus::tomlplusplus>)
+    crowdbook_set_warnings(crowdbook_learning)
 endif()
 
 # The installed package: the libraries, their headers, and a CMake config so that another project
 # can find_package(crowdbook) and link crowdbook::crowdbook, crowdbook::protocol and, with scenario
-# files, crowdbook::scenario and crowdbook::gateway.
+# files, crowdbook::scenario, crowdbook::gateway and crowdbook::learning.
 include(CMakePackageConfigHelpers)
 set(installed crowdbook crowdbook_protocol)
 if(CROWDBOOK_BUILD_SCENARIOS)
-    list(APPEND installed crowdbook_scenario crowdbook_gateway)
+    list(APPEND installed crowdbook_scenario crowdbook_gateway crowdbook_learning)
 endif()
 foreach(target IN LISTS installed)
     string(REPLACE "crowdbook_" "" name "${target}")

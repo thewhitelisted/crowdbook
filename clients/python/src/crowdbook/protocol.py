@@ -156,7 +156,7 @@ class TargetRule:
 class Scoring:
     """How the seat is scored. Amounts are in points, thousandths of a tick-lot."""
 
-    mark: Literal["last", "value"]
+    mark: Literal["last", "value", "book"]
     inventory_penalty: int  # per lot per second held
     close_penalty: int  # per lot held at the end
     max_loss: int  # in tick-lots; 0 for no limit
