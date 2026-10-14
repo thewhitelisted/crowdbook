@@ -93,19 +93,35 @@ std::optional<Timestamp> Scorer::stoppedAt(AgentId agent) const {
 }
 
 Score Scorer::score(AgentId agent, Timestamp end, std::optional<double> value) const {
+    return score(agent, end, value, config_.mark);
+}
+
+Score Scorer::score(AgentId agent, Timestamp end, std::optional<double> value,
+                    Mark markedAt) const {
     const Seat& seat = seats_.at(agent);
-    if (config_.mark == Mark::Value && !value) {
+    if (markedAt == Mark::Value && !value) {
         throw std::invalid_argument("scoring at the true value needs a fundamental value");
     }
-    const double mark = config_.mark == Mark::Value
-                            ? *value
-                            : static_cast<double>(lastPrice_.value_or(referencePrice_));
+    if (markedAt == Mark::Book && exchange_ == nullptr) {
+        throw std::logic_error("scoring through the book needs the exchange to watch");
+    }
+    const Price lastPrice = lastPrice_.value_or(referencePrice_);
+    const double mark =
+        markedAt == Mark::Value ? *value : static_cast<double>(lastPrice);
     const double perTickLot = static_cast<double>(kPointsPerTickLot);
     Score score;
-    score.pnl = points((static_cast<double>(seat.cash - seat.initialCash) +
-                        static_cast<double>(seat.position - seat.initialPosition) * mark) *
-                           perTickLot -
-                       static_cast<double>(seat.fees));
+    if (markedAt == Mark::Book) {
+        // Whole numbers throughout: the cash the close brings and its fees are exact.
+        const BookClose close =
+            exchange_->closeThroughBook(agent, seat.position - seat.initialPosition, lastPrice);
+        score.pnl = (seat.cash - seat.initialCash + close.cash) * kPointsPerTickLot - seat.fees -
+                    close.fees;
+    } else {
+        score.pnl = points((static_cast<double>(seat.cash - seat.initialCash) +
+                            static_cast<double>(seat.position - seat.initialPosition) * mark) *
+                               perTickLot -
+                           static_cast<double>(seat.fees));
+    }
     const double lotSeconds =
         (seat.lotNanoseconds + static_cast<double>(std::abs(seat.position)) *
                                    static_cast<double>(end - seat.since)) /
@@ -117,8 +133,17 @@ Score Scorer::score(AgentId agent, Timestamp end, std::optional<double> value) c
             target->benchmark == Benchmark::Vwap && tradedVolume_ > 0
                 ? static_cast<double>(tradedValue_) / static_cast<double>(tradedVolume_)
                 : static_cast<double>(referencePrice_);
-        score.paper = points(sign(target->side) * static_cast<double>(target->quantity) *
-                             (mark - benchmark) * perTickLot);
+        if (markedAt == Mark::Book) {
+            // The paper portfolio closes through the same book, without fees, as it pays none.
+            const Quantity held = target->side == Side::Buy ? target->quantity : -target->quantity;
+            const BookClose close = exchange_->closeThroughBook(agent, held, lastPrice);
+            score.paper = points((static_cast<double>(close.cash) -
+                                  static_cast<double>(held) * benchmark) *
+                                 perTickLot);
+        } else {
+            score.paper = points(sign(target->side) * static_cast<double>(target->quantity) *
+                                 (mark - benchmark) * perTickLot);
+        }
         const Quantity done = target->side == Side::Buy
                                   ? seat.position - seat.initialPosition
                                   : seat.initialPosition - seat.position;
@@ -136,6 +161,8 @@ std::string_view toString(Mark mark) noexcept {
         return "last";
     case Mark::Value:
         return "value";
+    case Mark::Book:
+        return "book";
     }
     return "unknown";
 }

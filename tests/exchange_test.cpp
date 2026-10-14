@@ -430,6 +430,42 @@ TEST(ExchangeFeeTest, AProbabilityCurveChargesLessTowardEitherEndOfThePrices) {
     }
 }
 
+TEST(ExchangeCloseTest, ClosesThroughTheBookWithoutTheAgentsOwnOrders) {
+    Exchange exchange{{.takerFee = 300}};
+    exchange.addAgent(kAlice);
+    exchange.addAgent(kBob);
+    std::vector<Event> events;
+    exchange.handle(kBob, limitOrder(1, Side::Buy, 100, 5), events);
+    exchange.handle(kAlice, limitOrder(1, Side::Buy, 100, 2), events);
+    exchange.handle(kBob, limitOrder(2, Side::Buy, 98, 3), events);
+    exchange.handle(kBob, limitOrder(3, Side::Sell, 103, 4), events);
+
+    // Selling 6 takes Bob's 5 at 100, leaving Alice's own 2 there out, then 1 at 98.
+    EXPECT_EQ(exchange.closeThroughBook(kAlice, 6, 101), (BookClose{.cash = 598, .fees = 1'800}));
+    // Selling 10 takes the 8 lots the book has for her, and values 2 more at its deepest bid.
+    EXPECT_EQ(exchange.closeThroughBook(kAlice, 10, 101),
+              (BookClose{.cash = 500 + 294 + 196, .fees = 3'000, .unfilled = 2}));
+    // Buying back 5 takes the 4 offered at 103 and values one more there.
+    EXPECT_EQ(exchange.closeThroughBook(kAlice, -5, 101),
+              (BookClose{.cash = -515, .fees = 1'500, .unfilled = 1}));
+    // Bob's orders are the ones he leaves out: selling, he finds only Alice's 2 at 100.
+    EXPECT_EQ(exchange.closeThroughBook(kBob, 2, 101), (BookClose{.cash = 200, .fees = 600}));
+    EXPECT_EQ(exchange.closeThroughBook(kAlice, 0, 101), BookClose{});
+    EXPECT_THROW(static_cast<void>(exchange.closeThroughBook(kDave, 1, 101)), std::out_of_range);
+    EXPECT_EQ(exchange.book().orderCount(), 4U); // nothing changed
+    EXPECT_EQ(exchange.audit(), std::nullopt);
+}
+
+TEST(ExchangeCloseTest, AnEmptySideIsValuedAtTheFallbackWithTheFeeCurve) {
+    Exchange exchange{{.takerFee = 1'750, .feeCurve = FeeCurve::Probability, .maxPrice = 99}};
+    exchange.addAgent(kAlice);
+    // No bids: 3 lots at the fallback of 40 cents, each paying 1.75 × 4 × 0.4 × 0.6 = 1.68.
+    EXPECT_EQ(exchange.closeThroughBook(kAlice, 3, 40),
+              (BookClose{.cash = 120, .fees = 5'040, .unfilled = 3}));
+    EXPECT_EQ(exchange.takerFeeAt(40), 1'680);
+    EXPECT_EQ(exchange.takerFeeAt(50), 1'750);
+}
+
 TEST(ExchangeFeeTest, AProbabilityCurveNeedsAMarketWhoseSharesPayOut) {
     EXPECT_NO_THROW((Exchange{{.feeCurve = FeeCurve::Probability, .maxPrice = 99}}));
     EXPECT_THROW((Exchange{{.feeCurve = FeeCurve::Probability}}), std::invalid_argument);

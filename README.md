@@ -26,10 +26,12 @@ or writing a program in any language that trades over the network.
 > bias of real ones. Simulated markets are now set against real ones: a scorecard of the same
 > statistics on Polymarket's Bitcoin questions, read from its public blockchain, and a market
 > fitted to them, every setting at once, with uncertainties, judged on seeds the fit never saw;
-> takers pay Polymarket's own fee. Next: a learning environment, for stepping markets from Python.
-> See
-> [docs/design.md](docs/design.md) for the goal, the architecture, the testing approach and the
-> roadmap.
+> takers pay Polymarket's own fee. A learning agent can step markets from Python, many at once on
+> threads of their own, each through a seat of its own, with rewards from the scoring rules and the
+> market's settings drawn at random for each episode, and every episode replays exactly. Next:
+> industry protocols, FIX and a binary encoding, so trading systems can use crowdbook as a test
+> exchange. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
+> approach and the roadmap.
 
 ## Quick start
 
@@ -307,6 +309,39 @@ registry.add("mean_reverter", [](const crowdbook::Parameters& parameters,
 [examples/custom_agent.cpp](examples/custom_agent.cpp) is the complete program, with a position
 limit, and builds with the project.
 
+## Step it from Python
+
+A learning agent trades through one seat in each of many markets, which a pool steps together on
+threads of its own, in C++, while Python waits without holding its lock:
+
+```python
+import crowdbook_learn
+
+pool = crowdbook_learn.Pool("examples/learning/market.toml", markets=64)
+obs, info = pool.reset(seeds=range(64))
+while True:
+    actions = policy(obs)  # 64 rows of (action, size)
+    obs, rewards, terminated, truncated, info = pool.step(actions)
+    if terminated.any():
+        pool.reset(seeds=fresh_seeds(), mask=terminated.copy())
+```
+
+The seat decides every second of market time and whenever one of its orders fills. It sees what a
+trader would have heard since its last decision, with the times it heard it: trades, the best
+prices, depth, its own acknowledgements and fills, and a feed of the true value, late and noisy; and
+its position, cash, orders and the time left. It quotes, joins, improves, steps back, cancels or
+takes, at one of a few sizes, and its orders rest between decisions. The reward is the change in its
+score, net of fees, with positions valued at the true value where the market has one and closed
+through the book at the end, or valued at resolution in a prediction market, so an episode's rewards
+add up to its score. The observations are NumPy arrays over the pool's own memory, never copied.
+`crowdbook_learn.VectorEnv` puts a pool behind Gymnasium's vector API.
+
+Every episode is a session with one seat: it runs again the same from its seeds, on any number of
+threads and on Linux and macOS alike, and `pool.session(i)` writes it as a file `crowdbook replay`
+and `crowdbook report` read. A scenario's `[learning]` section can draw any of its settings at
+random for each episode, from ranges ([docs/scenarios.md](docs/scenarios.md#learning-optional)),
+and [docs/design.md](docs/design.md#learning-environment) describes the environment.
+
 ## Use it as a library
 
 Everything the `crowdbook` command does is a library call: run markets, serve them over your own
@@ -324,13 +359,18 @@ Each workflow preset configures, builds and runs the test suite, with output in 
 | `release` | Release, including the benchmarks                          |
 | `asan`    | Debug with AddressSanitizer and UndefinedBehaviorSanitizer |
 
-The core library has no dependencies. `serve` waits on its sockets with epoll or kqueue, so it
-needs Linux, macOS or a BSD; `connect` needs any POSIX system. Scenario files use
-[toml++](https://github.com/marzer/tomlplusplus) and the tests use GoogleTest; CMake fetches both
-at pinned versions, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has toml++'s license,
-since it is compiled into the `crowdbook` command. The analysis in `analysis/` is a
+The core library has no dependencies. `serve` waits on its sockets with epoll or kqueue, so it needs
+Linux, macOS or a BSD; `connect` needs any POSIX system. Scenario files use
+[toml++](https://github.com/marzer/tomlplusplus) and the tests use GoogleTest; CMake fetches both at
+pinned versions, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has toml++'s license, since it
+is compiled into the `crowdbook` command. The analysis in `analysis/` is a
 [uv](https://docs.astral.sh/uv/) project using polars, NumPy and matplotlib; nothing in the C++
-build depends on it.
+build depends on it. When CMake finds Python 3.11 or later with its development files, the build
+also makes the learning module, `crowdbook_learn`, with
+[nanobind](https://github.com/wjakob/nanobind) fetched at a pinned version, in
+`build/<preset>/python`; put that directory on `PYTHONPATH`. It needs NumPy, and Gymnasium for
+`VectorEnv`; `-DCROWDBOOK_BUILD_PYTHON=OFF` leaves it out. THIRD_PARTY_NOTICES.md has the licenses
+of nanobind and robin-map too, which are compiled into it.
 
 ## Performance
 
@@ -343,6 +383,9 @@ Measured on one core of an Apple M5 with a Release build:
   seconds: about 2,500 times faster than real time.
 - The markets of the example challenges run 27,000 to 42,000 times faster than real time, and
   18,000 to 26,000 times when served through the gateway to a client that reads every message.
+- A pool of the example learning market steps about 30,000 decisions a second, each a second of
+  market time, over 64 markets on four threads of a four-core x86 cloud machine, and 17,000 for one
+  market on one thread.
 - The event log writes about 280 MB a second, and the server encodes a ten-level depth update in
   about 120 ns.
 - Served over TCP to 50 trading clients, each placing or cancelling 20 orders a second and reading
@@ -379,5 +422,6 @@ python3 tools/bench_check.py
 providing a product that competes with it, or with a product its author provides using it.
 Everything published before this licence, version 0.12.0 included, was released under MIT and
 stays under it. The Python client in [clients/python](clients/python) stays under
-[MIT](clients/python/LICENSE). Third-party code compiled into the binary is listed in
+[MIT](clients/python/LICENSE); the learning module in [python](python) is part of the engine and
+under its license. Third-party code compiled into the binary is listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

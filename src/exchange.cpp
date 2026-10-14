@@ -97,6 +97,52 @@ Exchange::Exchange(const ExchangeConfig& config) : config_(config) {
     reference_ = config.referencePrice;
 }
 
+Fee Exchange::takerFeeAt(Price price) const noexcept {
+    return feeAt(config_, config_.takerFee, price);
+}
+
+BookClose Exchange::closeThroughBook(AgentId agent, Quantity quantity, Price fallback) const {
+    const AgentState& state = agents_.at(agent);
+    BookClose close;
+    if (quantity == 0) {
+        return close;
+    }
+    // Selling takes the bids, buying back the asks.
+    const Side side = quantity > 0 ? Side::Buy : Side::Sell;
+    Quantity remaining = quantity > 0 ? quantity : -quantity;
+    std::optional<Price> deepest;
+    Cash notional = 0;
+    book_.visitLevels(side, [&](const LevelSummary& level) {
+        // The agent's own orders at this price, which it would cancel rather than trade with.
+        // Only summed, so the order the live-order map is walked in does not matter.
+        Quantity own = 0;
+        state.liveOrders.forEach([&](ClientOrderId /*clientOrderId*/, OrderId id) {
+            if (const auto order = book_.find(id);
+                order && order->side == side && order->price == level.price) {
+                own += order->remaining;
+            }
+        });
+        const Quantity available = level.quantity - own;
+        if (available <= 0) {
+            return true;
+        }
+        deepest = level.price;
+        const Quantity taken = std::min(available, remaining);
+        notional += level.price * taken;
+        close.fees += takerFeeAt(level.price) * taken;
+        remaining -= taken;
+        return remaining > 0;
+    });
+    if (remaining > 0) {
+        const Price price = deepest.value_or(fallback);
+        notional += price * remaining;
+        close.fees += takerFeeAt(price) * remaining;
+        close.unfilled = remaining;
+    }
+    close.cash = quantity > 0 ? notional : -notional;
+    return close;
+}
+
 void Exchange::addAgent(AgentId agent, const AccountConfig& config) {
     if (config.maxPosition < 0 || config.maxPosition > kMaxQuantity) {
         throw std::invalid_argument("maxPosition must be between 0 and kMaxQuantity");

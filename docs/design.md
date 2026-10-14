@@ -70,6 +70,10 @@ the roadmap marks them.
 - **Gateway** — people and programs trade in one market over the network, each from a seat of
   its own, with a protocol any language can speak, and the session still replays exactly. See
   [Gateway](#gateway) and [protocol.md](protocol.md).
+- **Learning environment** — many markets stepped at once, in lockstep, from Python or C++, each
+  through one seat whose decisions come every interval and on its own fills, with rewards from the
+  scoring rules and settings drawn at random for each episode. See
+  [Learning environment](#learning-environment).
 - **Event log** — every request the exchange receives and every event it produces, written as CSV
   and analysed in Python (`analysis/`). Long runs can keep only chosen kinds of rows or sample
   prices at fixed times instead, and each run's results can be written as JSON. See
@@ -349,7 +353,8 @@ byte for byte. [protocol.md](protocol.md) specifies the messages.
   The recording keeps that time and the seat, so a replay sends it at the same moment from the
   same agent. Real network delay therefore adds to the simulated one, scaled by the speed: at 50
   times real time, a millisecond on the wire is 50 simulated milliseconds. That is inherent to
-  trading in real time; the learning environment (M19) will step the market in lockstep instead.
+  trading in real time; the [learning environment](#learning-environment) steps the market in
+  lockstep instead.
 - **Untrusted input:** a line longer than 4 KiB, a malformed message, an unknown field or a value
   out of range gets an error message and is dropped. Each connection may send a limited number of
   messages per second of wall-clock time; messages over the limit are dropped before they reach
@@ -411,7 +416,11 @@ decimals, and kept as whole points.
 
 - **PnL** is the change in cash plus the change in position valued at the mark, net of fees. The
   mark is the last trade price, or with `mark = "value"` the true value at the end, which scores
-  what a position was really worth rather than where the last trade happened to print.
+  what a position was really worth rather than where the last trade happened to print, or with
+  `mark = "book"` what undoing the change in position through the book would bring: one order that
+  takes the book at any price, best price first, paying the taker fee under the fee curve, with the
+  seat's own resting orders left out, and lots beyond the book valued at its deepest price
+  (`Exchange::closeThroughBook`). Nobody can push that mark with a last small trade.
 - **Inventory** costs `inventory_penalty` per lot per second held, integrated over the session
   from the seat's fills: holding risk costs something even when it pays off.
 - **Closing** costs `close_penalty` per lot still held at the end.
@@ -465,6 +474,88 @@ works from the recording alone, by replaying it, so anyone holding the file gets
 Rewinding is a recording cut short: `play --from session.toml --at 2m` and the same for `serve`
 replay a session's requests up to that moment, then hand its seats to people and programs again.
 The new recording holds the replayed requests and the new ones, so it replays like any other.
+
+## Learning environment
+
+`LearningPool` holds many markets of one scenario and steps them together, each through one seat
+for a learning agent, from Python or from C++. Each market is a `LearningMarket`, and everything
+in [Live sessions](#live-sessions) still holds for it: an episode is a session with one seat, and
+replays exactly.
+
+- **One seat.** A market is built with `openSession` and one seat, `learner`, which joins after the
+  scenario's agents with its `[participant]` account and latency, as a gateway's seat does, and is
+  scored by the session's `Scorer`. The `[learning]` section of the scenario sets the rest
+  ([scenarios.md](scenarios.md#learning-optional)).
+- **Decisions** come at every multiple of the interval, a second unless the scenario says
+  otherwise, and whenever one of the seat's own orders fills; the first at the warmup. Between
+  decisions the market runs on. When the seat hears a fill of its own, one latency after the
+  exchange made it, its listener calls `Simulation::interrupt()`, and the run stops once everything
+  due at that nanosecond has run. The seat then acts at that time with `Simulation::act`, as a
+  recorded action is performed in a replay, and running to a time and acting there processes the
+  same items in the same order as running past it. So `session()` writes an episode as a session
+  file that `crowdbook replay` and `crowdbook report` read and that replays byte for byte. A step
+  returns the simulated time that passed.
+- **The observation** is everything the seat heard since the last decision, as one stream of
+  events in the order it heard them, each a row of seven whole numbers: its type, the time it
+  arrived, and five fields. The stream holds trades, changes of the best prices, depth updates,
+  the seat's own acceptances, fills, modifies, cancels and rejections, phases and indicative prices
+  in a trading day, and the feed. It keeps the latest `max_events` rows and a count of how many
+  there were; depth updates keep their levels in an array of their own, `max_depth_updates` deep,
+  which their rows point into, or -1 for those not kept. Beside the stream come the latest depth
+  heard, the seat's open orders from its ledger, and its state: the time, the time left, its
+  position, cash and fees, its open quantity, the best prices and last trade as it heard them, the
+  phase, the reference price and its limits. The time left comes from each episode's own end, which
+  a drawn duration moves. The buffers have fixed sizes and every number is a whole number, as on
+  the wire.
+- **The feed**, if the scenario asks for one, gives the seat a public view of the underlying every
+  interval: the true value as it stood `lag` earlier, plus fresh normal noise, or in a prediction
+  market the hidden quantity whose end decides the question, in millionths. It reads a copy of the
+  value made from the same seed, so reading it changes nothing, and its noise draws from a stream
+  of its own.
+- **Actions** are sixteen, numbered, each taken at one of the scenario's sizes: hold; a bid, an
+  offer or both, at the best price, a tick inside it or a tick behind it; cancel the bid, the offer
+  or both; buy or sell immediate-or-cancel at the other side's best price, `take_ticks` past it;
+  and close, which cancels both and takes the position off the same way. Prices are relative to the
+  best prices the seat has heard, its own order left out: where it is alone at the best price, the
+  next level of the depth it heard. The seat keeps at most one resting order a side, post-only, so
+  an action on a side moves that order with a modify, or leaves it alone, in its place in the
+  queue, if it is at that price already. Two ticks apart, improving both would put them on one
+  price, so both join. Sizes are cut to what the position limit and the largest order allow, and an
+  action that needs a price the seat has not heard does nothing.
+- **The reward** is the change in the seat's score since the last decision, in tick-lots: the
+  session scorer's PnL net of fees, less the `[scoring]` section's penalties. Between decisions
+  positions are valued at `reward_mark`, the true value where the market has one and through the
+  book where it has none; the last decision values them at `close`, through the book, or at
+  resolution in a prediction market. The rewards of an episode therefore add up to its score as it
+  ends, closed out, and the reward between decisions only spreads it out. A loss limit stops the run
+  at the trade that reaches it, and the episode ends there. The score so far, closed out, and the
+  true value at each decision are reported beside the observation, never in it.
+- **Episodes** never start again on their own. The caller resets the markets it chooses, giving
+  each a seed for its market and a settings seed for its drawn settings, its seed unless given, and
+  may give one a scenario of its own for that episode. A market whose episode is over refuses to
+  step until it is reset. Any episode runs again on its own from its two seeds.
+- **Ranges** in `[learning.ranges]` draw settings for each episode, named by their place in the
+  scenario file: a uniform range, a stepped one, a range in the logarithm, or a list of choices.
+  Each episode copies the scenario's TOML document, sets the drawn values in it and reads it with
+  the scenario reader, so any setting can be drawn, agent parameters included, and every check
+  still applies. Each range draws from a random stream of its own, keyed by the settings seed and
+  by its path, hashed with FNV-1a, with the top bit set, which neither the value's stream nor any
+  agent's can be: the same seed always draws the same settings, adding a range changes no other's
+  draw, and the settings never come from a stream the market uses. When a pool is built, the
+  scenario is built with every range at its low end, at its high end, at each choice and at 16
+  draws, so a range no market can be built from fails then rather than in the middle of a run.
+- **The pool** steps its markets on a fixed set of threads and the caller's, which take markets
+  from a shared counter. A market runs on one thread at a time and shares nothing with another, so
+  what it does depends on its seeds and actions alone, whatever the number of threads or of
+  markets. Each writes into its own part of buffers the pool allocates once and never moves. An
+  exception in a market is rethrown on the caller's thread once every market has stepped, the
+  first market's first.
+- **Python.** `python/` builds the module `crowdbook_learn` with nanobind. Its arrays are read-only
+  NumPy arrays over the pool's buffers, made once, so nothing is copied, and reset and step release
+  the interpreter's lock while the markets run. `VectorEnv` puts a pool behind Gymnasium's vector
+  API with automatic resets disabled. The module is part of the engine, under its license, and
+  apart from the Python client in `clients/python`, which keeps to the standard library and its
+  own license.
 
 ## Agents and scenarios
 
@@ -712,6 +803,39 @@ uv run --project analysis crowdbook-large-orders
   scenario's schedule. Three of them, the reference price, the edge of the halt band and the
   indicative price on entering an auction, were at first caught only by the golden hash, which
   catches any change at all; direct tests now catch each.
+- **Learning tests** pin each action's requests in a book of orders that stand still; decisions
+  every second and at a fill, one latency after the exchange made it; a reward worked out by hand
+  for a position closed through the book; the loss limit ending an episode at the trade that reaches
+  it; and the feed against an independent copy of the value. Over whole episodes of random actions
+  the rewards add up to the score the engine's scorer gives the episode replayed as a session,
+  closed through the book or, in a prediction market, at resolution. An episode written as a session
+  file and read back replays to its event log byte for byte, drawn settings included. The event
+  stream with room for six rows and two depth updates is the end of the same stream with room for
+  all. Ranges draw within their bounds, both ends reached, the same from the same seed, each
+  uncorrelated with the others, and adding one leaves the others' draws as they were. Pools of one
+  thread and of four, and of five markets and of two, give every market the same buffers at every
+  step through episodes that end and start again, and a pool's market is the market stepped on its
+  own. A hash of a pool's buffers over sixty steps is pinned with the golden hashes, and comes out
+  the same with GCC and libstdc++ and with Clang and libc++. A kernel test stops a busy market at
+  every trade and carries on, and its event log must equal the one of a run that was never stopped.
+  Twenty-one planted bugs were each caught: an interrupt that stops before the rest of its
+  nanosecond, moves the clock to the end anyway or carries over to the next run; a close through the
+  book that trades with the seat's own orders, values what the book lacks at the fallback price
+  rather than its deepest, or leaves the close's fees out of the score; fills that do not stop the
+  run; the seat's own order taken for the best price; an end valued at the reward's mark; one random
+  stream for every range; an event stream that keeps the oldest rows; depth rows that point one off;
+  a feed that ignores its lag; decisions off the interval's grid; improving both sides onto one
+  price; sizes over the largest order; a loss limit that does not stop the run; stepped ranges,
+  whole or decimal, that ignore the step; ranges unchecked when loaded; and a pool that gives every
+  market the first market's action. Four got through at first, the seat's own order, the shared
+  stream, the whole-number step and the first market's action, and are caught by tests added for
+  them.
+- **Python tests** check that the pool's arrays view its memory, at the same addresses after every
+  step, with the shapes its configuration gives; that pools of one thread and of four give the same
+  arrays; that stepping releases the interpreter's lock, by counting in one thread while another
+  steps, which a planted bug holding the lock fails by two orders of magnitude; that mistakes raise
+  Python's errors; that an episode's session file replays with the `crowdbook` command; and that
+  `VectorEnv` keeps to Gymnasium's vector API.
 - **Session tests** play a scripted session the way a live one runs, in uneven steps with requests
   at chosen nanoseconds, then write it, read it back and replay it: the event log must come out
   byte for byte the same. The real `play` command was also driven through a pseudo-terminal with
@@ -828,7 +952,8 @@ kinds of guard keep it fast.
 - **Benchmarks** (`bench/`) cover every feature: the book, whole markets by size, the challenges
   alone and served, an order through the gateway, the memory each served market takes, the event
   log, the protocol's encoding and decoding, a trading day, reports on one thread and on four,
-  and a large market. `crowdbook_load` puts the server under load: clients over TCP, each
+  a large market, and the learning pool's decisions a second by markets and threads, with what
+  starting an episode costs. `crowdbook_load` puts the server under load: clients over TCP, each
   placing and cancelling orders while it reads the full market data, timing every answer at the
   50th to the 99.9th percentile against the latency the market itself imposes. CI runs both on
   its Linux machine and shows the figures on each run. `tools/bench_check.py` runs them five times,
@@ -884,7 +1009,14 @@ Choices for later milestones may change once they are implemented; changes are r
 | Counterfactual | The session replayed without the seat's requests, its participant kept but silent | Every other agent keeps its id and its random streams, so the difference is the seat's doing alone |
 | Reports | Built from the session file by replaying it | A report is as checkable as a score; the live market carries no extra bookkeeping |
 | Rewind | A session file cut at a moment, then played on | Nothing new to save or restore: the recording already determines every state |
-| Library | Four CMake targets, installed with a package config; formats versioned apart from the library | A host links only what it uses; a file's version changes only when its format does |
+| Library | CMake targets, installed with a package config; formats versioned apart from the library | A host links only what it uses; a file's version changes only when its format does |
+| Learning environment | Many markets in one C++ object, stepped on threads of their own and bound to Python with nanobind; buffers the pool owns, which Python views without copying | Python hands over actions and reads results once a step for every market, so a step costs what the markets cost; markets that share nothing give results that depend on their seeds and actions alone |
+| Learning decisions | At every interval of market time and when the seat's own order fills, returning the time that passed | A fixed clock gives a step a steady meaning, a fill gets an answer at once, and the time passed lets a learner discount by it |
+| Stopping a run for a decision | `Simulation::interrupt`, which lets everything due at that nanosecond run first | Acting then is acting at that time in a replay, so an episode is a session that replays exactly |
+| Learning actions | A small numbered set of orders relative to the best prices heard, one resting order a side moved with a modify, at sizes from the scenario | Orders that rest between decisions keep their place in the queue, and a decision can quote both sides at once |
+| Learning rewards | The change in the session scorer's score: at the true value between decisions where there is one, closed through the book or at resolution at the end | Rewards from the scoring rules add up to the score the engine computes for the episode; closing through the book cannot be moved by a last small trade |
+| Learning episodes | Started by the caller, with a seed for the market and one for its settings, never automatically | Every episode's seeds are chosen, so any episode can be run again on its own |
+| Drawn settings | Set in a copy of the scenario's document and read by the scenario reader, each range from a stream of its own | Any setting can be drawn with every check; adding a range moves no other's draws |
 | Compatibility | Old session files replay in CI with their logs and scores pinned | A change to how markets behave has to be made on purpose |
 | Container | A two-stage image with the command linked to its C++ runtime, run as a non-root user | Small, and the same everywhere it runs |
 | Prediction markets | One YES book priced 1 to 99, resolving to 0 or 100; no separate NO book | A YES bid is a NO offer: one book trades the same way, without the machinery of complementary shares |
@@ -950,8 +1082,8 @@ Choices for later milestones may change once they are implemented; changes are r
 | M17 | Prediction markets: a market type on a yes-or-no question, priced 1 to 99, whose true value is the probability of yes and which resolves to 0 or 100; news that moves it; scenarios and a challenge | Prices of informed markets are calibrated probabilities across many runs; volatility rises toward resolution; the value's process checked against its closed form | Done |
 | M18 | Calibration: the same statistics on real data, Polymarket's trades on its public blockchain first, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Done |
 | M18b | Calibration follow-ups: fees as Polymarket charges them, with a fee that depends on the price; execution agents whose child orders vary in timing and size, as real brokers' do; a fit that searches the settings together rather than one at a time, judged on seeds it did not fit, with tolerances from the real statistics' sampling error and uncertainties for the settings, and the scorecard checked over ranges of settings rather than only at the fitted point | The scorecard and the fitted market with fees; the fit's settings with uncertainties | Done |
-| M19 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules, and a scenario's settings drawn at random from ranges for each episode | A learning agent's runs reproduce from their seeds; throughput benchmark | Next |
-| M20 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Planned |
+| M19 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules, and a scenario's settings drawn at random from ranges for each episode | A learning agent's runs reproduce from their seeds; throughput benchmark | Done |
+| M20 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Next |
 | M21 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
 | M22 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |
 | M23 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Planned |

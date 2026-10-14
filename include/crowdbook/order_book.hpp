@@ -80,6 +80,24 @@ public:
                                                   std::size_t maxLevels = kAllLevels) const;
     // The same, into `levels`, which is cleared first, so a caller can reuse one buffer.
     void depth(Side side, std::size_t maxLevels, std::vector<LevelSummary>& levels) const;
+    // Calls `visit` with each price level on one side, best price first, for as long as it
+    // returns true. Nothing is copied or allocated.
+    template <typename Visit>
+    void visitLevels(Side side, Visit&& visit) const {
+        const auto walk = [&visit](const auto& levels) {
+            for (const auto& [price, level] : levels) {
+                if (!visit(LevelSummary{
+                        .price = price, .quantity = level.quantity, .orderCount = level.orderCount})) {
+                    return;
+                }
+            }
+        };
+        if (side == Side::Buy) {
+            walk(bids_);
+        } else {
+            walk(asks_);
+        }
+    }
     [[nodiscard]] std::size_t orderCount() const noexcept;
     // Counts every change to one side's levels: a caller that remembers it can tell whether the
     // side has changed since, without looking at the levels.

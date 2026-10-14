@@ -27,6 +27,7 @@ package in CI.
 | `crowdbook::protocol` | The gateway's messages and their encoding as JSON lines | `crowdbook` |
 | `crowdbook::scenario` | Scenario and session files, live sessions, replays, rewinding, reports | `crowdbook`; toml++ is compiled in |
 | `crowdbook::gateway` | The gateway, which serves a market to clients over bytes, and the socket server around it, on epoll (Linux) or kqueue (macOS and the BSDs) | `scenario`, `protocol` |
+| `crowdbook::learning` | Markets stepped by a learning agent through one seat, many at once on threads of their own, with settings drawn for each episode | `scenario`; toml++ is compiled in |
 
 ## What to use for what
 
@@ -44,6 +45,12 @@ package in CI.
 | Score sessions | `Scorer`, an `EventSink`; sessions of scenarios with scoring do it for you | `scoring.hpp` |
 | Report on a session | `makeReport`, on as many threads as you give it; `writeReportJson` | `report.hpp` |
 | Record what happens | `CsvEventLog`, `PriceSampler`, `DepthSampler`, or your own `EventSink` | `event_log.hpp` |
+| Step many markets through a learning agent's seat | `LearningPool`: `reset` the markets you choose with their seeds, then `step` them all, reading every market's observation, reward and flags from buffers the pool owns | `learning.hpp` |
+| Step one market so, on your own thread | `LearningMarket`, writing into buffers of your own | `learning.hpp` |
+| Draw a scenario's settings for an episode | `EpisodeScenarios`, from its `[learning.ranges]` and a settings seed | `learning.hpp` |
+
+`python/` binds `LearningPool` for Python as the module `crowdbook_learn`, built with the rest when
+CMake finds Python; [design.md](design.md#learning-environment) describes the environment.
 
 A hosted service would hold one `Gateway` per market, feed it the bytes its own connections
 deliver, whether WebSocket or anything else, and call `advance` on a timer. Everything
@@ -98,6 +105,17 @@ gigabyte holds some 2,300. To measure:
 ```bash
 cmake --workflow --preset release
 ./build/release/bench/crowdbook_bench --benchmark_filter='Challenge|MemoryPerMarket'
+```
+
+A learning pool of the example learning market, five to fifteen minutes of a market of about a
+hundred agents with a decision a second, steps about 30,000 decisions a second over 64 markets on
+four threads of a four-core x86 cloud machine, and 17,000 for one market on one thread; starting an
+episode, with its settings drawn and its market run to the first decision, takes about 0.7 ms. A
+decision is a second of market time, and stepping costs little beside running the market. To
+measure:
+
+```bash
+./build/release/bench/crowdbook_bench --benchmark_filter=Learning
 ```
 
 ## Latency under load

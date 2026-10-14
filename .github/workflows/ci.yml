@@ -54,6 +54,20 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: 1
         run: brew install ninja
 
+      # The learning module's Python, with the NumPy and Gymnasium its tests use. The sanitizer
+      # build leaves the module out.
+      - name: Set up Python
+        if: matrix.preset != 'asan'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install the learning module's test requirements
+        if: matrix.preset != 'asan'
+        run: |
+          python -m pip install --disable-pip-version-check -r python/requirements.txt
+          echo "Python_ROOT_DIR=$pythonLocation" >> "$GITHUB_ENV"
+
       - name: Select compiler
         if: matrix.cxx
         run: |
@@ -75,6 +89,18 @@ jobs:
           fi
           exit "$status"
 
+      # The module is built only when CMake finds Python, and its tests run only with NumPy, so
+      # check that they ran here, with Gymnasium.
+      - name: Check the learning module was tested
+        if: matrix.preset != 'asan'
+        shell: bash
+        run: |
+          python=$(sed -n 's/^_\{0,1\}Python_EXECUTABLE:[A-Z]*=//p' \
+            build/${{ matrix.preset }}/CMakeCache.txt | head -n 1)
+          echo "CMake found ${python:-no Python}"
+          "$python" -c "import gymnasium, numpy"
+          grep -E 'python\.learning \.+ +Passed' build.log
+
       # Numbers for an x86-64 Linux server, shown as notices on the run (at most ten a step): the
       # benchmarks and the server under load. Shared runners are noisy, so these inform rather
       # than gate.
@@ -85,7 +111,7 @@ jobs:
           notice() { echo "::notice::${1//%/%25}"; }
           notice "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2), $(nproc) cores"
           build/release/bench/crowdbook_bench \
-            --benchmark_filter='MixedOrderFlow|ChallengeMarket/0|ServedChallenge/0|LargeMarket|GatewayRoundTrip|EncodeDepth|MemoryPerMarket' \
+            --benchmark_filter='MixedOrderFlow|ChallengeMarket/0|ServedChallenge/0|LargeMarket|GatewayRoundTrip|EncodeDepth|MemoryPerMarket|LearningPool/markets:(1|64)/threads:(1|4)/|LearningReset' \
             2>/dev/null | grep '^BM_' | awk '{print $1, $2, $3, $NF}' | paste -sd ';' - |
             while IFS= read -r line; do notice "$line"; done
           for args in "--clients 1" "--clients 50" "--clients 200" "--clients 200 --feed-interval 10000"; do

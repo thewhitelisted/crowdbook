@@ -152,7 +152,8 @@ if(CROWDBOOK_BUILD_TESTS)
             COMMAND crowdbook_cli run "${challenge}" --duration 2s
                 --log "${CMAKE_CURRENT_BINARY_DIR}/challenge_${name}.csv")
     endforeach()
-    file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml")
+    file(GLOB examples CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/examples/scenarios/*.toml"
+        "${PROJECT_SOURCE_DIR}/examples/learning/*.toml")
     foreach(example IN LISTS examples)
         get_filename_component(name "${example}" NAME_WE)
         # A trading day's auctions need its full length; the others run for two seconds.

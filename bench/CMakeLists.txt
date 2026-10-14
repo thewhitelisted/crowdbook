@@ -12,10 +12,12 @@ FetchContent_MakeAvailable(benchmark)
 
 add_executable(crowdbook_bench
     features_bench.cpp
+    learning_bench.cpp
     order_book_bench.cpp
     served_bench.cpp
     simulation_bench.cpp)
-target_link_libraries(crowdbook_bench PRIVATE crowdbook::gateway benchmark::benchmark_main)
+target_link_libraries(crowdbook_bench PRIVATE
+    crowdbook::gateway crowdbook::learning benchmark::benchmark_main)
 # The capacity and feature benchmarks run the examples.
 target_compile_definitions(crowdbook_bench PRIVATE CROWDBOOK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 crowdbook_set_warnings(crowdbook_bench)

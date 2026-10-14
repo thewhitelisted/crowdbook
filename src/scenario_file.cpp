@@ -10,8 +10,14 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
+#include <utility>
+#include <variant>
+#include <vector>
 
 #include <toml++/toml.hpp>
+
+#include "scenario_toml.hpp"
 
 namespace crowdbook {
 
@@ -243,20 +249,27 @@ Target readTarget(const Reader& reader, const toml::table& table) {
     return target;
 }
 
+Mark readMark(const Reader& reader, const toml::node& node, std::string_view key) {
+    const std::string mark = reader.text(node, key);
+    if (mark == "last") {
+        return Mark::LastTrade;
+    }
+    if (mark == "value") {
+        return Mark::Value;
+    }
+    if (mark != "book") {
+        reader.fail(node, std::format("'{}' must be \"last\", \"value\" or \"book\"", key));
+    }
+    return Mark::Book;
+}
+
 ScoringConfig readScoring(const Reader& reader, const toml::table& table) {
     reader.allowOnly(table,
                      {"mark", "inventory_penalty", "close_penalty", "max_loss", "target"},
                      "in [scoring]");
     ScoringConfig config;
     if (const auto* node = table.get("mark")) {
-        const std::string mark = reader.text(*node, "mark");
-        if (mark == "last") {
-            config.mark = Mark::LastTrade;
-        } else if (mark == "value") {
-            config.mark = Mark::Value;
-        } else {
-            reader.fail(*node, "'mark' must be \"last\" or \"value\"");
-        }
+        config.mark = readMark(reader, *node, "mark");
     }
     if (const auto* node = table.get("inventory_penalty")) {
         config.inventoryPenalty = readPoints(reader, *node, "inventory_penalty");
@@ -397,6 +410,270 @@ AgentOptions readParticipant(const Reader& reader, const toml::table& table) {
     return options;
 }
 
+LearningFeed readFeed(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table, {"interval", "lag", "noise"}, "in learning.feed");
+    LearningFeed feed;
+    if (const auto* node = table.get("interval")) {
+        feed.interval = reader.duration(*node, "interval");
+        if (feed.interval <= 0) {
+            reader.fail(*node, "'interval' must be positive");
+        }
+    }
+    if (const auto* node = table.get("lag")) {
+        feed.lag = reader.duration(*node, "lag");
+    }
+    if (const auto* node = table.get("noise")) {
+        feed.noise = reader.number(*node, "noise");
+        if (feed.noise < 0.0) {
+            reader.fail(*node, "'noise' must not be negative");
+        }
+    }
+    return feed;
+}
+
+// One end of a range: a whole number, a number, or a duration written as text.
+Parameters::Value rangeEnd(const Reader& reader, const toml::node& node, std::string_view path) {
+    if (const auto* value = node.as_integer()) {
+        return value->get();
+    }
+    if (node.is_floating_point()) {
+        return reader.number(node, path);
+    }
+    if (node.is_string()) {
+        static_cast<void>(reader.duration(node, path));
+        return reader.text(node, path);
+    }
+    reader.fail(node, std::format("the range for '{}' must run between two numbers or two "
+                                  "durations",
+                                  path));
+}
+
+SettingRange readRange(const Reader& reader, const toml::node& node,
+                       const std::vector<std::string>& keys, SettingRange::Form form) {
+    SettingRange range{.keys = keys, .form = form};
+    const std::string path = range.path();
+    const auto* ends = node.as_array();
+    if (ends == nullptr || ends->size() != 2) {
+        reader.fail(node, std::format("the range for '{}' must be [low, high]", path));
+    }
+    range.low = rangeEnd(reader, *ends->get(0), path);
+    range.high = rangeEnd(reader, *ends->get(1), path);
+    const bool numbers = !std::holds_alternative<std::string>(range.low) &&
+                         !std::holds_alternative<std::string>(range.high);
+    const bool durations = std::holds_alternative<std::string>(range.low) &&
+                           std::holds_alternative<std::string>(range.high);
+    if (!numbers && !durations) {
+        reader.fail(node, std::format("the range for '{}' must run between two numbers or two "
+                                      "durations",
+                                      path));
+    }
+    const auto asNumber = [](const Parameters::Value& value) {
+        if (const auto* whole = std::get_if<std::int64_t>(&value)) {
+            return static_cast<double>(*whole);
+        }
+        return std::get<double>(value);
+    };
+    if (numbers && (std::holds_alternative<double>(range.low) ||
+                    std::holds_alternative<double>(range.high))) {
+        // A decimal at either end makes the range one of numbers, not whole numbers.
+        range.low = asNumber(range.low);
+        range.high = asNumber(range.high);
+    }
+    const bool ordered =
+        durations ? parseDuration(std::get<std::string>(range.low)) <=
+                        parseDuration(std::get<std::string>(range.high))
+                  : asNumber(range.low) <= asNumber(range.high);
+    if (!ordered) {
+        reader.fail(node, std::format("the range for '{}' must not run from high to low", path));
+    }
+    if (form == SettingRange::Form::Log) {
+        if (durations || !(asNumber(range.low) > 0.0)) {
+            reader.fail(node, std::format("a log range, as for '{}', runs between two positive "
+                                          "numbers",
+                                          path));
+        }
+        range.low = asNumber(range.low);
+        range.high = asNumber(range.high);
+    }
+    return range;
+}
+
+// The ranges under a table of [learning.ranges], whose keys mirror the scenario's.
+void readRanges(const Reader& reader, const toml::table& table, std::vector<std::string>& keys,
+                std::vector<SettingRange>& ranges) {
+    for (auto&& [key, node] : table) {
+        keys.emplace_back(key.str());
+        const std::string path = SettingRange{.keys = keys}.path();
+        if (node.is_array()) {
+            ranges.push_back(readRange(reader, node, keys, SettingRange::Form::Uniform));
+        } else if (const auto* inner = node.as_table();
+                   inner != nullptr && (inner->contains("log") || inner->contains("choices") ||
+                                        inner->contains("range"))) {
+            reader.allowOnly(*inner, {"log", "choices", "range", "step"},
+                             std::format("in the range for '{}'", path));
+            const std::size_t forms = (inner->contains("log") ? 1U : 0U) +
+                                      (inner->contains("choices") ? 1U : 0U) +
+                                      (inner->contains("range") ? 1U : 0U);
+            if (forms != 1 || (inner->contains("step") && !inner->contains("range"))) {
+                reader.fail(node, std::format("the range for '{}' is one of range with a step, log "
+                                              "or choices",
+                                              path));
+            }
+            if (const auto* rangeNode = inner->get("range")) {
+                SettingRange stepped =
+                    readRange(reader, *rangeNode, keys, SettingRange::Form::Uniform);
+                const toml::node& stepNode = reader.required(*inner, "step");
+                Parameters::Value step = rangeEnd(reader, stepNode, path);
+                if (std::holds_alternative<std::string>(step) !=
+                    std::holds_alternative<std::string>(stepped.low)) {
+                    reader.fail(stepNode, std::format("the step for '{}' must be a number for a "
+                                                      "range of numbers and a duration for one of "
+                                                      "durations",
+                                                      path));
+                }
+                if (const auto* whole = std::get_if<std::int64_t>(&step);
+                    whole != nullptr && std::holds_alternative<double>(stepped.low)) {
+                    step = static_cast<double>(*whole);
+                }
+                if (std::holds_alternative<double>(step) &&
+                    std::holds_alternative<std::int64_t>(stepped.low)) {
+                    // A decimal step makes the range one of numbers.
+                    stepped.low = static_cast<double>(std::get<std::int64_t>(stepped.low));
+                    stepped.high = static_cast<double>(std::get<std::int64_t>(stepped.high));
+                }
+                const bool positive =
+                    std::visit([](const auto& value) {
+                        using T = std::decay_t<decltype(value)>;
+                        if constexpr (std::is_same_v<T, std::string>) {
+                            return parseDuration(value) > 0;
+                        } else if constexpr (std::is_same_v<T, bool>) {
+                            return false;
+                        } else {
+                            return value > 0;
+                        }
+                    }, step);
+                if (!positive) {
+                    reader.fail(stepNode, std::format("the step for '{}' must be positive", path));
+                }
+                stepped.step = step;
+                ranges.push_back(std::move(stepped));
+            } else if (const auto* log = inner->get("log")) {
+                ranges.push_back(readRange(reader, *log, keys, SettingRange::Form::Log));
+            } else {
+                const auto* choices = inner->get("choices")->as_array();
+                if (choices == nullptr || choices->empty()) {
+                    reader.fail(node, std::format("the choices for '{}' must be a list of one or "
+                                                  "more values",
+                                                  path));
+                }
+                SettingRange range{.keys = keys, .form = SettingRange::Form::Choices};
+                for (const toml::node& choice : *choices) {
+                    if (choice.is_table() || choice.is_array()) {
+                        reader.fail(choice, std::format("a choice for '{}' must be a number, "
+                                                        "text, or true or false",
+                                                        path));
+                    }
+                    range.choices.push_back(reader.parameter(choice, path));
+                }
+                ranges.push_back(std::move(range));
+            }
+        } else if (inner != nullptr) {
+            readRanges(reader, *inner, keys, ranges);
+        } else {
+            reader.fail(node, std::format("the range for '{}' must be [low, high], "
+                                          "{{ log = [low, high] }} or {{ choices = [...] }}",
+                                          path));
+        }
+        keys.pop_back();
+    }
+}
+
+LearningConfig readLearning(const Reader& reader, const toml::table& table,
+                            const Scenario& scenario) {
+    reader.allowOnly(table,
+                     {"interval", "warmup", "actions", "sizes", "take_ticks", "reward_mark",
+                      "close", "max_events", "max_depth_updates", "depth_levels", "max_orders",
+                      "feed", "ranges"},
+                     "in [learning]");
+    const bool hasValue = scenario.fundamental || scenario.prediction;
+    LearningConfig config;
+    if (const auto* node = table.get("interval")) {
+        config.interval = reader.duration(*node, "interval");
+        if (config.interval <= 0) {
+            reader.fail(*node, "'interval' must be positive");
+        }
+    }
+    if (const auto* node = table.get("warmup")) {
+        config.warmup = reader.duration(*node, "warmup");
+    }
+    if (config.warmup >= scenario.duration) {
+        reader.fail(table, "the first decision, at 'warmup', must come before the end of the run");
+    }
+    if (const auto* node = table.get("actions")) {
+        const auto* list = node->as_array();
+        if (list == nullptr || list->empty()) {
+            reader.fail(*node, "'actions' must be a list of one or more action names");
+        }
+        config.actions.clear();
+        for (const toml::node& element : *list) {
+            const std::string name = reader.text(element, "actions");
+            const auto action = learningActionNamed(name);
+            if (!action) {
+                reader.fail(element, std::format("there is no action '{}'", name));
+            }
+            if (std::ranges::find(config.actions, *action) != config.actions.end()) {
+                reader.fail(element, std::format("action '{}' is listed twice", name));
+            }
+            config.actions.push_back(*action);
+        }
+    }
+    if (const auto* node = table.get("sizes")) {
+        const auto* list = node->as_array();
+        if (list == nullptr || list->empty()) {
+            reader.fail(*node, "'sizes' must be a list of one or more order sizes");
+        }
+        config.sizes.clear();
+        for (const toml::node& element : *list) {
+            config.sizes.push_back(reader.integer(element, "sizes", 1, kMaxQuantity));
+        }
+    }
+    if (const auto* node = table.get("take_ticks")) {
+        config.takeTicks = reader.integer(*node, "take_ticks", 0, kMaxPrice);
+    }
+    for (const auto& [key, mark] : {std::pair{"reward_mark", &config.rewardMark},
+                                    std::pair{"close", &config.close}}) {
+        if (const auto* node = table.get(key)) {
+            *mark = readMark(reader, *node, key);
+            if (*mark == Mark::Value && !hasValue) {
+                reader.fail(*node, "valuing at the true value needs a [fundamental] or "
+                                   "[prediction] section");
+            }
+        }
+    }
+    const auto count = [&](std::string_view key, std::size_t& value, std::int64_t min,
+                           std::int64_t max) {
+        if (const auto* node = table.get(key)) {
+            value = static_cast<std::size_t>(reader.integer(*node, key, min, max));
+        }
+    };
+    count("max_events", config.maxEvents, 1, 65'536);
+    count("max_depth_updates", config.maxDepthUpdates, 0, 4'096);
+    count("depth_levels", config.depthLevels, 0, static_cast<std::int64_t>(kMaxDepthLevels));
+    count("max_orders", config.maxOrders, 1, 1'024);
+    if (const auto* node = table.get("feed")) {
+        if (!hasValue) {
+            reader.fail(*node, "a feed of the underlying needs a [fundamental] or [prediction] "
+                               "section");
+        }
+        config.feed = readFeed(reader, reader.table(*node, "feed"));
+    }
+    if (const auto* node = table.get("ranges")) {
+        std::vector<std::string> keys;
+        readRanges(reader, reader.table(*node, "ranges"), keys, config.ranges);
+    }
+    return config;
+}
+
 AgentGroup readGroup(const Reader& reader, const toml::table& table) {
     AgentGroup group;
     for (auto&& [key, node] : table) {
@@ -426,20 +703,12 @@ AgentGroup readGroup(const Reader& reader, const toml::table& table) {
 
 } // namespace
 
-Scenario parseScenario(std::string_view text, std::string_view source) {
-    toml::table root;
-    try {
-        root = toml::parse(text, source);
-    } catch (const toml::parse_error& error) {
-        throw ScenarioError(
-            std::format("{}:{}: {}", source, error.source().begin.line, error.description()));
-    }
-
+Scenario detail::readScenario(const toml::table& root, std::string_view source) {
     const Reader reader{source};
     reader.allowOnly(root,
                      {"scenario_version", "seed", "duration", "reference_price", "fundamental",
                       "prediction", "exchange", "trading_day", "agents", "participant",
-                      "scoring", "challenge"},
+                      "scoring", "challenge", "learning"},
                      "at the top level");
     if (const auto* node = root.get("scenario_version")) {
         const auto* value = node->as_integer();
@@ -516,6 +785,9 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
     if (const auto* node = root.get("challenge")) {
         scenario.challenge = readChallenge(reader, reader.table(*node, "challenge"));
     }
+    if (const auto* node = root.get("learning")) {
+        scenario.learning = readLearning(reader, reader.table(*node, "learning"), scenario);
+    }
     if (const auto* node = root.get("prediction")) {
         // Some limits depend on the duration as well, such as how much news can come.
         try {
@@ -537,6 +809,15 @@ Scenario parseScenario(std::string_view text, std::string_view source) {
         throw ScenarioError(std::format("{}: the scenario has no [[agents]]", source));
     }
     return scenario;
+}
+
+Scenario parseScenario(std::string_view text, std::string_view source) {
+    try {
+        return detail::readScenario(toml::parse(text, source), source);
+    } catch (const toml::parse_error& error) {
+        throw ScenarioError(
+            std::format("{}:{}: {}", source, error.source().begin.line, error.description()));
+    }
 }
 
 Scenario loadScenario(const std::filesystem::path& path) {

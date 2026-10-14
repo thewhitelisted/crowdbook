@@ -58,7 +58,8 @@ constexpr std::array kCancelReasons{
     std::pair{std::string_view{"immediate-or-cancel"}, CancelReason::ImmediateOrCancel},
     std::pair{std::string_view{"self-trade"}, CancelReason::SelfTrade}};
 constexpr std::array kMarks{std::pair{std::string_view{"last"}, Mark::LastTrade},
-                            std::pair{std::string_view{"value"}, Mark::Value}};
+                            std::pair{std::string_view{"value"}, Mark::Value},
+                            std::pair{std::string_view{"book"}, Mark::Book}};
 constexpr std::array kBenchmarks{std::pair{std::string_view{"vwap"}, Benchmark::Vwap},
                                  std::pair{std::string_view{"reference"}, Benchmark::Reference}};
 constexpr std::array kLiquidities{std::pair{std::string_view{"maker"}, Liquidity::Maker},
