@@ -3,27 +3,13 @@
 #include <algorithm>
 #include <format>
 #include <functional>
-#include <iterator>
 #include <optional>
 #include <stdexcept>
-#include <type_traits>
 #include <utility>
 
 #include "overloaded.hpp"
 
 namespace crowdbook {
-
-namespace {
-
-// Heap order: the earliest time on top, and among equal times the first scheduled.
-struct Later {
-    template <typename Item>
-    bool operator()(const Item& a, const Item& b) const noexcept {
-        return a.time != b.time ? a.time > b.time : a.sequence > b.sequence;
-    }
-};
-
-} // namespace
 
 // The context handed to an agent's callbacks. It only forwards to the simulation, so agents can
 // act but never reach the exchange or another agent directly.
@@ -34,9 +20,11 @@ public:
 
     [[nodiscard]] AgentId id() const noexcept override { return agent_; }
     [[nodiscard]] Timestamp now() const noexcept override { return simulation_.now_; }
-    [[nodiscard]] Random& random() noexcept override { return simulation_.slot(agent_).random; }
+    [[nodiscard]] Random& random() noexcept override {
+        return simulation_.knownSlot(agent_).random;
+    }
     [[nodiscard]] const Ledger& ledger() const noexcept override {
-        return simulation_.slot(agent_).ledger;
+        return simulation_.knownSlot(agent_).ledger;
     }
     [[nodiscard]] MarketSnapshot market() const override {
         return simulation_.visibleMarket(agent_);
@@ -46,7 +34,7 @@ public:
     }
 
     ClientOrderId submit(NewOrder order) override {
-        order.clientOrderId = simulation_.slot(agent_).nextClientOrderId++;
+        order.clientOrderId = simulation_.knownSlot(agent_).nextClientOrderId++;
         simulation_.send(agent_, order);
         return order.clientOrderId;
     }
@@ -121,16 +109,15 @@ void Simulation::runUntil(Timestamp endTime) {
     // simulation frees everything it holds when it is destroyed.
     failed_ = true;
     interrupted_ = false;
-    while (!queue_.empty() && queue_.front().time <= endTime) {
-        if (interrupted_ && queue_.front().time > now_) {
+    while (!queue_.empty()) {
+        const Timestamp next = queue_.nextTime();
+        if (next > endTime || (interrupted_ && next > now_)) {
             break;
         }
-        std::ranges::pop_heap(queue_, Later{});
-        const Scheduled item = queue_.back();
-        queue_.pop_back();
+        const auto item = queue_.pop();
         now_ = item.time;
-        std::visit([this](const auto& action) { process(action); }, actions_[item.action]);
-        freeActions_.push_back(item.action); // only now, as processing may schedule more
+        std::visit([this](const auto& action) { process(action); }, queue_.payload(item.slot));
+        queue_.release(item.slot); // only now, as processing may schedule more
     }
     if (!interrupted_) {
         now_ = std::max(now_, endTime);
@@ -173,23 +160,10 @@ const Ledger& Simulation::ledger(AgentId id) const {
     return slots_[id - 1].ledger;
 }
 
-Simulation::Action& Simulation::schedule(Timestamp time) {
-    static_assert(std::is_trivially_copyable_v<Scheduled>);
-    std::uint32_t slot = 0;
-    if (freeActions_.empty()) {
-        slot = static_cast<std::uint32_t>(actions_.size());
-        actions_.emplace_back();
-    } else {
-        slot = freeActions_.back();
-        freeActions_.pop_back();
-    }
-    queue_.push_back(Scheduled{.time = time, .sequence = nextSequence_++, .action = slot});
-    std::ranges::push_heap(queue_, Later{});
-    return actions_[slot];
-}
+Simulation::Action& Simulation::schedule(Timestamp time) { return queue_.push(time); }
 
 void Simulation::send(AgentId sender, Request request) {
-    Slot& from = slot(sender);
+    Slot& from = knownSlot(sender);
     from.ledger.recordRequest(request);
     const Timestamp arrival = std::max(now_ + from.latency.toExchange + drawJitter(from),
                                        from.lastArrivalAtExchange);
@@ -197,12 +171,12 @@ void Simulation::send(AgentId sender, Request request) {
     schedule(arrival).emplace<Arrival>(sender, std::move(request));
 }
 
-void Simulation::deliver(AgentId recipient, const Event& event) {
-    Slot& to = slot(recipient);
+void Simulation::deliver(AgentId recipient, const Event& event, bool own) {
+    Slot& to = knownSlot(recipient);
     const Timestamp arrival = std::max(now_ + to.latency.fromExchange + drawJitter(to),
                                        to.lastArrivalAtAgent);
     to.lastArrivalAtAgent = arrival;
-    schedule(arrival).emplace<Delivery>(recipient, event);
+    schedule(arrival).emplace<Delivery>(recipient, event, own);
 }
 
 Duration Simulation::drawJitter(Slot& endpoint) {
@@ -219,12 +193,12 @@ Simulation::Slot& Simulation::slot(AgentId id) {
 
 void Simulation::process(const Start& start) {
     Context context{*this, start.agent};
-    slot(start.agent).agent->onStart(context);
+    knownSlot(start.agent).agent->onStart(context);
 }
 
 void Simulation::process(const Wakeup& wakeup) {
     Context context{*this, wakeup.agent};
-    slot(wakeup.agent).agent->onWakeup(context, wakeup.tag);
+    knownSlot(wakeup.agent).agent->onWakeup(context, wakeup.tag);
 }
 
 void Simulation::schedulePhase(Timestamp time, Phase phase) {
@@ -260,7 +234,7 @@ void Simulation::dispatch() {
             sink_->onEvent(now_, event);
         }
         if (const std::optional<AgentId> to = recipient(event)) {
-            deliver(*to, event);
+            deliver(*to, event, true);
             continue;
         }
         if (const auto* trade = std::get_if<Trade>(&event)) {
@@ -288,7 +262,7 @@ void Simulation::dispatch() {
         }
         marketChanged = true;
         for (const AgentId id : streamed_) {
-            deliver(id, event);
+            deliver(id, event, false);
         }
     }
     if (marketChanged) {
@@ -311,7 +285,7 @@ void Simulation::recordPublicState() {
 }
 
 MarketSnapshot Simulation::visibleMarket(AgentId id) const {
-    const Timestamp seenAt = now_ - slots_.at(id - 1).latency.fromExchange;
+    const Timestamp seenAt = now_ - knownSlot(id).latency.fromExchange;
     // The last state from no later than seenAt, by binary search.
     std::size_t low = 0;
     std::size_t high = history_.size();
@@ -327,8 +301,8 @@ MarketSnapshot Simulation::visibleMarket(AgentId id) const {
 }
 
 void Simulation::process(const Delivery& delivery) {
-    Slot& to = slot(delivery.recipient);
-    if (recipient(delivery.event)) {
+    Slot& to = knownSlot(delivery.recipient);
+    if (delivery.own) {
         to.ledger.apply(delivery.event);
     }
     Context context{*this, delivery.recipient};

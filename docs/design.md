@@ -989,7 +989,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | Events | Ordered, FIX-style execution reports plus anonymous trades and top of book | Agents can rebuild their own state from their events, and logs replay in a well-defined order |
 | Time | `int64` nanoseconds, discrete events | Latency and queue position matter in microstructure; fixed rounds hide both |
 | Ties | Same timestamp → insertion order | Deterministic; no hidden dependence on container iteration order |
-| Event queue | A heap of small (time, sequence, slot) entries, with the actions in a deque beside it, built and processed where they lie | Once an event could hold the depth feed's vectors, moving whole actions around the heap took most of a run's time |
+| Event queue | A radix heap of small (time, sequence) keys, the actions in fixed blocks beside them, built and processed where they lie | Nothing is scheduled before the item last taken out, so keys only grow: an item moves down a few buckets in its life rather than through a binary heap's depth each time, and since keys are unique the order is the same. As a binary heap it took about a quarter of the instructions a market runs. Once an event could hold the depth feed's vectors, moving whole actions around took most of a run's time, so they stay put |
 | Prices and sizes | `int64` ticks and lots; cash in tick-lots | Exact arithmetic; no floating point in matching or accounting |
 | Priority | Price, then time | Standard for continuous limit order books |
 | Modify | Size decrease keeps queue position; price change or size increase loses it | Matches common exchange rules, so queue-position effects are realistic |
