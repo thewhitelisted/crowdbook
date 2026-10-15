@@ -70,6 +70,15 @@ double powerOfTwo(int n) {
     return std::bit_cast<double>(static_cast<std::uint64_t>(n + 1023) << 52);
 }
 
+// std::round, half away from zero and keeping the sign of a zero, for |x| below 2^52, without a
+// call into the C library: converting to a 64-bit whole number truncates exactly, and x less its
+// whole part is exact too.
+double roundHalfAway(double x) {
+    const auto whole = static_cast<double>(static_cast<std::int64_t>(x));
+    const double rounded = std::fabs(x - whole) >= 0.5 ? whole + std::copysign(1.0, x) : whole;
+    return std::copysign(rounded, x);
+}
+
 // e^(rHi + rLo) × 2^(k / 64), for a whole number k and |rHi + rLo| not much over ln 2 / 128.
 double expCore(double k, double rHi, double rLo) {
     const auto [r, rest] = twoSum(rHi, rLo);
@@ -102,7 +111,7 @@ double expPair(double hi, double lo) {
     if (hi < kSmallestExponent) {
         return 0.0;
     }
-    const double k = std::round(hi * kStepsPerLn2);
+    const double k = roundHalfAway(hi * kStepsPerLn2);
     // k × kStepHi is exact, and so is taking it from hi, which is that close to it.
     return expCore(k, hi - k * kStepHi, lo - k * kStepLo);
 }
@@ -125,7 +134,7 @@ Pair logPair(double x) {
 
     // x = 2^exponent × mantissa, and mantissa = (1 + r) / inverse for the nearest tabulated
     // inverse, so log x = exponent × ln 2 - log(inverse) + log(1 + r), with |r| below 2^-7.
-    const int i = static_cast<int>(std::round((mantissa - 1.0) * 128.0));
+    const int i = static_cast<int>(roundHalfAway((mantissa - 1.0) * 128.0));
     const auto& step = kLogSteps[static_cast<std::size_t>(i - kLogFirst)];
     const auto [product, productError] = twoProduct(mantissa, step[0]);
     const double r = product - 1.0; // exact, as product is within a factor of 2 of 1
@@ -172,7 +181,7 @@ double exp2(double x) noexcept {
         return 0.0;
     }
     // x = k/64 + f exactly, with |f| at most 1/128, and 2^f = e^(f ln 2).
-    const double k = std::round(x * 64.0);
+    const double k = roundHalfAway(x * 64.0);
     const double f = x - k / 64.0;
     const auto [rHi, rLo] = twoProduct(f, kLn2);
     return expCore(k, rHi, rLo + f * kLn2Rest);
