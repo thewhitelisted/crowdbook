@@ -791,7 +791,7 @@ Scenario detail::readScenario(const toml::table& root, std::string_view source) 
     if (const auto* node = root.get("prediction")) {
         // Some limits depend on the duration as well, such as how much news can come.
         try {
-            static_cast<void>(makeFundamental(scenario));
+            checkFundamental(scenario);
         } catch (const ScenarioError& error) {
             reader.fail(*node, error.what());
         }

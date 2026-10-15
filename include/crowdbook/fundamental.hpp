@@ -58,6 +58,11 @@ public:
     // news, a step that is not positive, or a resolution that is not after the start.
     Fundamental(const PredictionConfig& config, Duration resolution, Random random);
 
+    // Throw what the constructors throw for the same settings, without building the value: a
+    // prediction market's starts by searching for where its probability is the one asked for.
+    static void check(const FundamentalConfig& config);
+    static void check(const PredictionConfig& config, Duration resolution);
+
     // The value at `time`. Reads may go back in time only as far as `remember` allows, which
     // inside a simulation, whose clock never runs backwards, covers a trader that sees the value
     // late; throws std::invalid_argument for a read further back.

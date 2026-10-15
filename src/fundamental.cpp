@@ -13,6 +13,20 @@ namespace crowdbook {
 
 Fundamental::Fundamental(const FundamentalConfig& config, Random random)
     : config_(config), random_(random), value_(config.initial) {
+    check(config);
+    const double seconds = static_cast<double>(config.step) / static_cast<double>(kSecond);
+    jumpsPerStep_ = config.jumpRate * seconds;
+    const double theta = config.meanReversion;
+    if (theta > 0.0) {
+        decay_ = math::exp(-theta * seconds);
+        shockScale_ = config.volatility * std::sqrt((1.0 - decay_ * decay_) / (2.0 * theta));
+    } else {
+        decay_ = 1.0;
+        shockScale_ = config.volatility * std::sqrt(seconds);
+    }
+}
+
+void Fundamental::check(const FundamentalConfig& config) {
     if (config.step <= 0) {
         throw std::invalid_argument("the fundamental's step must be positive");
     }
@@ -28,16 +42,6 @@ Fundamental::Fundamental(const FundamentalConfig& config, Random random)
     }
     if (!(config.jumpRate >= 0.0) || !(config.jumpSize >= 0.0)) {
         throw std::invalid_argument("the jump rate and jump size must not be negative");
-    }
-    const double seconds = static_cast<double>(config.step) / static_cast<double>(kSecond);
-    jumpsPerStep_ = config.jumpRate * seconds;
-    const double theta = config.meanReversion;
-    if (theta > 0.0) {
-        decay_ = math::exp(-theta * seconds);
-        shockScale_ = config.volatility * std::sqrt((1.0 - decay_ * decay_) / (2.0 * theta));
-    } else {
-        decay_ = 1.0;
-        shockScale_ = config.volatility * std::sqrt(seconds);
     }
 }
 
@@ -79,6 +83,10 @@ FundamentalConfig walkOf(const PredictionConfig& config, Duration resolution) {
 }
 
 } // namespace
+
+void Fundamental::check(const PredictionConfig& config, Duration resolution) {
+    check(walkOf(config, resolution));
+}
 
 Fundamental::Fundamental(const PredictionConfig& config, Duration resolution, Random random)
     : Fundamental(walkOf(config, resolution), random) {
