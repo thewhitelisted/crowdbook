@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -10,6 +9,7 @@
 #include <vector>
 
 #include "crowdbook/agent.hpp"
+#include "crowdbook/detail/event_queue.hpp"
 #include "crowdbook/detail/ring.hpp"
 #include "crowdbook/event_log.hpp"
 #include "crowdbook/exchange.hpp"
@@ -92,7 +92,7 @@ public:
     [[nodiscard]] std::size_t pendingCount() const noexcept { return queue_.size(); }
     // When the next of them is due, or nullopt if none is.
     [[nodiscard]] std::optional<Timestamp> nextEventTime() const noexcept {
-        return queue_.empty() ? std::nullopt : std::optional{queue_.front().time};
+        return queue_.peekTime();
     }
     [[nodiscard]] const Exchange& exchange() const noexcept { return exchange_; }
     // These throw std::out_of_range for an unknown id.
@@ -128,10 +128,11 @@ private:
         AgentId sender = 0;
         Request request{};
     };
-    // An event reaching an agent.
+    // An event reaching an agent: one of its own, which its ledger records, or a public one.
     struct Delivery {
         AgentId recipient = 0;
         Event event{};
+        bool own = false;
     };
     // The exchange moving to another phase. The end of a halt applies only to a halted market.
     struct PhaseAction {
@@ -139,15 +140,6 @@ private:
         bool endsHalt = false;
     };
     using Action = std::variant<Start, Wakeup, Arrival, Delivery, PhaseAction>;
-
-    // An entry in the queue: when, in what order among equal times, and where its action is kept.
-    // The heap moves entries constantly, so they stay small and trivially copyable, and the
-    // actions, which can hold vectors, stay put.
-    struct Scheduled {
-        Timestamp time = 0;
-        std::uint64_t sequence = 0;
-        std::uint32_t action = 0; // index into actions_
-    };
 
     // The exchange's public state from `time` until the next change.
     struct PublicState {
@@ -164,9 +156,13 @@ private:
     }
     [[noreturn]] void throwFailed() const;
     void send(AgentId sender, Request request);
-    void deliver(AgentId recipient, const Event& event);
+    void deliver(AgentId recipient, const Event& event, bool own);
     Duration drawJitter(Slot& endpoint);
+    // Throws std::out_of_range for an unknown id.
     Slot& slot(AgentId id);
+    // For an id the simulation itself handed out or scheduled, which is always known.
+    Slot& knownSlot(AgentId id) noexcept { return slots_[id - 1]; }
+    [[nodiscard]] const Slot& knownSlot(AgentId id) const noexcept { return slots_[id - 1]; }
     void process(const Start& start);
     void process(const Wakeup& wakeup);
     void process(const Arrival& arrival);
@@ -181,12 +177,9 @@ private:
     std::uint64_t seed_;
     Exchange exchange_;
     std::vector<Slot> slots_;
-    std::vector<Scheduled> queue_; // a binary heap with the earliest item at the front
-    // What each queued entry does. A deque, so that an action being processed stays where it is
-    // while processing it schedules more; a slot is reused once its action is done.
-    std::deque<Action> actions_;
-    std::vector<std::uint32_t> freeActions_;
-    std::uint64_t nextSequence_ = 0;
+    // What is scheduled, earliest first. An action being processed stays where it is while
+    // processing it schedules more, and its slot is reused only once it is done.
+    detail::EventQueue<Action> queue_;
     Timestamp now_ = 0;
     bool failed_ = false; // set while a run is under way, and left set if an exception escapes
     bool interrupted_ = false; // asked to stop after the current time

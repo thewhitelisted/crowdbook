@@ -13,6 +13,7 @@ add_executable(crowdbook_tests
     auction_test.cpp
     belief_test.cpp
     event_log_test.cpp
+    event_queue_test.cpp
     exchange_random_test.cpp
     exchange_test.cpp
     execution_test.cpp
