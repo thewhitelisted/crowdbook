@@ -112,7 +112,7 @@ void validate(const Scenario& scenario) {
     } catch (const std::invalid_argument& error) {
         throw ScenarioError(std::format("exchange: {}", error.what()));
     }
-    static_cast<void>(makeFundamental(scenario));
+    checkFundamental(scenario);
 }
 
 } // namespace
@@ -250,6 +250,16 @@ double pnlAtValue(const GroupResult& group, double value) {
            static_cast<double>(group.position - group.initialPosition) * value;
 }
 
+namespace {
+
+[[noreturn]] void throwFundamentalError(const Scenario& scenario,
+                                        const std::invalid_argument& error) {
+    throw ScenarioError(std::format("{}: {}", scenario.prediction ? "prediction" : "fundamental",
+                                    error.what()));
+}
+
+} // namespace
+
 std::shared_ptr<Fundamental> makeFundamental(const Scenario& scenario) {
     // Stream 0 belongs to no agent: agent n draws from streams 2n and 2n + 1.
     try {
@@ -261,10 +271,21 @@ std::shared_ptr<Fundamental> makeFundamental(const Scenario& scenario) {
             return std::make_shared<Fundamental>(*scenario.fundamental, Random{scenario.seed, 0});
         }
     } catch (const std::invalid_argument& error) {
-        throw ScenarioError(std::format(
-            "{}: {}", scenario.prediction ? "prediction" : "fundamental", error.what()));
+        throwFundamentalError(scenario, error);
     }
     return nullptr;
+}
+
+void checkFundamental(const Scenario& scenario) {
+    try {
+        if (scenario.prediction) {
+            Fundamental::check(*scenario.prediction, scenario.duration);
+        } else if (scenario.fundamental) {
+            Fundamental::check(*scenario.fundamental);
+        }
+    } catch (const std::invalid_argument& error) {
+        throwFundamentalError(scenario, error);
+    }
 }
 
 void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResult& result) {

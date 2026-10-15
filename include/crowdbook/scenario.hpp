@@ -164,6 +164,9 @@ private:
 // can be made from.
 [[nodiscard]] std::shared_ptr<Fundamental> makeFundamental(const Scenario& scenario);
 
+// Throws what makeFundamental throws for the scenario, without making the value.
+void checkFundamental(const Scenario& scenario);
+
 // Writes a run's settings and results as one JSON object, for analysis scripts. Each group lists
 // its agents' ids, which the event log's `agent` column refers to.
 void writeResultJson(std::ostream& out, const Scenario& scenario, const RunResult& result);
