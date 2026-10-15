@@ -1079,7 +1079,9 @@ LearningStep LearningMarket::reset(Scenario scenario, const LearningObservation&
     if (hasValue(scenario)) {
         e.value = makeFundamental(scenario);
         if (config.feed) {
-            e.feedValue = makeFundamental(scenario);
+            // The same value from the same start: a copy, rather than its search for where to start
+            // made again.
+            e.feedValue = std::make_shared<Fundamental>(*e.value);
             e.feedNoise = Random{scenario.seed, kFeedStream};
         }
     }
