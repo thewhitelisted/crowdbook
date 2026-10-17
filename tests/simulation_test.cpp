@@ -167,6 +167,113 @@ TEST(SimulationTest, LinksKeepMessagesInOrderDespiteJitter) {
     EXPECT_EQ(expected, 51U);
 }
 
+TEST(SimulationTest, DelaysDrawnFromQuantilesFollowThem) {
+    Simulation simulation{11};
+    RecordingSink sink;
+    simulation.setEventSink(&sink);
+    // Half of the delays from 10 to 20 microseconds and half from 20 to 400: a long tail.
+    auto& agent = add<RecordingAgent>(
+        simulation, {.latency = {.toExchangeQuantiles = {10'000, 20'000, 400'000},
+                                 .fromExchangeQuantiles = {5'000, 5'000}}});
+    constexpr int kOrders = 4'000;
+    std::vector<Timestamp> sent;
+    agent.startHook = [&sent](AgentContext& context) {
+        sent.push_back(context.now());
+        context.submitLimit(Side::Buy, 90, 1);
+        context.wakeAfter(kMillisecond);
+    };
+    agent.wakeupHook = [&sent](AgentContext& context, std::uint64_t /*tag*/) {
+        if (sent.size() < kOrders) {
+            sent.push_back(context.now());
+            context.submitLimit(Side::Buy, 90, 1);
+            context.wakeAfter(kMillisecond);
+        }
+    };
+
+    simulation.runUntil(10 * kSecond);
+
+    ASSERT_EQ(sink.requests.size(), static_cast<std::size_t>(kOrders));
+    int short_ = 0;
+    Duration shortest = kMaxDuration;
+    Duration longest = 0;
+    for (std::size_t i = 0; i < sent.size(); ++i) {
+        const Duration delay = sink.requests[i].time - sent[i];
+        shortest = std::min(shortest, delay);
+        longest = std::max(longest, delay);
+        short_ += delay <= 20'000 ? 1 : 0;
+    }
+    EXPECT_GE(shortest, 10'000);
+    EXPECT_LE(longest, 400'000);
+    EXPECT_GT(longest, 200'000); // the tail is reached
+    // Each gap between quantiles is as likely: about half the delays are short.
+    EXPECT_NEAR(short_ / static_cast<double>(kOrders), 0.5, 0.04);
+    // A link's quantiles all at one delay give that delay: every acceptance arrived 5 us after
+    // its order reached the exchange.
+    std::size_t accepted = 0;
+    for (const Received& received : agent.received) {
+        if (std::holds_alternative<OrderAccepted>(received.event)) {
+            EXPECT_EQ(received.time - sink.requests[accepted].time, 5'000);
+            ++accepted;
+        }
+    }
+    EXPECT_EQ(accepted, static_cast<std::size_t>(kOrders));
+}
+
+TEST(SimulationTest, LinksKeepMessagesInOrderWithDrawnDelays) {
+    Simulation simulation{2};
+    RecordingSink sink;
+    simulation.setEventSink(&sink);
+    auto& alice = add<RecordingAgent>(
+        simulation, {.latency = {.toExchangeQuantiles = {1'000, 2'000, 50'000},
+                                 .fromExchangeQuantiles = {1'000, 3'000, 80'000}}});
+    alice.startHook = [](AgentContext& context) {
+        for (int i = 0; i < 50; ++i) {
+            context.submitLimit(Side::Buy, 90 + i % 5, 1);
+        }
+    };
+
+    simulation.runUntil(kSecond);
+
+    ASSERT_EQ(sink.requests.size(), 50U);
+    for (std::size_t i = 0; i < sink.requests.size(); ++i) {
+        EXPECT_EQ(clientOrderIdOf(sink.requests[i].request), i + 1);
+        if (i > 0) {
+            EXPECT_GE(sink.requests[i].time, sink.requests[i - 1].time);
+        }
+    }
+    ClientOrderId expected = 1;
+    Timestamp previous = 0;
+    for (const Received& received : alice.received) {
+        EXPECT_GE(received.time, previous);
+        previous = received.time;
+        if (const auto* accepted = std::get_if<OrderAccepted>(&received.event)) {
+            EXPECT_EQ(accepted->clientOrderId, expected++);
+        }
+    }
+    EXPECT_EQ(expected, 51U);
+}
+
+TEST(SimulationTest, QuantilesMustBeInOrderAndInRange) {
+    Simulation simulation{1};
+    for (const Latency& wrong : {Latency{.toExchangeQuantiles = {2'000, 1'000}},
+                                 Latency{.fromExchangeQuantiles = {1'000, 3'000, 2'000}},
+                                 Latency{.toExchangeQuantiles = {-1, 1'000}},
+                                 Latency{.fromExchangeQuantiles = {1'000, kMaxDuration + 1}}}) {
+        EXPECT_THROW(simulation.addAgent(std::make_unique<RecordingAgent>(), {.latency = wrong}),
+                     std::invalid_argument);
+    }
+    EXPECT_EQ(simulation.addAgent(std::make_unique<RecordingAgent>()), 1U);
+}
+
+TEST(SimulationTest, MedianOfQuantiles) {
+    EXPECT_EQ(medianOf({}), 0);
+    EXPECT_EQ(medianOf({7}), 7);
+    EXPECT_EQ(medianOf({1, 2, 9}), 2);
+    EXPECT_EQ(medianOf({1, 2, 9, 30}), 5);
+    EXPECT_EQ((Latency{.jitter = 4, .fromExchangeQuantiles = {1, 2, 9}}.longestFromExchange()), 13);
+    EXPECT_EQ((Latency{.fromExchange = 6, .jitter = 4}.longestFromExchange()), 10);
+}
+
 TEST(SimulationTest, WakeupsRunInTimeOrderWithTheirTags) {
     Simulation simulation{1};
     auto& agent = add<RecordingAgent>(simulation, {});
@@ -280,10 +387,11 @@ TEST(SimulationTest, OwnEventsReachTheLedgerBeforeTheCallbackRuns) {
 }
 
 // An agent's draws around one order: one at start, then one at a later wakeup.
-std::vector<std::uint64_t> drawsAroundAnOrder(Duration jitter) {
+std::vector<std::uint64_t> drawsAroundAnOrder(Latency latency) {
     Simulation simulation{3};
-    auto& agent = add<RecordingAgent>(
-        simulation, {.latency = {.toExchange = 100, .fromExchange = 100, .jitter = jitter}});
+    latency.toExchange = 100;
+    latency.fromExchange = 100;
+    auto& agent = add<RecordingAgent>(simulation, {.latency = latency});
     std::vector<std::uint64_t> draws;
     agent.startHook = [&draws](AgentContext& context) {
         draws.push_back(context.random().next());
@@ -298,9 +406,13 @@ std::vector<std::uint64_t> drawsAroundAnOrder(Duration jitter) {
 }
 
 TEST(SimulationTest, JitterDoesNotDisturbTheAgentsOwnRandomStream) {
-    const std::vector<std::uint64_t> withoutJitter = drawsAroundAnOrder(0);
+    const std::vector<std::uint64_t> withoutJitter = drawsAroundAnOrder({});
     ASSERT_EQ(withoutJitter.size(), 2U);
-    EXPECT_EQ(drawsAroundAnOrder(5'000), withoutJitter);
+    EXPECT_EQ(drawsAroundAnOrder({.jitter = 5'000}), withoutJitter);
+    EXPECT_EQ(drawsAroundAnOrder({.jitter = 5'000,
+                                  .toExchangeQuantiles = {50, 100, 900},
+                                  .fromExchangeQuantiles = {80, 120}}),
+              withoutJitter);
 }
 
 // Is never sent market data: it reads the market on demand at the given times.
@@ -345,6 +457,23 @@ TEST(SimulationTest, SnapshotAgentsSeeTheMarketOneLatencyLate) {
     EXPECT_EQ(probe.seen, (std::vector<std::pair<Timestamp, MarketSnapshot>>{
                               {149, MarketSnapshot{}}, {150, withAsk}, {151, withAsk}}));
     EXPECT_EQ(probe.streamed, 0);
+}
+
+// An agent that looks at the market on demand sees it with the median of its link's quantiles.
+TEST(SimulationTest, SnapshotAgentsSeeTheMarketTheMedianOfDrawnDelaysLate) {
+    Simulation simulation{1};
+    auto& seller = add<RecordingAgent>(simulation, {.latency = {.toExchange = 50}});
+    seller.startHook = [](AgentContext& context) { context.submitLimit(Side::Sell, 101, 5); };
+    auto& probe = add<SnapshotProbe>(
+        simulation, {.latency = {.fromExchangeQuantiles = {10, 100, 900}}},
+        std::vector<Timestamp>{149, 150});
+
+    simulation.runUntil(1'000);
+
+    const MarketSnapshot withAsk{
+        .ask = LevelSummary{.price = 101, .quantity = 5, .orderCount = 1}};
+    EXPECT_EQ(probe.seen, (std::vector<std::pair<Timestamp, MarketSnapshot>>{
+                              {149, MarketSnapshot{}}, {150, withAsk}}));
 }
 
 TEST(SimulationTest, SnapshotsAgreeWithTheStreamOverABusyRun) {

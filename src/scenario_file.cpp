@@ -361,14 +361,43 @@ ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
     return config;
 }
 
+// A link's delay: a duration, or a distribution as { quantiles = [...] }, durations in order
+// evenly spaced in probability, whose median stands for the link where one number is needed.
+void readDelay(const Reader& reader, const toml::node& node, std::string_view key,
+               Duration& delay, std::vector<Duration>& quantiles) {
+    if (!node.is_table()) {
+        delay = reader.duration(node, key);
+        return;
+    }
+    const toml::table& table = *node.as_table();
+    reader.allowOnly(table, {"quantiles"}, std::format("in '{}'", key));
+    const toml::node& list = reader.required(table, "quantiles");
+    const auto* values = list.as_array();
+    if (values == nullptr || values->empty()) {
+        reader.fail(list, std::format("'{}' quantiles must be a list of one or more durations, "
+                                      "shortest first",
+                                      key));
+    }
+    for (const toml::node& element : *values) {
+        const Duration value = reader.duration(element, key);
+        if (!quantiles.empty() && value < quantiles.back()) {
+            reader.fail(element, std::format("'{}' quantiles must be in order, shortest first",
+                                             key));
+        }
+        quantiles.push_back(value);
+    }
+    delay = medianOf(quantiles);
+}
+
 Latency readLatency(const Reader& reader, const toml::table& table) {
     reader.allowOnly(table, {"to_exchange", "from_exchange", "jitter"}, "in latency");
     Latency latency;
     if (const auto* node = table.get("to_exchange")) {
-        latency.toExchange = reader.duration(*node, "to_exchange");
+        readDelay(reader, *node, "to_exchange", latency.toExchange, latency.toExchangeQuantiles);
     }
     if (const auto* node = table.get("from_exchange")) {
-        latency.fromExchange = reader.duration(*node, "from_exchange");
+        readDelay(reader, *node, "from_exchange", latency.fromExchange,
+                  latency.fromExchangeQuantiles);
     }
     if (const auto* node = table.get("jitter")) {
         latency.jitter = reader.duration(*node, "jitter");
