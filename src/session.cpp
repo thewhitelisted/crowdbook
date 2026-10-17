@@ -371,8 +371,7 @@ Timestamp sessionEnd(const Scenario& scenario) noexcept {
     if (!scenario.tradingDay) {
         return scenario.duration;
     }
-    const Latency& latency = scenario.participant.latency;
-    return scenario.duration + latency.fromExchange + latency.jitter;
+    return scenario.duration + scenario.participant.latency.longestFromExchange();
 }
 
 Scenario sessionScenario(const Session& session) {

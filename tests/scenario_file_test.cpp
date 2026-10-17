@@ -106,6 +106,29 @@ count = 30
     EXPECT_EQ(scenario.groups[1].count, 30);
 }
 
+TEST(ScenarioFileTest, ReadsLatenciesDrawnFromQuantiles) {
+    const Scenario scenario = parseScenario(R"(
+[participant]
+latency = { to_exchange = { quantiles = ["8ms", "9ms", "12ms", "40ms"] }, from_exchange = "3ms" }
+
+[[agents]]
+type = "momentum"
+latency = { from_exchange = { quantiles = ["1ms", "2ms", "30ms"] }, jitter = "1us" }
+)");
+    const Latency& seat = scenario.participant.latency;
+    EXPECT_EQ(seat.toExchangeQuantiles,
+              (std::vector<Duration>{8 * kMillisecond, 9 * kMillisecond, 12 * kMillisecond,
+                                     40 * kMillisecond}));
+    EXPECT_EQ(seat.toExchange, 10'500 * kMicrosecond); // the median
+    EXPECT_TRUE(seat.fromExchangeQuantiles.empty());
+    EXPECT_EQ(seat.fromExchange, 3 * kMillisecond);
+    const Latency& agent = scenario.groups[0].options.latency;
+    EXPECT_EQ(agent.fromExchangeQuantiles,
+              (std::vector<Duration>{kMillisecond, 2 * kMillisecond, 30 * kMillisecond}));
+    EXPECT_EQ(agent.fromExchange, 2 * kMillisecond);
+    EXPECT_EQ(agent.longestFromExchange(), 30 * kMillisecond + kMicrosecond);
+}
+
 TEST(ScenarioFileTest, UsesDefaultsForWhatIsLeftOut) {
     const Scenario scenario = parseScenario("[[agents]]\ntype = \"zero_intelligence\"\n");
     EXPECT_EQ(scenario.seed, 1U);
@@ -143,6 +166,14 @@ TEST(ScenarioFileTest, RejectsValuesOfTheWrongKindOrRange) {
         {"[[agents]]\ncount = 2\n", "every [[agents]] table needs a type"},
         {agent + "weights = { a = 1 }\n", "agent parameter 'weights' must be a number"},
         {agent + "account = { max_position = -1 }\n", "'max_position' must be between 0"},
+        {agent + "latency = { to_exchange = { quantiles = [\"2ms\", \"1ms\"] } }\n",
+         "'to_exchange' quantiles must be in order, shortest first"},
+        {agent + "latency = { from_exchange = { quantiles = [] } }\n",
+         "'from_exchange' quantiles must be a list of one or more durations"},
+        {agent + "latency = { to_exchange = { median = \"1ms\" } }\n",
+         "unknown key 'median' in 'to_exchange'; expected one of: quantiles"},
+        {agent + "latency = { to_exchange = { quantiles = [1, 2] } }\n",
+         "'to_exchange' must be a duration in quotes"},
         {"seed = 1\n", "the scenario has no [[agents]]"},
         {"[exchange]\ntaker_fee = 0.0005\n" + agent, "at most three decimals"},
         {"[exchange]\nmaker_fee = -0.5\ntaker_fee = 0.3\n" + agent,

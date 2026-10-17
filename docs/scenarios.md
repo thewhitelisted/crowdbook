@@ -120,8 +120,28 @@ ignore it.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `latency` | table | no delay | `to_exchange`, `from_exchange` and `jitter`, all durations |
+| `latency` | table | no delay | `to_exchange`, `from_exchange` and `jitter`, all durations; either of the first two may be a distribution ([below](#latencies-drawn-from-a-distribution)) |
 | `account` | table | no limits | `initial_cash`, `initial_position`, `max_position`, `max_order_quantity` |
+
+### Latencies drawn from a distribution
+
+A link's delay can be a measured distribution instead of one duration: `{ quantiles = [...] }`,
+durations shortest first, evenly spaced in probability from the shortest to the longest, as many as
+the measurement supports. Each message on that link takes a delay drawn afresh: one of the gaps
+between neighbouring quantiles, each as likely, then uniformly within it. `jitter` still adds to
+it. Messages on a link still arrive in the order they were sent, so one that draws a long delay
+holds up those behind it, as on one connection.
+
+```toml
+[participant.latency]
+# 11 quantiles, from the 0th percentile to the 100th by tens: a delay with a long tail.
+to_exchange = { quantiles = ["8ms", "9ms", "9ms", "10ms", "10ms", "11ms", "12ms", "14ms", "18ms",
+                             "30ms", "250ms"] }
+from_exchange = "10ms"
+```
+
+Where one number stands for the link, its median does: an agent that reads the market on demand
+sees it that late, and a served seat's `welcome` reports it.
 
 ## `[scoring]` (optional)
 
@@ -267,7 +287,7 @@ still gets its own id and its own random streams.
 | `name` | text | the type | Label in the results |
 | `count` | integer | `1` | How many agents the group has |
 | `start` | duration | the start of the run | When the agents start |
-| `latency` | table | no delay | `to_exchange`, `from_exchange` and `jitter`, all durations |
+| `latency` | table | no delay | `to_exchange`, `from_exchange` and `jitter`, all durations; either of the first two may be a distribution ([below](#latencies-drawn-from-a-distribution)) |
 | `account` | table | no limits | `initial_cash`, `initial_position`, `max_position`, `max_order_quantity` |
 
 `max_position` is checked as if every open order on a side filled, and short selling is allowed
