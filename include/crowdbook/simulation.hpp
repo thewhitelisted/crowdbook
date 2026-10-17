@@ -25,9 +25,24 @@ struct Latency {
     Duration toExchange = 0;   // for the agent's requests
     Duration fromExchange = 0; // for every event sent to the agent, private or public
     Duration jitter = 0;       // extra delay per message, uniform in [0, jitter]
+    // A link's delay as a measured distribution rather than one number: when not empty, each
+    // message on that link takes a delay drawn afresh from these quantiles, which are in order and
+    // evenly spaced in probability from the shortest to the longest: one of the gaps between
+    // neighbours, each as likely, then uniformly within it. toExchange or fromExchange is taken to
+    // be their median, which is what an agent that looks at the market on demand sees it with.
+    // Jitter adds to either.
+    std::vector<Duration> toExchangeQuantiles{};
+    std::vector<Duration> fromExchangeQuantiles{};
+
+    // The longest a message from the exchange can take, jitter included.
+    [[nodiscard]] Duration longestFromExchange() const noexcept;
 
     friend bool operator==(const Latency&, const Latency&) = default;
 };
+
+// The median of quantiles evenly spaced in probability, halfway between the middle two when there
+// is an even number of them; 0 for none.
+[[nodiscard]] Duration medianOf(const std::vector<Duration>& quantiles) noexcept;
 
 struct AgentOptions {
     AccountConfig account{};
@@ -39,15 +54,17 @@ struct AgentOptions {
 // wakeup in time order; items due at the same time run in the order they were scheduled. Each
 // agent draws from its own random streams, so a run is fully determined by its seed. Messages on
 // one link (an agent to the exchange, or the exchange to an agent) never overtake each other, even
-// with jitter. The exchange itself takes no time to process a request.
+// with jitter or delays drawn from a distribution: a message held up holds up those behind it, as
+// on one connection. The exchange itself takes no time to process a request.
 class Simulation {
 public:
     // Throws std::invalid_argument for exchange settings Exchange rejects.
     explicit Simulation(std::uint64_t seed, const ExchangeConfig& exchange = {});
 
     // Opens an account for the agent, schedules its start and returns its id: 1 for the first
-    // agent, then 2, and so on. Throws std::invalid_argument if the agent is null, a latency is
-    // negative, the start time has passed or the account limits are invalid.
+    // agent, then 2, and so on. A link with quantiles takes their median as its delay where one
+    // number is needed. Throws std::invalid_argument if the agent is null, a latency is negative,
+    // quantiles are out of order, the start time has passed or the account limits are invalid.
     AgentId addAgent(std::unique_ptr<Agent> agent, const AgentOptions& options = {});
 
     // Reports every request reaching the exchange and every event it produces to `sink`, which is
@@ -109,7 +126,7 @@ private:
         std::unique_ptr<Agent> agent{};
         Latency latency{};
         Random random{0, 0};  // the agent's own stream
-        Random network{0, 0}; // draws the jitter on the agent's links
+        Random network{0, 0}; // draws the jitter and drawn delays on the agent's links
         Ledger ledger{};
         ClientOrderId nextClientOrderId = 1;
         Timestamp lastArrivalAtExchange = 0; // links are first in, first out
@@ -157,7 +174,9 @@ private:
     [[noreturn]] void throwFailed() const;
     void send(AgentId sender, Request request);
     void deliver(AgentId recipient, const Event& event, bool own);
-    Duration drawJitter(Slot& endpoint);
+    // A message's delay on one of the agent's links: the link's own, or one drawn from its
+    // quantiles, and the jitter.
+    Duration drawDelay(Slot& endpoint, bool toExchange);
     // Throws std::out_of_range for an unknown id.
     Slot& slot(AgentId id);
     // For an id the simulation itself handed out or scheduled, which is always known.

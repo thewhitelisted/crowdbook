@@ -58,6 +58,24 @@ private:
     AgentId agent_;
 };
 
+Duration Latency::longestFromExchange() const noexcept {
+    const Duration longest =
+        fromExchangeQuantiles.empty() ? fromExchange : fromExchangeQuantiles.back();
+    return longest + jitter;
+}
+
+Duration medianOf(const std::vector<Duration>& quantiles) noexcept {
+    if (quantiles.empty()) {
+        return 0;
+    }
+    const std::size_t middle = quantiles.size() / 2;
+    if (quantiles.size() % 2 == 1) {
+        return quantiles[middle];
+    }
+    const Duration low = quantiles[middle - 1];
+    return low + (quantiles[middle] - low) / 2;
+}
+
 Simulation::Simulation(std::uint64_t seed, const ExchangeConfig& exchange)
     : seed_(seed), exchange_(exchange) {}
 
@@ -65,11 +83,25 @@ AgentId Simulation::addAgent(std::unique_ptr<Agent> agent, const AgentOptions& o
     if (!agent) {
         throw std::invalid_argument("agent must not be null");
     }
-    const Latency& latency = options.latency;
+    Latency latency = options.latency;
     const auto inRange = [](Duration part) { return part >= 0 && part <= kMaxDuration; };
+    const auto allInRange = [&](const std::vector<Duration>& quantiles) {
+        return std::ranges::all_of(quantiles, inRange);
+    };
     if (!inRange(latency.toExchange) || !inRange(latency.fromExchange) ||
-        !inRange(latency.jitter)) {
+        !inRange(latency.jitter) || !allInRange(latency.toExchangeQuantiles) ||
+        !allInRange(latency.fromExchangeQuantiles)) {
         throw std::invalid_argument("latencies must be from 0 to 1000000000s");
+    }
+    if (!std::ranges::is_sorted(latency.toExchangeQuantiles) ||
+        !std::ranges::is_sorted(latency.fromExchangeQuantiles)) {
+        throw std::invalid_argument("a latency's quantiles must be in order, shortest first");
+    }
+    if (!latency.toExchangeQuantiles.empty()) {
+        latency.toExchange = medianOf(latency.toExchangeQuantiles);
+    }
+    if (!latency.fromExchangeQuantiles.empty()) {
+        latency.fromExchange = medianOf(latency.fromExchangeQuantiles);
     }
     const Timestamp startTime = options.startTime.value_or(now_);
     if (startTime < now_) {
@@ -165,23 +197,35 @@ Simulation::Action& Simulation::schedule(Timestamp time) { return queue_.push(ti
 void Simulation::send(AgentId sender, Request request) {
     Slot& from = knownSlot(sender);
     from.ledger.recordRequest(request);
-    const Timestamp arrival = std::max(now_ + from.latency.toExchange + drawJitter(from),
-                                       from.lastArrivalAtExchange);
+    const Timestamp arrival = std::max(now_ + drawDelay(from, true), from.lastArrivalAtExchange);
     from.lastArrivalAtExchange = arrival;
     schedule(arrival).emplace<Arrival>(sender, std::move(request));
 }
 
 void Simulation::deliver(AgentId recipient, const Event& event, bool own) {
     Slot& to = knownSlot(recipient);
-    const Timestamp arrival = std::max(now_ + to.latency.fromExchange + drawJitter(to),
-                                       to.lastArrivalAtAgent);
+    const Timestamp arrival = std::max(now_ + drawDelay(to, false), to.lastArrivalAtAgent);
     to.lastArrivalAtAgent = arrival;
     schedule(arrival).emplace<Delivery>(recipient, event, own);
 }
 
-Duration Simulation::drawJitter(Slot& endpoint) {
-    const Duration jitter = endpoint.latency.jitter;
-    return jitter == 0 ? 0 : endpoint.network.uniformInt(0, jitter);
+Duration Simulation::drawDelay(Slot& endpoint, bool toExchange) {
+    const Latency& latency = endpoint.latency;
+    const std::vector<Duration>& quantiles =
+        toExchange ? latency.toExchangeQuantiles : latency.fromExchangeQuantiles;
+    Duration delay = toExchange ? latency.toExchange : latency.fromExchange;
+    if (quantiles.size() == 1) {
+        delay = quantiles.front();
+    } else if (quantiles.size() > 1) {
+        // Evenly spaced in probability, so each gap between neighbours is as likely, and within
+        // one the delay is uniform: the distribution the quantiles describe, joined by straight
+        // lines. Whole numbers throughout, so every platform draws the same.
+        const auto gap = static_cast<std::size_t>(
+            endpoint.network.uniformInt(0, static_cast<std::int64_t>(quantiles.size()) - 2));
+        delay = endpoint.network.uniformInt(quantiles[gap], quantiles[gap + 1]);
+    }
+    const Duration jitter = latency.jitter;
+    return jitter == 0 ? delay : delay + endpoint.network.uniformInt(0, jitter);
 }
 
 Simulation::Slot& Simulation::slot(AgentId id) {

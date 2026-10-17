@@ -848,6 +848,13 @@ TEST(LearningTest, AnEpisodeReplaysAsASessionByteForByte) {
     };
     check(std::string{kBusy}, std::nullopt);
     check(rangedScenario(), 12);
+    // A seat whose delays are drawn for each message, with a tail.
+    std::string drawn{kBusy};
+    const std::string fixed = R"(latency = { to_exchange = "1ms", from_exchange = "1ms" })";
+    drawn.replace(drawn.find(fixed), fixed.size(),
+                  R"(latency = { to_exchange = { quantiles = ["1ms", "2ms", "40ms"] }, )"
+                  R"(from_exchange = { quantiles = ["500us", "1ms", "3ms", "90ms"] } })");
+    check(drawn, std::nullopt);
 }
 
 TEST(LearningTest, RangesDrawTheSameSettingsFromTheSameSeedWithinTheirBounds) {

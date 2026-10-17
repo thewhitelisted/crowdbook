@@ -245,9 +245,15 @@ one queue of agent starts, wakeups, requests reaching the exchange and events re
 time order. Items due at the same nanosecond run in the order they were scheduled.
 
 - **Latency:** each agent has a one-way delay to the exchange and another back, plus optional
-  uniform jitter per message. Each link is first in, first out, like a TCP connection: a message
-  never overtakes an earlier one on the same link, so an agent's cancel cannot arrive before the
-  order it cancels. The exchange itself takes no time.
+  uniform jitter per message. Either delay can instead be a measured distribution, given by its
+  quantiles: each message then takes a delay drawn afresh, so a link has the tail a real one has
+  rather than a fixed delay with even spread around it. The quantiles are evenly spaced in
+  probability, and a draw picks one of the gaps between neighbours, each as likely, then a delay
+  uniformly within it, in whole nanoseconds so that every platform draws the same. Each link is
+  first in, first out, like a TCP connection: a message never overtakes an earlier one on the same
+  link, so an agent's cancel cannot arrive before the order it cancels, and a message that draws a
+  long delay holds up the ones behind it. An agent that reads the market on demand sees it as of
+  the distribution's median. The exchange itself takes no time.
 - **Agents** subclass `Agent` and override the callbacks they need: `onStart`, `onWakeup`,
   `onAccepted`, `onRejected`, `onModified`, `onFilled`, `onCancelled`, `onTrade` and
   `onTopOfBook`. Each callback gets an `AgentContext` to act through: `submitLimit`,
@@ -261,8 +267,8 @@ time order. Items due at the same nanosecond run in the order they were schedule
   matches the exchange exactly.
 - **Randomness:** `Random` is xoshiro256** seeded through SplitMix64, with uniform, Bernoulli,
   exponential and normal distributions written here. Agent *n* draws from stream 2*n* and its
-  network jitter from stream 2*n* + 1, so turning on jitter or adding another agent does not change
-  any agent's own draws. Every draw is identical on every platform: floating-point draws use
+  network jitter and drawn delays from stream 2*n* + 1, so turning on jitter, drawing delays or
+  adding another agent does not change any agent's own draws. Every draw is identical on every platform: floating-point draws use
   `crowdbook::math` and the correctly rounded square root.
 - **Arithmetic the same everywhere:** a seeded run is byte for byte the same on every platform,
   not just on one machine. Standard libraries compute `exp`, `log` and `pow` differently in the
@@ -995,9 +1001,9 @@ Choices for later milestones may change once they are implemented; changes are r
 | Modify | Size decrease keeps queue position; price change or size increase loses it | Matches common exchange rules, so queue-position effects are realistic |
 | Self-trade prevention | Cancel the incoming order's remaining size | An agent never trades with itself and the book never ends up crossed |
 | Market orders | Fill against the book, cancel any remainder | Market orders never rest |
-| Links | First in, first out per agent and direction, even with jitter | Like a TCP connection: a cancel can never overtake the order it cancels |
+| Links | First in, first out per agent and direction, even with jitter or drawn delays | Like a TCP connection: a cancel can never overtake the order it cancels |
 | Market data delivery | Streamed or read on demand, chosen by each agent | Streaming to everyone costs N²; most agents only need the market at the moment they act |
-| Randomness | xoshiro256** streams from the run's seed: 2*n* for agent *n*'s draws, 2*n* + 1 for its jitter | Same seed → same run; adding an agent or turning on jitter does not change any agent's draws |
+| Randomness | xoshiro256** streams from the run's seed: 2*n* for agent *n*'s draws, 2*n* + 1 for its jitter and drawn delays | Same seed → same run; adding an agent or turning on jitter does not change any agent's draws |
 | Distributions | Implemented in crowdbook, not `std::*_distribution` | Standard distribution output is implementation-defined, so libc++ and libstdc++ disagree for the same seed |
 | Elementary functions | crowdbook's own `exp`, `exp2`, `log` and `pow`, from basic arithmetic, and no fused multiply-adds | The platforms' libraries differ in the last bit, which is enough to make a seeded run differ between macOS and Linux |
 | Agent state | A ledger built from the agent's own requests and events, not a view of the exchange | Agents act on what they could know, including orders in flight and cancels that race fills |
