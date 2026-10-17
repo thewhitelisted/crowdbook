@@ -126,7 +126,7 @@ private:
 // One market stepped by a learning agent through its seat: an episode starts with reset and
 // goes on, decision by decision, with step, until it is over. Between decisions the market runs
 // on: to the next multiple of the interval, or until one of the seat's own orders fills, which
-// the seat hears at once and decides on. Every episode is a session with one seat, and session()
+// the seat hears at once and decides on, or, with the feed's trigger, until the feed moves. Every episode is a session with one seat, and session()
 // writes it as one, which replays exactly.
 class LearningMarket {
 public:
