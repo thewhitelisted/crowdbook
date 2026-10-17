@@ -209,7 +209,7 @@ obs, rewards, terminated, truncated, info = pool.step(actions)  # 64 rows of (ac
 | `max_depth_updates` | whole number | 32 | Depth updates kept with their levels; 0 for none |
 | `depth_levels` | whole number | 10 | Levels a side of each depth update and of the latest book; 0 for none. The exchange's `depth_levels` sets how many it sends |
 | `max_orders` | whole number | 8 | Rows of the seat's open orders |
-| `feed` | table | none | A view of the underlying, which needs a `[fundamental]` or `[prediction]` section: `interval`, how often it comes, `"1s"`, at least `"1ms"`; `lag`, how late, 0; `noise`, the standard deviation of the normal noise added to each, 0 |
+| `feed` | table | none | A view of the underlying, which needs a `[fundamental]` or `[prediction]` section: `interval`, how often it comes, `"1s"`, at least `"1ms"`; `lag`, how late, 0; `noise`, the standard deviation of the normal noise added to each, 0; `trigger`, how far a publication must move from the one heard at the last decision to be a decision of its own, 0 for never |
 | `ranges` | table | none | Settings drawn for each episode ([ranges](#learningranges-optional)) |
 
 The actions, each taken at one of the sizes:

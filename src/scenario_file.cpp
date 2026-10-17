@@ -440,7 +440,7 @@ AgentOptions readParticipant(const Reader& reader, const toml::table& table) {
 }
 
 LearningFeed readFeed(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"interval", "lag", "noise"}, "in learning.feed");
+    reader.allowOnly(table, {"interval", "lag", "noise", "trigger"}, "in learning.feed");
     LearningFeed feed;
     if (const auto* node = table.get("interval")) {
         feed.interval = reader.duration(*node, "interval");
@@ -455,6 +455,12 @@ LearningFeed readFeed(const Reader& reader, const toml::table& table) {
         feed.noise = reader.number(*node, "noise");
         if (feed.noise < 0.0) {
             reader.fail(*node, "'noise' must not be negative");
+        }
+    }
+    if (const auto* node = table.get("trigger")) {
+        feed.trigger = reader.number(*node, "trigger");
+        if (feed.trigger < 0.0) {
+            reader.fail(*node, "'trigger' must not be negative");
         }
     }
     return feed;

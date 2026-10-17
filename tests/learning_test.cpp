@@ -2,6 +2,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -301,7 +302,7 @@ max_events = 64
 max_depth_updates = 8
 depth_levels = 3
 max_orders = 4
-feed = { interval = "100ms", lag = "1s", noise = 0.25 }
+feed = { interval = "100ms", lag = "1s", noise = 0.25, trigger = 0.5 }
 [learning.ranges]
 agents.momentum.threshold = [1, 3]
 fundamental.volatility = { log = [0.1, 2] }
@@ -327,7 +328,8 @@ type = "momentum"
     EXPECT_EQ(config.maxOrders, 4U);
     EXPECT_EQ(config.feed, (LearningFeed{.interval = 100 * kMillisecond,
                                          .lag = kSecond,
-                                         .noise = 0.25}));
+                                         .noise = 0.25,
+                                         .trigger = 0.5}));
     ASSERT_EQ(config.ranges.size(), 4U);
     // In the order of their paths.
     EXPECT_EQ(config.ranges[0].path(), "agents.momentum.threshold");
@@ -382,7 +384,17 @@ TEST(LearningConfigTest, ReportsBadSettings) {
         EXPECT_NE(error(learning).find(expected), std::string::npos)
             << "for " << learning << ": " << error(learning);
     }
-    // A feed comes at most every millisecond.
+    // A feed comes at most every millisecond, and its trigger is not negative.
+    std::string triggered{kBusy};
+    const std::string_view noise = "noise = 0.5 }";
+    triggered.replace(triggered.find(noise), noise.size(), "noise = 0.5, trigger = -1 }");
+    try {
+        static_cast<void>(parseScenario(triggered));
+        ADD_FAILURE() << "a negative trigger was accepted";
+    } catch (const ScenarioError& caught) {
+        EXPECT_NE(std::string{caught.what()}.find("'trigger' must not be negative"),
+                  std::string::npos);
+    }
     std::string fed{kBusy};
     const std::string_view every = "interval = \"500ms\", lag";
     fed.replace(fed.find(every), every.size(), "interval = \"500us\", lag");
@@ -818,6 +830,74 @@ TEST(LearningTest, TheFeedShowsTheUnderlyingLateWithFreshNoise) {
     EXPECT_NEAR(std::sqrt(squares / static_cast<double>(noisy.size())), 0.5, 0.15);
 }
 
+// A busy market's feed, every 500ms and 2s late, without noise and with the trigger given.
+std::string triggeredFeed(double trigger) {
+    std::string text{kBusy};
+    const std::string_view noise = "noise = 0.5 }";
+    text.replace(text.find(noise), noise.size(),
+                 std::format("noise = 0.0, trigger = {} }}", trigger));
+    return text;
+}
+
+TEST(LearningTest, TheFeedsTriggerCallsADecisionWhenItMoves) {
+    // Holding throughout, the decisions' times, the feed each had heard last, and the market's
+    // log, which holding leaves the same however often the seat decides.
+    struct Run {
+        std::vector<Timestamp> times;
+        std::vector<std::int64_t> heard;
+        std::vector<std::vector<std::int64_t>> published; // each step's feed rows
+        std::string log;
+    };
+    const auto run = [](double trigger) {
+        Run found;
+        std::ostringstream out;
+        CsvEventLog log{out};
+        const Scenario scenario = parseScenario(triggeredFeed(trigger));
+        LearningMarket market{*scenario.learning, registry(), &log};
+        Buffers buffers{market.shape()};
+        market.reset(scenario, buffers.view());
+        for (;;) {
+            std::vector<std::int64_t> rows;
+            for (const auto& row : buffers.rows()) {
+                if (row[0] == static_cast<std::int64_t>(LearningEvent::Feed)) {
+                    rows.push_back(row[2]);
+                }
+            }
+            found.times.push_back(market.now());
+            found.heard.push_back(rows.empty() ? found.heard.back() : rows.back());
+            found.published.push_back(rows);
+            if (market.finished()) {
+                break;
+            }
+            market.step(0, 0, buffers.view());
+        }
+        found.log = out.str();
+        return found;
+    };
+    const Run plain = run(0.0);
+    EXPECT_EQ(plain.times.size(), 60U); // every second from 1s to the end at 60s
+    const double trigger = 0.6;
+    const Run triggered = run(trigger);
+    EXPECT_EQ(triggered.log, plain.log);
+    EXPECT_GT(triggered.times.size(), plain.times.size() + 5);
+    const auto units = static_cast<std::int64_t>(trigger * 1e6);
+    for (std::size_t i = 1; i < triggered.times.size(); ++i) {
+        const Timestamp time = triggered.times[i];
+        const std::int64_t before = triggered.heard[i - 1];
+        const bool moved = std::abs(triggered.heard[i] - before) >= units;
+        if (time % kSecond != 0) {
+            // Off the second, only a publication that moved the feed calls a decision.
+            EXPECT_EQ(time % (500 * kMillisecond), 0) << "at " << time;
+            EXPECT_TRUE(moved) << "at " << time;
+        }
+        // No publication before the last moved the feed from what the last decision heard.
+        const std::vector<std::int64_t>& rows = triggered.published[i];
+        for (std::size_t r = 0; r + 1 < rows.size(); ++r) {
+            EXPECT_LT(std::abs(rows[r] - before), units) << "at " << time;
+        }
+    }
+}
+
 TEST(LearningTest, AnEpisodeReplaysAsASessionByteForByte) {
     const auto check = [](const std::string& text, std::optional<std::uint64_t> settingsSeed) {
         std::ostringstream live;
@@ -855,6 +935,7 @@ TEST(LearningTest, AnEpisodeReplaysAsASessionByteForByte) {
                   R"(latency = { to_exchange = { quantiles = ["1ms", "2ms", "40ms"] }, )"
                   R"(from_exchange = { quantiles = ["500us", "1ms", "3ms", "90ms"] } })");
     check(drawn, std::nullopt);
+    check(triggeredFeed(0.4), std::nullopt);
 }
 
 TEST(LearningTest, RangesDrawTheSameSettingsFromTheSameSeedWithinTheirBounds) {

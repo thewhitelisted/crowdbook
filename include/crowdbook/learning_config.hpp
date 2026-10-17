@@ -61,6 +61,10 @@ struct LearningFeed {
     Duration interval = kSecond;
     Duration lag = 0;
     double noise = 0.0; // standard deviation, in the underlying's units
+    // A decision also comes at the first publication that differs from the one heard at the last
+    // decision by at least this much, in the underlying's units, so that the seat can act on a
+    // move of the underlying as soon as it hears it; 0 for none.
+    double trigger = 0.0;
 
     friend bool operator==(const LearningFeed&, const LearningFeed&) = default;
 };
