@@ -468,7 +468,7 @@ struct LearningMarket::Episode {
             if (std::holds_alternative<Trade>(event) && !episode_.stopped &&
                 episode_.scorer != nullptr && episode_.scorer->stoppedAt(episode_.seat)) {
                 episode_.stopped = true;
-                episode_.simulation->interrupt();
+                episode_.interrupt();
             }
         }
 
@@ -496,6 +496,11 @@ struct LearningMarket::Episode {
     std::shared_ptr<Fundamental> feedValue;
     Random feedNoise{0, 0};
     std::int64_t nextFeed = 0; // the next publication, counted in feed intervals from the start
+    // The latest publication the seat has heard, and the one it had heard at its last decision,
+    // in the underlying's units; NaN before the first.
+    double feedHeard = std::numeric_limits<double>::quiet_NaN();
+    double feedAtDecision = std::numeric_limits<double>::quiet_NaN();
+    bool decisionDue = false; // the run was stopped for a decision: a fill, or the loss limit
     Timestamp end = 0;
     Timestamp lastDecision = 0;
     Points lastScore = 0;
@@ -627,7 +632,7 @@ struct LearningMarket::Episode {
                         forget(filled.clientOrderId);
                     }
                     // A fill is a decision of its own, once everything due now has run.
-                    simulation->interrupt();
+                    interrupt();
                 },
                 [&](const OrderCancelled& cancelled) {
                     push(rows, rowCount, LearningEvent::Cancelled, time,
@@ -649,13 +654,21 @@ struct LearningMarket::Episode {
             event);
     }
 
+    // Stops the run for a decision once everything due now has run.
+    void interrupt() noexcept {
+        decisionDue = true;
+        simulation->interrupt();
+    }
+
     // The feed's publications up to now: the underlying `lag` before each, with fresh noise.
-    void publishFeed() {
+    // Returns whether one of them moved the feed's trigger from what the last decision heard.
+    bool publishFeed() {
         if (!config.feed || !feedValue) {
-            return;
+            return false;
         }
         const LearningFeed& feed = *config.feed;
         const Timestamp now = this->now();
+        bool moved = false;
         while (nextFeed <= now / feed.interval) {
             const Timestamp time = nextFeed * feed.interval;
             static_cast<void>(feedValue->valueAt(std::max<Timestamp>(time - feed.lag, 0)));
@@ -666,6 +679,29 @@ struct LearningMarket::Episode {
             push(feedRows, feedCount, LearningEvent::Feed, time,
                  static_cast<std::int64_t>(std::llround(underlying * 1e6)));
             ++nextFeed;
+            feedHeard = underlying;
+            moved = moved || (feed.trigger > 0.0 && !std::isnan(feedAtDecision) &&
+                              std::abs(underlying - feedAtDecision) >= feed.trigger);
+        }
+        return moved;
+    }
+
+    // Runs to `until`, or until the run is stopped for a decision sooner: by a fill or the loss
+    // limit, or, with a trigger on the feed, at the first publication that moves it. With a
+    // trigger the market runs one publication at a time, which processes the same items in the
+    // same order as running straight to the end.
+    void runToDecision(Timestamp until) {
+        decisionDue = false;
+        if (!config.feed || config.feed->trigger <= 0.0 || !feedValue) {
+            simulation->runUntil(until);
+            return;
+        }
+        const Duration interval = config.feed->interval;
+        while (now() < until) {
+            simulation->runUntil(std::min(nextFeed * interval, until));
+            if (decisionDue || publishFeed()) {
+                return;
+            }
         }
     }
 
@@ -684,6 +720,7 @@ struct LearningMarket::Episode {
 
     void observe(const LearningObservation& out) {
         publishFeed();
+        feedAtDecision = feedHeard;
         const std::size_t capacity = config.maxEvents;
         const std::size_t levels = config.depthLevels;
 
@@ -1126,7 +1163,7 @@ LearningStep LearningMarket::step(std::size_t action, std::size_t size,
     });
     const Duration interval = e.config.interval;
     const Timestamp next = (e.now() / interval + 1) * interval;
-    e.simulation->runUntil(std::min(next, e.end));
+    e.runToDecision(std::min(next, e.end));
 
     LearningStep report{.elapsed = e.now() - e.lastDecision};
     e.lastDecision = e.now();

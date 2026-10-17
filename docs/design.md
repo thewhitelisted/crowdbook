@@ -496,7 +496,8 @@ replays exactly.
   scored by the session's `Scorer`. The `[learning]` section of the scenario sets the rest
   ([scenarios.md](scenarios.md#learning-optional)).
 - **Decisions** come at every multiple of the interval, a second unless the scenario says
-  otherwise, and whenever one of the seat's own orders fills; the first at the warmup. Between
+  otherwise, whenever one of the seat's own orders fills, and, with the feed's trigger, whenever
+  the feed moves; the first at the warmup. Between
   decisions the market runs on. When the seat hears a fill of its own, one latency after the
   exchange made it, its listener calls `Simulation::interrupt()`, and the run stops once everything
   due at that nanosecond has run. The seat then acts at that time with `Simulation::act`, as a
@@ -520,7 +521,11 @@ replays exactly.
   interval: the true value as it stood `lag` earlier, plus fresh normal noise, or in a prediction
   market the hidden quantity whose end decides the question, in millionths. It reads a copy of the
   value made from the same seed, so reading it changes nothing, and its noise draws from a stream
-  of its own.
+  of its own. With a `trigger`, a publication that differs from the one the seat heard at its last
+  decision by at least that much is a decision of its own, so the seat can act on a move of the
+  underlying as soon as it hears it rather than at the next interval. The market then runs one
+  publication at a time, which processes the same items in the same order, so a seat that sends
+  nothing leaves the market as it would have been, and an episode still replays as its session.
 - **Actions** are sixteen, numbered, each taken at one of the scenario's sizes: hold; a bid, an
   offer or both, at the best price, a tick inside it or a tick behind it; cancel the bid, the offer
   or both; buy or sell immediate-or-cancel at the other side's best price, `take_ticks` past it,
