@@ -228,6 +228,25 @@ class StatisticsTest(unittest.TestCase):
         self.assertGreater(validate._dispersion(counts, exposures), 100)
         self.assertEqual(validate._dispersion([3, 7], [1, 1], ["a", "b"]), 1.0)  # no replicates
 
+    def test_one_scenarios_seeds_are_one_group_and_twins_their_own(self):
+        # Markets named by their seeds, half trading every second and half every minute: one
+        # scenario's bursty seeds, whose dispersion must show; given as twins of two markets,
+        # each pair steady, none.
+        busy, calm = market(duration=600.0), market(duration=600.0)
+        calm.trade_time = calm.trade_time[::60]
+        for name in ("trade_price", "trade_size", "trade_sign"):
+            setattr(calm, name, getattr(calm, name)[::60])
+        markets = []
+        for seed, kind in enumerate([busy, calm] * 10):
+            m = tape.Market(**{**kind.__dict__, "name": str(seed), "labels": {}})
+            markets.append(m)
+        pooled = validate.measure(validate.pieces(tape.Tape(markets)))
+        self.assertGreater(pooled["_orders_dispersion"], 50)
+        for seed, m in enumerate(markets):
+            m.labels = {"twin_of": seed % 2}
+        grouped = validate.measure(validate.pieces(tape.Tape(markets)))
+        self.assertEqual(grouped["_orders_dispersion"], 1.0)
+
     def test_a_count_distance_grows_with_the_rate_where_twins_differ(self):
         # Ten recorded markets of 60 to 600 minutes with one order between them, two twins each,
         # the longer twins trading faster: the distance must keep growing as the rate does.

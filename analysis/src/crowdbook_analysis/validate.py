@@ -389,9 +389,10 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     # Orders.
     times, sizes, signs, prices = _orders(m, options.same_order)
     p["orders"] = np.array([len(times), len(m.trade_time)])
-    # Markets alike but for their seeds, such as a recorded market's twins, share a group: a
-    # count's dispersion is measured within groups, not across markets that differ by design.
-    p["group"] = str(m.labels.get("twin_of", m.name))
+    # Markets alike but for their seeds share a group: a recorded market's twins, or else every
+    # market of the tape, as one scenario's seeds are. A count's dispersion is measured within
+    # groups, not across twins that differ by design.
+    p["group"] = str(m.labels.get("twin_of", ""))
     p["sizes"] = sizes
     gaps = np.diff(times)
     p["gaps"] = np.array([len(gaps), gaps.sum(), (gaps**2).sum()])
@@ -554,7 +555,7 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
     out["_orders"], out["_minutes"] = float(orders[0]), duration / 60
     out["_orders_dispersion"] = _dispersion([p["orders"][0] for p in ps],
                                             [p["duration"] / 60 for p in ps],
-                                            [p.get("group", "") for p in ps])
+                                            [p["group"] for p in ps])
     out["prints_per_order"] = orders[1] / orders[0] if orders[0] > 0 else np.nan
     sizes = _cat(ps, "sizes")
     median = float(np.median(sizes)) if len(sizes) else np.nan
