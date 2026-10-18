@@ -324,6 +324,7 @@ type = "zero_intelligence"
                           .periods = 4,
                           .breakLength = 300 * kSecond,
                           .scores = 85.0,
+                          .lateScoring = 1.5,
                           .points = {1, 2, 3},
                           .pointWeights = {0.2, 0.55, 0.25},
                           .tie = 50.0,
