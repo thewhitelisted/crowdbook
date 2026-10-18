@@ -159,9 +159,15 @@ class StatisticsTest(unittest.TestCase):
         # Three out, at 53, only the sweep reaches it; eight out, at 58, nothing does.
         self.assertAlmostEqual(found["quote_3_fills"], 1 / (100 / 3600) / 2)
         self.assertAlmostEqual(found["quote_3_after_60"], 3.0)
-        self.assertEqual(found["quote_8_fills"], 0.0)
+        # None counts as half of one over the time seen, so that the rate stays a number.
+        self.assertAlmostEqual(found["quote_8_fills"], 0.5 / (100 / 3600) / 2)
         self.assertTrue(np.isnan(found["quote_8_after_60"]))
         self.assertTrue(np.isnan(self.measure(market())["quote_1_settlement"]))
+        quiet = market(duration=120.0)
+        quiet = tape.Market(**{**quiet.__dict__, "trade_time": np.array([]),
+                               "trade_price": np.array([]), "trade_size": np.array([]),
+                               "trade_sign": np.array([])})
+        self.assertAlmostEqual(self.measure(quiet)["orders_per_minute"], 0.25)
 
     def test_how_the_mid_follows_a_value_that_steps_away(self):
         # The value steps from 50 to 60 at second 50; the mid never moves.

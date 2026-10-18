@@ -1,6 +1,8 @@
 # What crowdbook-calibrate fits in reference_twins.toml, twin by twin: each recorded game gets
 # `seeds` twins for every candidate and `held_out` for the verdict. The twins' value is the
-# recorded reference price, so only the traders are fitted.
+# recorded reference price, so only the traders are fitted: how wide and how deep the makers
+# quote, how late the sharps see the value, and how much the others trade, down to markets where
+# hardly anything trades.
 template = "reference_twins.toml"
 condition = true
 seeds = 2
@@ -14,32 +16,37 @@ low = 0.2
 high = 3.0
 start = 0.8
 
-[parameters.maker_lag]
-low = 0.1
-high = 10.0
-start = 1.0
-kind = "duration"
+[parameters.maker_size]
+low = 5
+high = 5000
+start = 100
+whole = true
+
+[parameters.deep_size]
+low = 5
+high = 10000
+start = 200
+whole = true
 
 [parameters.sharp_lag]
 low = 0.2
-high = 10.0
+high = 30.0
 start = 1.5
 kind = "duration"
 
-[parameters.bettors]
-low = 5
-high = 200
-start = 60
-whole = true
+[parameters.bettor_interval]
+low = 10.0
+high = 100000.0
+start = 600.0
+kind = "duration"
 
 [parameters.tilt]
 low = -0.2
 high = 0.6
-start = 0.3
+start = 0.2
 log = false
 
-[parameters.bias]
-low = -5.0
-high = 5.0
-start = 2.0
-log = false
+[parameters.noise_rate]
+low = 0.00001
+high = 0.05
+start = 0.001
