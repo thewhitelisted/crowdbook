@@ -243,6 +243,34 @@ sweep its thin book; the real questions' makers, on the chain, lost money as a w
 false edge this check exists for: the fitted market should not be used to judge a maker until its
 book is fitted too.
 
+## Judging a strategy in a fitted market
+
+Once a market is fitted, and passes the no-false-edge check, a strategy is run in it as it would
+trade the real one, through the learning pool's seat ([python/README.md](../python/README.md)):
+
+```bash
+uv run --project analysis crowdbook-draws my_spec.toml --report calibrated/report.json \
+    --count 20 --out draws
+```
+
+```python
+from pathlib import Path
+from crowdbook_learn.evaluate import evaluate
+
+scenarios = [path.read_text() for path in sorted(Path("draws").glob("*.toml"))]
+result = evaluate(policy, scenarios, seeds=range(1, 401), scales=(1, 2, 4))
+```
+
+`crowdbook-draws` writes scenarios whose settings are drawn about the fit, each normal in the unit
+box with its 68% interval's half width, doubled, as its spread; doubled because the intervals were
+found about half as wide as they should be. The policy answers each decision with explicit orders
+(`Pool.step_orders`: a bid, an offer, a quantity to take), so a strategy written for a real venue,
+which names its prices, runs unchanged. The report: what it made a market, with its interval,
+across the draws; its lots, as a maker and a taker; what it made a lot; the markouts of its fills a
+second, ten and a minute on, its adverse selection; and all of these at larger sizes on the same
+seeds, its capacity. Set beside a paper trader's numbers on the real market, they say whether the
+fitted market predicts it.
+
 ## Datasets
 
 `crowdbook-generate` ([generate.py](../analysis/src/crowdbook_analysis/generate.py)) makes many

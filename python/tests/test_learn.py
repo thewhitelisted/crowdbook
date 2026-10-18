@@ -70,6 +70,51 @@ class PoolTest(unittest.TestCase):
         self.assertEqual(pool.action_names[0], "hold")
         self.assertEqual(pool.sizes, [1, 5])
 
+    def test_orders_at_named_prices_rest_where_asked_and_take(self):
+        pool = crowdbook_learn.Pool(MARKET, markets=2, threads=1)
+        obs, _ = pool.reset(seeds=1)
+        names = crowdbook_learn.STATE_NAMES
+        bid = obs["state"][:, names.index("bid_price")].copy()
+        ask = obs["state"][:, names.index("ask_price")].copy()
+        # Market 0 quotes two ticks outside the touch; market 1 buys two lots at the offer.
+        orders = np.array([[bid[0] - 2, 3, ask[0] + 2, 4, 0], [0, 0, 0, 0, 2]], dtype=np.int64)
+        obs, *_ = pool.step_orders(orders)
+        open_orders = obs["orders"][0][obs["orders"][0][:, 2] > 0]
+        self.assertEqual(sorted(map(tuple, open_orders[:, :3].tolist())),
+                         sorted([(1, bid[0] - 2, 3), (-1, ask[0] + 2, 4)]))
+        position = names.index("position")
+        self.assertEqual(obs["state"][1, position], 2)
+        # Asking for no quotes cancels them.
+        obs, *_ = pool.step_orders(np.zeros((2, 5), dtype=np.int64))
+        self.assertTrue(np.all(obs["orders"][0][:, 2] == 0) or np.all(obs["orders"][0][:, 4] == 1))
+        with self.assertRaises(ValueError):
+            pool.step_orders(np.zeros((2, 4), dtype=np.int64))
+
+    def test_a_strategy_is_evaluated_across_markets_and_scales(self):
+        from crowdbook_learn import evaluate
+        state = crowdbook_learn.STATE_NAMES
+
+        def join(observation, info):
+            rows = observation["state"]
+            bid, ask = rows[:, state.index("bid_price")], rows[:, state.index("ask_price")]
+            ones = np.ones(len(rows), dtype=np.int64)
+            return np.stack([bid, ones, ask, ones, 0 * ones], axis=1)
+
+        text = short(MARKET.read_text())
+        result = evaluate.evaluate(join, [text, text], seeds=range(1, 7), scales=(1, 2),
+                                   markets=4, threads=1)
+        once, twice = result[1], result[2]
+        self.assertEqual(once["summary"]["markets"], 6)
+        self.assertEqual([e.seed for e in once["episodes"]], list(range(1, 7)))
+        self.assertEqual([e.scenario for e in once["episodes"]], [0, 1, 0, 1, 0, 1])
+        self.assertGreater(once["summary"]["lots"], 0)
+        self.assertAlmostEqual(once["summary"]["maker_share"], 1.0)
+        self.assertIn("10s", once["summary"]["markouts"])
+        self.assertGreaterEqual(twice["summary"]["lots"], once["summary"]["lots"])
+        # The same seeds and policy give the same episodes.
+        again = evaluate.run(join, [text, text], seeds=range(1, 7), markets=3, threads=2)
+        self.assertEqual([e.score for e in again], [e.score for e in once["episodes"]])
+
     def test_results_depend_on_seeds_and_actions_not_threads(self):
         text = short(MARKET.read_text())
         pools = [crowdbook_learn.Pool.from_text(text, 4, threads) for threads in (1, 4)]

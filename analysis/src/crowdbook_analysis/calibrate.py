@@ -413,6 +413,57 @@ def chi_squared_95(degrees: int) -> float:
     return k * (1 - 2 / (9 * k) + 1.6449 * math.sqrt(2 / (9 * k))) ** 3
 
 
+def draw_settings(spec: Spec, rows: list[dict], count: int, *, seed: int = 1,
+                  widen: float = 2.0) -> list[dict[str, float]]:
+    """Settings drawn around a fit, as a report's rows give it: each setting normal in the unit
+    box about its fitted value, with its 68% interval's half width, times `widen`, as the standard
+    deviation, and kept within its range. A setting the fit could not pin down stays at its
+    fitted value. `widen` is 2 by default since recovering known settings found the intervals
+    about half as wide as they should be (docs/validation.md)."""
+    rng = np.random.default_rng(seed)
+    by_name = {row["name"]: row for row in rows}
+    drawn = []
+    for _ in range(count):
+        values = {}
+        for p in spec.parameters:
+            row = by_name[p.name]
+            center = p.to_unit(row["fitted"])
+            if row.get("low") is None or row.get("high") is None:
+                values[p.name] = row["fitted"]
+                continue
+            spread = widen * (p.to_unit(row["high"]) - p.to_unit(row["low"])) / 2
+            values[p.name] = p.from_unit(center + spread * rng.standard_normal())
+        drawn.append(values)
+    return drawn
+
+
+def draws_main() -> None:
+    """crowdbook-draws: scenarios drawn from a fit's uncertainty, to judge a strategy across what
+    the fit allows rather than at its point alone."""
+    parser = argparse.ArgumentParser(description=draws_main.__doc__.splitlines()[0])
+    parser.add_argument("spec", type=Path)
+    parser.add_argument("--report", type=Path, required=True,
+                        help="the fit's report.json, from crowdbook-calibrate")
+    parser.add_argument("--count", type=int, default=20)
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--widen", type=float, default=2.0)
+    parser.add_argument("--out", type=Path, required=True, help="a directory for the scenarios")
+    args = parser.parse_args()
+    spec = read_spec(args.spec)
+    if spec.condition:
+        parser.error("a conditioned spec's scenarios are twins of recorded markets: draw "
+                     "settings with calibrate.draw_settings and fill each twin")
+    rows = json.loads(args.report.read_text())["calibration"]["settings"]
+    args.out.mkdir(parents=True, exist_ok=True)
+    for index, values in enumerate(draw_settings(spec, rows, args.count, seed=args.seed,
+                                                 widen=args.widen)):
+        header = "".join(f"# {k} = {v!r}\n" for k, v in values.items())
+        (args.out / f"draw-{index:03d}.toml").write_text(
+            f"# Drawn from the fit's uncertainty, draw {index}:\n{header}\n"
+            + spec.scenario(values))
+    print(f"{args.count} scenarios in {args.out}")
+
+
 def parse_truth(text: str, spec: Spec) -> dict[str, float]:
     values = spec.start()
     for item in filter(None, text.split(",")):
