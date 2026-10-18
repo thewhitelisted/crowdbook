@@ -27,6 +27,18 @@ low = 0.2
 high = 3.0
 start = 1.0
 
+[parameters.maker_lag]
+low = 0.1
+high = 600.0
+start = 5.0
+kind = "duration"
+
+[parameters.maker_requote]
+low = 0.1
+high = 3600.0
+start = 10.0
+kind = "duration"
+
 [parameters.sharp_lag]
 low = 0.2
 high = 30.0
