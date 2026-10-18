@@ -69,6 +69,15 @@ class TapeTest(unittest.TestCase):
         self.assertEqual(tape.window(whole, 50.0).markets[0].duration, 50.0)
         self.assertEqual(tape.window(whole, 200.0).markets, [])
 
+    def test_a_phase_cuts_each_market_at_its_own_label(self):
+        first, second = market("a"), market("b")
+        first.labels, second.labels = {"kickoff": 30.0}, {"kickoff": 60.0}
+        whole = tape.Tape([first, second, market("no label")])
+        before = tape.phase(whole, "kickoff", False)
+        after = tape.phase(whole, "kickoff", True)
+        self.assertEqual([m.duration for m in before.markets], [30.0, 60.0])
+        self.assertEqual([m.duration for m in after.markets], [70.0, 40.0])
+
     def test_reads_a_tape_with_no_sides_and_no_optional_tables(self):
         with tempfile.TemporaryDirectory() as scratch:
             path = Path(scratch)
@@ -130,6 +139,28 @@ class StatisticsTest(unittest.TestCase):
         for key in ("spread_mean", "maker_at_trade", "maker_at_settlement", "value_distance",
                     "return_sd_1", "brier"):
             self.assertAlmostEqual(in_cents[key], in_dollars[key], places=6, msg=key)
+
+    def test_depth_near_the_mid_turnover_and_gaps(self):
+        found = self.measure(market(spread=2.0))
+        self.assertAlmostEqual(found["depth_near_3"], 20.0)  # both levels within 2 ticks
+        self.assertAlmostEqual(found["depth_near_10"], 20.0)
+        self.assertAlmostEqual(found["touch_turnover"], 60 * 3 / 10)  # 3 lots a second
+        self.assertAlmostEqual(found["order_gap_median"], 1.0)
+
+    def test_the_touch_against_the_value(self):
+        # The value sits 2.5 ticks above the mid, so 1.5 above the ask: the ask is through it.
+        found = self.measure(market(spread=2.0, value=np.full(100, 52.5)))
+        self.assertAlmostEqual(found["touch_through_value"], 1.0)
+        self.assertAlmostEqual(found["touch_through_value_2"], 0.0)
+
+    def test_how_soon_the_touch_and_the_value_move_after_a_score(self):
+        m = market(value=np.where(np.arange(100) < 42, 50.0, 70.0))
+        m.ask_price[43:, 0] += 3  # the book moves at second 43
+        m.scores = np.array([[40.5, 1.0, 0.0]])
+        found = self.measure(m)
+        self.assertAlmostEqual(found["score_touch_median"], 2.5)
+        self.assertAlmostEqual(found["score_value_median"], 1.5)
+        self.assertEqual(found["score_touch_within_5"], 1.0)
 
     def test_pooled_autocorrelation_matches_the_direct_one_for_a_single_series(self):
         rng = np.random.default_rng(3)

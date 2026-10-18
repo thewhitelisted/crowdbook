@@ -83,11 +83,15 @@ def statistic_names(config: Config = Config()) -> list[tuple[str, str, bool]]:
         ("touch_size_median", "size at the touch, median", True),
         ("touch_size_mean", "size at the touch, mean", True),
         ("depth_mean", f"size within {config.levels} levels a side, mean", True),
+        ("depth_near_3", "size within 3 ticks of the mid a side, mean", True),
+        ("depth_near_10", "size within 10 ticks of the mid a side, mean", True),
+        ("touch_turnover", "lots traded a minute over the size at the touch", True),
         ("orders_per_minute", "aggressive orders a minute", True),
         ("prints_per_order", "prints per aggressive order", True),
         ("order_size_median", "order size, median", True),
         ("order_size_tail", "order size, largest tenth against the median", True),
         ("order_size_hill", "order size, tail exponent", True),
+        ("order_gap_median", "gaps between orders, median (seconds)", True),
         ("order_gap_cv", "gaps between orders, coefficient of variation", True),
         ("orders_first_tenth", "orders in the first tenth of the market", False),
         ("orders_last_tenth", "orders in the last tenth of the market", False),
@@ -123,6 +127,12 @@ def statistic_names(config: Config = Config()) -> list[tuple[str, str, bool]]:
     names += [
         ("delay", "mid closest to the value as it was (seconds before)", False),
         ("value_distance", "mean distance from the value (ticks)", True),
+        ("touch_through_value", "best bid above or best ask below the value, share of time",
+         False),
+        ("touch_through_value_2", "the same, by more than 2 ticks", False),
+        ("score_touch_median", "a score to the touch moving, median (seconds)", True),
+        ("score_touch_within_5", "a score to the touch moving, share within 5 s", False),
+        ("score_value_median", "a score to the value moving, median (seconds)", True),
         ("brier", "Brier score of the mid", False),
         ("priced_low", "priced 10 to 20%: paid out", False),
         ("priced_high", "priced 80 to 90%: paid out", False),
@@ -231,6 +241,25 @@ def _changes(x: np.ndarray, returns: str) -> np.ndarray:
     return np.diff(x)
 
 
+def _reactions(events: np.ndarray, times: np.ndarray, series: np.ndarray,
+               within: float = 300.0) -> np.ndarray:
+    """For each event, how long until the series changes from what it was at the event, in
+    seconds; NaN where it does not within `within`."""
+    out = np.full(len(events), np.nan)
+    for i, t in enumerate(events):
+        before = np.searchsorted(times, t, side="right") - 1
+        if before < 0:
+            continue
+        then = series[before]
+        later = np.arange(before + 1, min(np.searchsorted(times, t + within, side="right"),
+                                          len(times)))
+        moved = later[np.any((series[later] != then) & ~(np.isnan(series[later])
+                                                         & np.isnan(then)), axis=1)]
+        if len(moved):
+            out[i] = times[moved[0]] - t
+    return out
+
+
 def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> dict:
     """Everything one market adds to the pooled statistics. Prices are counted in ticks, so that
     markets priced in dollars and in cents compare."""
@@ -258,6 +287,14 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     depth = (np.nansum(m.bid_size[:, :levels], axis=1)
              + np.nansum(m.ask_size[:, :levels], axis=1)) / 2
     p["depth"] = np.array([float(depth[both] @ held[both]), float(held[both].sum())])
+    for ticks in (3, 10):
+        near = (np.nansum(np.where(np.abs(m.bid_price - mid[:, None]) <= ticks, m.bid_size, 0.0),
+                          axis=1)
+                + np.nansum(np.where(np.abs(m.ask_price - mid[:, None]) <= ticks, m.ask_size,
+                                     0.0), axis=1)) / 2
+        p[f"near_{ticks}"] = np.array([float(near[both] @ held[both]),
+                                       float(held[both].sum())])
+    p["volume"] = float(m.trade_size.sum())
 
     # Orders.
     times, sizes, signs, prices = _orders(m)
@@ -265,6 +302,7 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     p["sizes"] = sizes
     gaps = np.diff(times)
     p["gaps"] = np.array([len(gaps), gaps.sum(), (gaps**2).sum()])
+    p["gap_values"] = gaps
     share = times / m.duration if m.duration > 0 else times
     p["tenths"] = np.array([np.sum(share < 0.1), np.sum(share >= 0.9), len(times)])
     p["signs"] = _autocorrelation_sums(signs, config.sign_lags)
@@ -328,6 +366,22 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
             rows.append([gap[ok].sum(), ok.sum()])
         p["lateness"] = np.array(rows)
 
+    # The touch against the value, and how soon the touch and the value move after a score.
+    if m.value is not None and len(m.value) and len(m.book_time):
+        value_now = sample_last(m.value_time, m.value, grid)
+        bid_now = sample_last(m.book_time, m.bid_price[:, 0], grid)
+        ask_now = sample_last(m.book_time, m.ask_price[:, 0], grid)
+        known = np.isfinite(value_now) & (np.isfinite(bid_now) | np.isfinite(ask_now))
+        through = np.fmax(np.nan_to_num(bid_now - value_now, nan=-np.inf),
+                          np.nan_to_num(value_now - ask_now, nan=-np.inf))
+        p["through"] = np.array([np.sum(known & (through > 0)), np.sum(known & (through > 2)),
+                                 np.sum(known)], dtype=float)
+    if m.scores is not None and len(m.scores) and len(m.book_time):
+        p["score_touch"] = _reactions(m.scores[:, 0], m.book_time,
+                                      np.column_stack([m.bid_price[:, 0], m.ask_price[:, 0]]))
+        if m.value is not None and len(m.value):
+            p["score_value"] = _reactions(m.scores[:, 0], m.value_time, m.value[:, None])
+
     # Calibration of a binary contract.
     if options.payout and m.outcome is not None:
         said = sampled[1:-1] / options.payout
@@ -368,6 +422,9 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
                               if touch_weight.sum() > 0 else np.nan)
     depth = _stack(ps, "depth").sum(axis=0)
     out["depth_mean"] = depth[0] / depth[1] if depth[1] > 0 else np.nan
+    for ticks in (3, 10):
+        near = _stack(ps, f"near_{ticks}").sum(axis=0)
+        out[f"depth_near_{ticks}"] = near[0] / near[1] if near[1] > 0 else np.nan
 
     duration = sum(p["duration"] for p in ps)
     orders = _stack(ps, "orders").sum(axis=0)
@@ -379,6 +436,11 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
     out["order_size_tail"] = (float(np.quantile(sizes, 1 - config.tail)) / median
                               if len(sizes) and median > 0 else np.nan)
     out["order_size_hill"] = hill(sizes, config.tail)
+    volume = sum(p["volume"] for p in ps)
+    out["touch_turnover"] = (60 * volume / duration / out["touch_size_mean"]
+                             if duration > 0 and out["touch_size_mean"] > 0 else np.nan)
+    gap_values = _cat(ps, "gap_values")
+    out["order_gap_median"] = float(np.median(gap_values)) if len(gap_values) else np.nan
     gaps = _stack(ps, "gaps").sum(axis=0)
     if gaps[0] > 2:
         mean = gaps[1] / gaps[0]
@@ -439,6 +501,21 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
         for lag in config.follow_lags:
             out[f"follow_{lag:g}"] = np.nan
         out["delay"] = out["value_distance"] = np.nan
+
+    through = _stack(ps, "through")
+    if through is not None and through.sum(axis=0)[2] > 0:
+        total = through.sum(axis=0)
+        out["touch_through_value"] = total[0] / total[2]
+        out["touch_through_value_2"] = total[1] / total[2]
+    else:
+        out["touch_through_value"] = out["touch_through_value_2"] = np.nan
+    for key, piece in (("score_touch", "score_touch"), ("score_value", "score_value")):
+        delays = _cat(ps, piece)
+        out[f"{key}_median"] = (float(np.nanmedian(delays))
+                                if np.isfinite(delays).any() else np.nan)
+        if key == "score_touch":
+            out["score_touch_within_5"] = (float(np.mean(np.nan_to_num(delays, nan=np.inf) <= 5))
+                                           if len(delays) else np.nan)
 
     said = [p["calibration"] for p in ps if "calibration" in p]
     if said:
@@ -516,6 +593,9 @@ def ks(a: np.ndarray, b: np.ndarray) -> float:
                                - np.searchsorted(b, grid, side="right") / len(b))))
 
 
+# A statistic passes when its distance is within this many tolerances: about 95% of honest ones.
+PASS = 2.0
+
 DISTRIBUTIONS = [
     ("spread_grid", "spread (ticks)"),
     ("touch_grid", "size at the touch"),
@@ -567,13 +647,14 @@ def report(real: Summary, simulated: list[Summary], config: Config = Config()) -
     lines.append(f"{real.name}: {real.markets} markets; " + "; ".join(
         f"{s.name}: {s.markets}" for s in simulated) + ". Intervals are the 5th to 95th "
         f"percentile over {config.bootstrap} resamples of markets; a distance is the difference "
-        "in those tolerances, logarithmic where marked (log).")
+        "in those tolerances, logarithmic where marked (log), and a statistic passes within "
+        f"{PASS:g} of them.")
     lines.append("")
     header = f"| statistic | {real.name} |"
     rule = "|---|---:|"
     for s in simulated:
-        header += f" {s.name} | distance |"
-        rule += "---:|---:|"
+        header += f" {s.name} | distance | pass |"
+        rule += "---:|---:|:---:|"
     lines += [header, rule]
     data: dict = {"real": {"name": real.name, "markets": real.markets},
                   "simulated": [{"name": s.name, "markets": s.markets} for s in simulated],
@@ -593,21 +674,23 @@ def report(real: Summary, simulated: list[Summary], config: Config = Config()) -
             gap = distance(real, s, key, logarithmic)
             if np.isfinite(gap):
                 totals[i].append(gap)
+            passed = None if not np.isfinite(gap) else bool(abs(gap) <= PASS)
             row += f" {_format(s.point[key])}{_interval(s.draws[key])} | " \
-                   f"{'' if not np.isfinite(gap) else f'{gap:+.1f}'} |"
-            entry["simulated"].append({"value": s.point[key], "distance": gap})
+                   f"{'' if not np.isfinite(gap) else f'{gap:+.1f}'} | " \
+                   f"{'' if passed is None else ('yes' if passed else 'no')} |"
+            entry["simulated"].append({"value": s.point[key], "distance": gap, "pass": passed})
         lines.append(row)
         data["statistics"].append(entry)
-    summary = "| **within 2** |  |"
+    summary = "| **passed** |  |"
     for gaps in totals:
-        inside = sum(abs(g) <= 2 for g in gaps)
-        summary += f" | **{inside} of {len(gaps)}** |"
+        inside = sum(abs(g) <= PASS for g in gaps)
+        summary += f" | | **{inside} of {len(gaps)}** |"
     lines.append(summary)
     score = "| **distance, sum of squares** |  |"
     for gaps in totals:
-        score += f" | **{sum(g * g for g in gaps):,.0f}** |"
+        score += f" | **{sum(g * g for g in gaps):,.0f}** | |"
     lines.append(score)
-    data["summary"] = [{"within_two": int(sum(abs(g) <= 2 for g in gaps)),
+    data["summary"] = [{"passed": int(sum(abs(g) <= PASS for g in gaps)),
                         "compared": len(gaps), "distance": float(sum(g * g for g in gaps))}
                        for gaps in totals]
     lines += ["", "## Distributions", "",
@@ -719,6 +802,9 @@ def main() -> None:
     parser.add_argument("--bootstrap", type=int, default=Config.bootstrap)
     parser.add_argument("--window", help="measure only from START to END seconds of each market, "
                         "START:END, or START: to its end")
+    parser.add_argument("--phases", metavar="LABEL",
+                        help="report the part of each market before the time a label gives, such "
+                        "as kickoff, and the part from it, apart")
     parser.add_argument("--crowdbook", help="the crowdbook executable")
     parser.add_argument("--out", type=Path, help="write the Markdown here, not to standard output")
     parser.add_argument("--json", type=Path, help="also write the numbers as JSON")
@@ -734,23 +820,38 @@ def main() -> None:
         start, _, end = args.window.partition(":")
         return tapes.window(t, float(start or 0), float(end) if end else None)
 
-    real = summarize(args.real.name, cut(tapes.read_tape(args.real)), config, seed=1)
-    simulated = [summarize(path.name, cut(tapes.read_tape(path)), config, seed=2 + i)
-                 for i, path in enumerate(args.sim)]
+    real_tape = cut(tapes.read_tape(args.real))
+    named = [(path.name, cut(tapes.read_tape(path))) for path in args.sim]
     if args.scenario:
         tool = find_tool(args.crowdbook)
-        for i, path in enumerate(args.scenario):
-            t = tapes.simulate(tool, path.read_text(), _seeds(args.seeds))
-            simulated.append(summarize(path.stem, cut(t), config, seed=100 + i))
-    text, data = report(real, simulated, config)
+        for path in args.scenario:
+            named.append((path.stem, cut(tapes.simulate(tool, path.read_text(),
+                                                        _seeds(args.seeds)))))
+    parts = [("", lambda t: t)]
+    if args.phases:
+        parts = [(f"before {args.phases}", lambda t: tapes.phase(t, args.phases, False)),
+                 (f"from {args.phases}", lambda t: tapes.phase(t, args.phases, True))]
+    texts, everything = [], {}
+    for title, part in parts:
+        real = summarize(args.real.name, part(real_tape), config, seed=1)
+        simulated = [summarize(name, part(t), config, seed=2 + i)
+                     for i, (name, t) in enumerate(named)]
+        text, data = report(real, simulated, config)
+        if title:
+            text = text.replace("# Validation:", f"# Validation, {title}:", 1)
+        texts.append(text)
+        everything[title or "whole"] = data
+        if args.plots:
+            plot(real, simulated[:3], config,
+                 args.plots / title.replace(" ", "_") if title else args.plots)
+    text = "\n".join(texts)
     if args.out:
         args.out.write_text(text)
     else:
         print(text)
     if args.json:
-        args.json.write_text(json.dumps(data, indent=1, default=float))
-    if args.plots:
-        plot(real, simulated[:3], config, args.plots)
+        args.json.write_text(json.dumps(everything if args.phases else everything["whole"],
+                                        indent=1, default=float))
 
 
 if __name__ == "__main__":

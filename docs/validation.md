@@ -41,20 +41,22 @@ same statistics on a real tape and on one or more synthetic ones:
 
 | family | statistics |
 |---|---|
-| the book at the touch | the spread, time-weighted, its median and the share of time at one tick; size at the best quotes, and within five levels; how often a side is empty |
-| trades | aggressive orders a minute (the prints one order makes at one time count once), prints per order, order sizes (median, the largest tenth against the median, the tail's Hill exponent), how bursty they come, and the share in the first and last tenth of the market |
+| the book | the spread, time-weighted, its median and the share of time at one tick; size at the best quotes, within five levels, and within 3 and 10 ticks of the mid; how often a side is empty |
+| trades | aggressive orders a minute (the prints one order makes at one time count once), prints per order, order sizes (median, the largest tenth against the median, the tail's Hill exponent), the gaps between orders (median, and how bursty), the share in the first and last tenth of the market, and lots traded a minute over the size at the touch, how fast the touch is filled |
 | returns | the mid's changes over 1, 10 and 60 s: standard deviation, excess kurtosis, the tail exponent, variance ratios, successive changes' autocorrelation |
 | volatility clustering | the autocorrelation of the size of 1 s changes, 1 and 10 s apart |
 | order-flow memory | the autocorrelation of order signs 1, 10 and 50 orders apart; the bounce in trade prices and Roll's spread from it |
 | what resting orders earn | per unit filled, size-weighted: from the mid just before (the effective half spread), marked to the mid 1, 10 and 60 s later, and at settlement |
-| how fast the mid follows the value | of a 1 s move of the value, the share the mid has made 0, 0.5, 1, 2 and 5 s after it; the delay at which the mid is closest to the value as it was; the mean distance |
+| how fast the mid follows the value | of a 1 s move of the value, the share the mid has made 0, 0.5, 1, 2 and 5 s after it; the delay at which the mid is closest to the value as it was; the mean distance; how often the best bid is above the value or the best ask below it, and by more than 2 ticks |
+| scores, for games | from each score, how long until the touch moves (the median, and the share within 5 s), and until the value moves |
 | calibration | for a binary contract, the Brier score of the mid, and how often prices of 10 to 20% and 80 to 90% of the payout paid out |
 
 Each is pooled over markets, its interval the 5th to 95th percentile over 200 resamples of
 markets with replacement, since markets, not moments, are independent. A synthetic statistic's
 distance from the real one is their difference over the two resampling spreads together, so that
 about 95% of honest statistics fall within 2; spreads, sizes and rates are compared as logarithms.
-The report ends with how many statistics are within 2 and their sum of squares, then the
+A statistic passes when its distance is within 2, which about 95% of honest ones are. The report
+ends with how many pass and their sum of squares, then the
 Kolmogorov–Smirnov distance between the pooled distributions of the spread, the size at the touch,
 order sizes and 1 s changes, beside the distance between two random halves of the real markets,
 which is what chance alone gives at that many markets.
@@ -62,6 +64,11 @@ which is what chance alone gives at that many markets.
 `--plots DIR` also draws the charts: the spread's distribution, the tails of order sizes and of
 one-step changes, what resting orders earn by horizon and, where there is a value, how fast the mid
 follows it, the real market against up to three synthetic ones. `--json FILE` writes every number.
+
+`--phases LABEL` reports the part of each market before the time a label gives and the part from
+it apart, such as before and after `kickoff`, which a simulated game is labelled with, and which a
+recording of games can carry. Simulated games also carry their scores, so the score statistics
+compare.
 
 `--window START:END` measures only that part of each market, in seconds from its start, with the
 book as it stood at `START`: before kickoff and during play, say, or the part a recording covers.

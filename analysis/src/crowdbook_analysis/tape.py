@@ -249,7 +249,8 @@ def write_tape(tape: Tape, directory: Path | str, *, parquet: bool = False) -> N
 def window(t: Tape, start: float, end: float | None = None) -> Tape:
     """Each market cut to the part from `start` to `end` seconds (to its end if None), with times
     counted from `start`: before kickoff and during play, say, measured apart. The book as it
-    stood at `start` is kept as the first snapshot; the outcome and labels are kept."""
+    stood at `start` is kept as the first snapshot; the outcome and labels are kept, and only the
+    scores within the part."""
     cut = []
     for m in t.markets:
         stop = m.duration if end is None else min(end, m.duration)
@@ -273,7 +274,23 @@ def window(t: Tape, start: float, end: float | None = None) -> Tape:
             trade_time=m.trade_time[prints] - start, trade_price=m.trade_price[prints],
             trade_size=m.trade_size[prints], trade_sign=m.trade_sign[prints],
             outcome=m.outcome, value_time=value_time, value=value, labels=m.labels,
-            scores=None if m.scores is None else m.scores - np.array([start, 0.0, 0.0])))
+            scores=None if m.scores is None else
+            m.scores[(m.scores[:, 0] >= start) & (m.scores[:, 0] <= stop)]
+            - np.array([start, 0.0, 0.0])))
+    return Tape(cut, t.options)
+
+
+def phase(t: Tape, label: str, after: bool) -> Tape:
+    """Each market cut at its own time given by a label, such as a game's kickoff: the part before
+    it, or the part from it on. Markets without the label are left out."""
+    cut = []
+    for m in t.markets:
+        at = m.labels.get(label)
+        if at is None or not np.isfinite(float(at)):
+            continue
+        part = window(Tape([m], t.options), float(at), None) if after else window(
+            Tape([m], t.options), 0.0, float(at))
+        cut += part.markets
     return Tape(cut, t.options)
 
 
@@ -304,6 +321,19 @@ def simulated_market(tool: Path, job: Run, scratch: Path, name: str,
     book_time = snaps["time"].to_numpy() / 1e9
     has_value = "value" in sampled.columns
     final = result.get("final_value")
+    labels = dict(labels or {})
+    scores = None
+    if "lead" in sampled.columns:
+        # A game: its scores from the changes in the lead, and its kickoff as a label, as a
+        # recording of games has them.
+        lead = sampled["lead"].to_numpy().astype(float)
+        changed = np.flatnonzero(np.diff(lead) != 0) + 1
+        home = np.cumsum(np.clip(np.diff(lead, prepend=0.0), 0, None))
+        away = np.cumsum(np.clip(-np.diff(lead, prepend=0.0), 0, None))
+        scores = np.column_stack([sampled["time"].to_numpy()[changed] / 1e9, home[changed],
+                                  away[changed]])
+        game = tomllib.loads(job.scenario).get("prediction", {}).get("game", {})
+        labels.setdefault("kickoff", _seconds(game.get("start", "0s")))
     return Market(
         name=name, duration=result["duration_ns"] / 1e9, book_time=book_time,
         bid_price=_matrix(snaps, [f"bid_price_{i}" for i in range(1, levels + 1)]),
@@ -317,7 +347,16 @@ def simulated_market(tool: Path, job: Run, scratch: Path, name: str,
         outcome=float(final) if final is not None and options_for(job.scenario).payout else None,
         value_time=sampled["time"].to_numpy() / 1e9 if has_value else None,
         value=sampled["value"].to_numpy().astype(float) if has_value else None,
-        labels=(labels or {}) | {"seed": job.seed} | outcomes(result))
+        labels=labels | {"seed": job.seed} | outcomes(result), scores=scores)
+
+
+def _seconds(text: str) -> float:
+    """A scenario's duration as seconds."""
+    units = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0, "m": 60.0, "h": 3600.0}
+    for unit in ("ns", "us", "ms", "s", "m", "h"):
+        if text.endswith(unit) and text[: -len(unit)].replace(".", "", 1).isdigit():
+            return float(text[: -len(unit)]) * units[unit]
+    raise ValueError(f"not a duration: {text!r}")
 
 
 def outcomes(result: dict) -> dict:
