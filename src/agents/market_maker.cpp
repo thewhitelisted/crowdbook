@@ -98,7 +98,7 @@ void MarketMaker::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
 }
 
 void MarketMaker::onFilled(AgentContext& context, const OrderFilled& /*event*/) {
-    requote(context);
+    requote(context, /*afterFill=*/true);
 }
 
 void MarketMaker::onRejected(AgentContext& context, const OrderRejected& event) {
@@ -110,6 +110,7 @@ void MarketMaker::onRejected(AgentContext& context, const OrderRejected& event) 
                 if (const OwnOrder* live = context.ledger().find(event.clientOrderId)) {
                     quote->price = live->price;
                 }
+                quotedFair_.reset(); // whatever its threshold, the next requote asks again
             }
         }
     }
@@ -138,7 +139,7 @@ void MarketMaker::onPhase(AgentContext& context, const PhaseChanged& phase) {
     requote(context);
 }
 
-void MarketMaker::requote(AgentContext& context) {
+void MarketMaker::requote(AgentContext& context, bool afterFill) {
     if (phase_ != Phase::Continuous) {
         return;
     }
@@ -158,7 +159,7 @@ void MarketMaker::requote(AgentContext& context) {
         quotedAt_ = now;
     }
     const double fair = belief_ ? belief_->look(context) : fairPrice();
-    if (config_.requoteThreshold > 0.0 && quotedFair_ &&
+    if (config_.requoteThreshold > 0.0 && !afterFill && quotedFair_ &&
         std::abs(fair - *quotedFair_) < config_.requoteThreshold && standing(context)) {
         return;
     }
@@ -216,9 +217,14 @@ void MarketMaker::requote(AgentContext& context) {
 
 bool MarketMaker::standing(const AgentContext& context) const {
     for (const auto* side : {&bids_, &asks_}) {
-        for (const std::optional<Quote>& quote : *side) {
-            const OwnOrder* live = quote ? context.ledger().find(quote->clientOrderId) : nullptr;
-            if (live == nullptr || live->cancelRequested) {
+        for (std::size_t level = 0; level < side->size(); ++level) {
+            const std::optional<Quote>& quote = (*side)[level];
+            if (!quote) {
+                continue; // left out at its last requote, as the limits or the book asked
+            }
+            const OwnOrder* live = context.ledger().find(quote->clientOrderId);
+            if (live == nullptr || live->cancelRequested ||
+                live->leaves != levelSize(static_cast<int>(level))) {
                 return false;
             }
         }

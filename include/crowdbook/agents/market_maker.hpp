@@ -45,9 +45,11 @@ struct MarketMakerConfig {
     Price levelSpacing = 1;
     double levelGrowth = 1.0;
     // Ticks: at a requote its timer brings, it leaves its quotes where they are while its fair
-    // price is less than this from where it was when it last set them and every quote it keeps
-    // is still in the book, as makers who do not chase each small move of a reference do. A fill
-    // requotes it whatever the threshold. 0 requotes on every tick of the timer.
+    // price is less than this from where it was when it last set them and every quote it set
+    // then is still in the book at its full size, as makers who do not chase each small move of
+    // a reference do. A fill, or a rejected modify, requotes it whatever the threshold; a side
+    // left out then, by its limits or a post-only quote the book would have met, stays out until
+    // it requotes. 0 requotes on every tick of the timer.
     double requoteThreshold = 0.0;
 };
 
@@ -104,8 +106,10 @@ private:
         Price price = 0;
     };
 
-    void requote(AgentContext& context);
-    // Whether every quote of its ladder is in the book, none filled or on its way out.
+    // `afterFill` requotes whatever the threshold.
+    void requote(AgentContext& context, bool afterFill = false);
+    // Whether every quote it set at its last requote is in the book at its full size, none
+    // filled or on its way out.
     [[nodiscard]] bool standing(const AgentContext& context) const;
     void maintain(AgentContext& context, std::optional<Quote>& quote, Side side,
                   std::optional<Price> price, Quantity size) const;

@@ -146,6 +146,53 @@ TEST(MarketMakerTest, RequotesAfterAFillWhateverItsThreshold) {
     EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(4, Side::Buy, 97, 5)}));
 }
 
+// A partial fill tops the quote up, and a rejected modify is sent again at the next timer, both
+// within the threshold.
+TEST(MarketMakerTest, TopsUpAndResendsWithinItsThreshold) {
+    MarketMakerConfig config = kConfig;
+    config.requoteThreshold = 2.0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+    // As TopsUpAPartlyFilledQuote: short 2, the ask back to 5 lots at 102.
+    context.fill(2, 2);
+    maker.onFilled(context, {});
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{ModifyOrder{.clientOrderId = 2,
+                                                                    .price = 102,
+                                                                    .quantity = 5}}));
+    // The exchange turns the modify away: the ask stays at 101 with 3 lots, and the next tick
+    // of the timer asks again though the fair price has not moved.
+    maker.onRejected(context, context.rejectModify(2, RejectReason::PostOnlyWouldTrade));
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{ModifyOrder{.clientOrderId = 2,
+                                                                    .price = 102,
+                                                                    .quantity = 5}}));
+}
+
+// A ladder level left out at its limit does not keep the threshold from holding the rest.
+TEST(MarketMakerTest, HoldsItsQuotesWithALevelLeftOut) {
+    MarketMakerConfig config = kConfig;
+    config.levels = 2;
+    config.maxInventory = 5; // room for the touch's 5 lots a side, not the second level's
+    config.requoteThreshold = 2.0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    ASSERT_EQ(context.takeSent().size(), 2U);
+    context.accept(1);
+    context.accept(2);
+    context.setNow(100 * kMillisecond);
+    maker.onTrade(context, {.price = 101, .quantity = 1}); // fair 101: within 2 of 100
+    maker.onWakeup(context, 0);
+    EXPECT_TRUE(context.takeSent().empty());
+}
+
 TEST(MarketMakerTest, TopsUpAPartlyFilledQuote) {
     MarketMaker maker{kConfig, kReference};
     FakeContext context;

@@ -463,7 +463,7 @@ def make_target(real: validate.Summary, start: validate.Summary, wanted: list[st
         if not (np.isfinite(real.point.get(key, np.nan))
                 and np.isfinite(start.point.get(key, np.nan))):
             continue
-        draws = np.asarray(real.draws[key], dtype=float)
+        draws = validate._scaled(np.asarray(real.draws[key], dtype=float), log)
         if len(draws) and np.mean(~np.isfinite(draws)) > MOST_UNMEASURED:
             few.append(key)
             continue
@@ -476,7 +476,8 @@ def make_target(real: validate.Summary, start: validate.Summary, wanted: list[st
     if few:
         print(f"left out, as too few recorded markets measure them: {', '.join(few)}")
     if wanted is not None and set(wanted) - set(keys) - set(few):
-        print(f"left out, as one side cannot measure them: {sorted(set(wanted) - set(keys))}")
+        print("left out, as one side cannot measure them: "
+              f"{sorted(set(wanted) - set(keys) - set(few))}")
     return Target(real, keys, logs, np.array(tolerance))
 
 

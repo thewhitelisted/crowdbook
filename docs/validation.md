@@ -50,9 +50,9 @@ An optional `tape.toml` gives `tick`, the price increment (1 if absent), `return
 contract `payout`, what a winning unit pays. `same_order`, in seconds, is for a venue that stamps
 each fill of one order apart: the prints on one side each less than that after the one before are
 then one aggressive order (`same_order = 0.001` for books whose fills come microseconds apart).
-Without it only prints at one time are one order, as the engine stamps them. A recording is converted to a tape once, by whoever
-holds it; `tape.simulate` runs any scenario under many seeds into one, its book sampled every
-100 ms.
+Without it only prints at one time are one order, as the engine stamps them. A recording is
+converted to a tape once, by whoever holds it; `tape.simulate` runs any scenario under many seeds
+into one, its book sampled every 100 ms.
 
 ## The validation report
 

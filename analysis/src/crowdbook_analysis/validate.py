@@ -15,8 +15,9 @@ statistics, measured alike on both:
   how often the best prices change, seen once a grid step.
 - **Trades**: aggressive orders a minute (the prints one order makes at one time are one order,
   or on a tape with `same_order` each within that of the one before), their sizes (the median,
-  the largest tenth against the median and the tail's Hill exponent), how bursty they come (the coefficient of variation of the gaps between them), and the share in
-  the first and last tenth of the market's life.
+  the largest tenth against the median and the tail's Hill exponent), how bursty they come (the
+  coefficient of variation of the gaps between them), and the share in the first and last tenth
+  of the market's life.
 - **Returns**: the mid's changes over one, ten and sixty grid steps (a second each by default),
   their standard deviation, excess kurtosis and the Hill exponent of the tail, the variance ratio
   (below one where prices bounce, above where they trend) and the autocorrelation of successive

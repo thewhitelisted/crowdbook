@@ -182,6 +182,10 @@ class StatisticsTest(unittest.TestCase):
                 tape.write_tape(tape.Tape([market("a")], tape.Options(same_order=same_order)),
                                 scratch)
                 self.assertEqual(tape.read_tape(scratch).options.same_order, same_order)
+            with open(Path(scratch) / "tape.toml", "a") as file:
+                file.write("same_order = -1\n")
+            with self.assertRaises(ValueError):
+                tape.read_tape(scratch)
 
     def test_draws_that_all_agree_have_no_spread(self):
         # The mean of draws all 589 is not exactly 589, so their spread rounds to about 1e-16,

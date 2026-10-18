@@ -26,6 +26,7 @@ Any of the tables may be Parquet instead (`book.parquet` and so on). `read_tape`
 simulated markets and recorded ones can be measured by the same code (see `validate`).
 """
 
+import math
 import os
 import tempfile
 import tomllib
@@ -151,6 +152,8 @@ def read_tape(directory: Path | str) -> Tape:
                       same_order=float(settings.get("same_order", 0.0)))
     if options.returns not in ("difference", "log"):
         raise ValueError(f"tape.toml: returns is 'difference' or 'log', not {options.returns!r}")
+    if not options.same_order >= 0.0 or not math.isfinite(options.same_order):
+        raise ValueError(f"tape.toml: same_order is seconds, 0 or more, not {options.same_order}")
     listed = _table(directory, "markets")
     book = _table(directory, "book").sort("market", "time", maintain_order=True)
     prints = _table(directory, "trades").sort("market", "time", maintain_order=True)
