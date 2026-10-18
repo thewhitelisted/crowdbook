@@ -161,7 +161,8 @@ scales, and its own seed. It writes shards of 500 markets, each a tape in Parque
 group of traders, what it made after fees (`pnl_<group>`, at settlement or the true value) and the
 lots it traded (`traded_<group>`). `dataset.toml` records the template, the ranges and the seeds,
 so the dataset can be made again exactly; market *i* ran under seed `first_seed + i`.
-`--fixed name=value,...` holds settings. On four cores it makes about 40 five-minute markets a
+`--fixed name=value,...` holds settings. `generate.read_dataset(DIR)` streams a dataset's markets
+shard by shard, each with its labels. On four cores it makes about 40 five-minute markets a
 second with their books sampled every 100 ms.
 
 ## Games
