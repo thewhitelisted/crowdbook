@@ -102,7 +102,8 @@ TEST(AgentRegistryTest, RejectsInvalidValues) {
 
     Parameters badStyle;
     badStyle.set("style", std::string{"iceberg"});
-    EXPECT_NE(creationError(registry, "execution", badStyle).find("\"twap\", \"pov\" or \"vwap\""),
+    EXPECT_NE(creationError(registry, "execution", badStyle)
+                  .find("\"twap\", \"pov\" or \"vwap\""),
               std::string::npos);
 
     Parameters badSpread;
@@ -116,12 +117,13 @@ TEST(AgentRegistryTest, RejectsInvalidValues) {
 
 TEST(AgentRegistryTest, AcceptsUserDefinedTypes) {
     AgentRegistry registry = AgentRegistry::withBuiltIns();
-    registry.add("idle",
-                 [](const Parameters&, const Environment&) { return std::make_unique<Idle>(); });
+    registry.add("idle", [](const Parameters&, const Environment&) {
+        return std::make_unique<Idle>();
+    });
     EXPECT_NE(registry.create("idle", Parameters{}, {}), nullptr);
-    EXPECT_THROW(registry.add("idle", [](const Parameters&,
-                                         const Environment&) { return std::make_unique<Idle>(); }),
-                 std::invalid_argument);
+    EXPECT_THROW(registry.add("idle", [](const Parameters&, const Environment&) {
+        return std::make_unique<Idle>();
+    }), std::invalid_argument);
     EXPECT_THROW(registry.add("empty", nullptr), std::invalid_argument);
 }
 
