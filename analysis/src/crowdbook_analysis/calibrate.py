@@ -341,6 +341,12 @@ class Target:
 
     def distance(self, point: dict[str, float]) -> float:
         gaps = (self.scaled(point) - self.vector) / self.tolerance
+        # A rate of events is compared by its count, which the resamples of markets understate.
+        for index, key in enumerate(self.keys):
+            if key in validate.COUNTED:
+                counted = validate.count_distance(self.real.point, point, key)
+                if np.isfinite(counted):
+                    gaps[index] = counted
         return float(np.sum(np.where(np.isfinite(gaps), gaps**2, 1e6)))
 
 

@@ -1,3 +1,4 @@
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -186,6 +187,52 @@ class StatisticsTest(unittest.TestCase):
                 file.write("same_order = -1\n")
             with self.assertRaises(ValueError):
                 tape.read_tape(scratch)
+
+    def test_a_rate_of_events_is_compared_by_its_count(self):
+        # One order recorded in an hour; twins that make one a minute expect 60 there. The
+        # Poisson deviance is 2 (1 ln(1/60) + 59) = 109.8, a distance of +10.5.
+        real = {"_orders": 1.0, "_minutes": 60.0}
+        twins = {"_orders": 600.0, "_minutes": 600.0, "_orders_dispersion": 1.0}
+        self.assertAlmostEqual(validate.count_distance(real, twins, "orders_per_minute"),
+                               math.sqrt(2 * (math.log(1 / 60) + 59)))
+        # Bursty twins, four times as variable as Poisson, are farther from nothing less.
+        bursty = dict(twins, _orders_dispersion=4.0)
+        self.assertAlmostEqual(validate.count_distance(real, bursty, "orders_per_minute"),
+                               math.sqrt(2 * (math.log(1 / 60) + 59) / 4))
+        # Too few is negative; the same rate is 0; none recorded is 2 e.
+        self.assertLess(validate.count_distance({"_orders": 90.0, "_minutes": 60.0}, twins,
+                                                "orders_per_minute"), 0)
+        self.assertAlmostEqual(validate.count_distance({"_orders": 60.0, "_minutes": 60.0},
+                                                       twins, "orders_per_minute"), 0.0)
+        self.assertAlmostEqual(validate.count_distance({"_orders": 0.0, "_minutes": 60.0},
+                                                       twins, "orders_per_minute"),
+                               math.sqrt(120))
+        self.assertTrue(np.isnan(validate.count_distance({}, twins, "orders_per_minute")))
+
+    def test_dispersion_of_counts_over_markets(self):
+        self.assertEqual(validate._dispersion([5, 5, 5], [1, 1, 1]), 1.0)  # never below 1
+        # Counts of 0 and 10 at one rate of 5: Pearson's (25 + 25) / 5 over 1 degree = 10.
+        self.assertAlmostEqual(validate._dispersion([0, 10], [1, 1]), 10.0)
+        self.assertEqual(validate._dispersion([0, 0], [1, 1]), 1.0)
+
+    def test_the_report_and_the_fit_measure_orders_by_their_count(self):
+        # A recording with an order in one market of two, an hour each, against twins with an
+        # order a second: the bootstrap's tolerance would call that near, the count does not.
+        quiet = market(duration=3600.0)
+        quiet.trade_time, quiet.trade_price = quiet.trade_time[:1], quiet.trade_price[:1]
+        quiet.trade_size, quiet.trade_sign = quiet.trade_size[:1], quiet.trade_sign[:1]
+        empty = market(duration=3600.0)
+        for name in ("trade_time", "trade_price", "trade_size", "trade_sign"):
+            setattr(empty, name, getattr(empty, name)[:0])
+        real = validate.summarize("real", tape.Tape([quiet, empty]), validate.Config(bootstrap=20))
+        busy = validate.summarize("twins", tape.Tape([market(duration=3600.0)] * 2),
+                                  validate.Config(bootstrap=20))
+        self.assertEqual(real.point["_orders"], 1.0)
+        self.assertAlmostEqual(real.point["_minutes"], 120.0)
+        distance = validate.distance(real, busy, "orders_per_minute", True)
+        self.assertAlmostEqual(distance, validate.count_distance(real.point, busy.point,
+                                                                 "orders_per_minute"))
+        self.assertGreater(distance, 50)
 
     def test_draws_that_all_agree_have_no_spread(self):
         # The mean of draws all 589 is not exactly 589, so their spread rounds to about 1e-16,

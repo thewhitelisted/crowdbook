@@ -547,6 +547,10 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
     # Rates compared as logarithms count none as half of one over the time seen, so that markets
     # where nothing traded keep a rate, low as the time seen allows, and still count in a fit.
     out["orders_per_minute"] = 60 * max(orders[0], 0.5) / duration if duration > 0 else np.nan
+    # Not statistics of their own: what a rate's count distance needs (count_distance).
+    out["_orders"], out["_minutes"] = float(orders[0]), duration / 60
+    out["_orders_dispersion"] = _dispersion([p["orders"][0] for p in ps],
+                                            [p["duration"] / 60 for p in ps])
     out["prints_per_order"] = orders[1] / orders[0] if orders[0] > 0 else np.nan
     sizes = _cat(ps, "sizes")
     median = float(np.median(sizes)) if len(sizes) else np.nan
@@ -692,6 +696,45 @@ def summarize(name: str, t: tapes.Tape, config: Config = Config(), seed: int = 1
     return Summary(name, len(ps), measure(ps, config), bootstrap(ps, config, seed), ps)
 
 
+def _dispersion(counts: list[float], exposures: list[float]) -> float:
+    """How much more markets' counts vary than a Poisson count at one rate would: Pearson's
+    statistic over its degrees of freedom, 1 at the least. Orders come in bursts, so counts of
+    them vary more than a Poisson count does."""
+    counts, exposures = np.asarray(counts, dtype=float), np.asarray(exposures, dtype=float)
+    if len(counts) < 2 or exposures.sum() <= 0 or counts.sum() <= 0:
+        return 1.0
+    expected = counts.sum() / exposures.sum() * exposures
+    kept = expected > 0
+    pearson = float(np.sum((counts[kept] - expected[kept]) ** 2 / expected[kept]))
+    return max(1.0, pearson / (len(counts) - 1))
+
+
+# Rates of events compared as counts: the statistic, its count, the minutes seen and the
+# counts' dispersion over markets.
+COUNTED = {"orders_per_minute": ("_orders", "_minutes", "_orders_dispersion")}
+
+
+def count_distance(real: dict, simulated: dict, key: str) -> float:
+    """How far a simulated rate is from a recorded count of events, as the signed root of the
+    Poisson deviance of the count against what the simulated rate expects over the recording's
+    time, over the simulation's dispersion: positive where the simulation has too many. Where a
+    recording saw one order in an hour and its twins make one a minute, the bootstrap of markets
+    sees little, as the one market with an order is all it has to resample; the count says the
+    two cannot be the same market. NaN where either side lacks the counts."""
+    count, minutes, dispersion = COUNTED[key]
+    if not all(np.isfinite(side.get(k, np.nan)) for side in (real, simulated)
+               for k in (count, minutes)) or real[minutes] <= 0 or simulated[minutes] <= 0:
+        return np.nan
+    observed = real[count]
+    # A simulation that made none is counted as making half of one, as rates are.
+    rate = max(simulated[count], 0.5) / simulated[minutes]
+    expected = rate * real[minutes]
+    deviance = 2 * ((observed * math.log(observed / expected) if observed > 0 else 0.0)
+                    - (observed - expected))
+    deviance /= max(1.0, simulated.get(dispersion, 1.0))
+    return float(math.copysign(math.sqrt(max(deviance, 0.0)), expected - observed))
+
+
 def _scaled(values, logarithmic: bool):
     values = np.asarray(values, dtype=float)
     if not logarithmic:
@@ -713,7 +756,11 @@ def spread_of(draws: np.ndarray, logarithmic: bool) -> float:
 
 def distance(real: Summary, simulated: Summary, key: str, logarithmic: bool) -> float:
     """How far the simulated statistic is from the real one, over the two resampling spreads
-    together."""
+    together; a rate of events, by its count (count_distance)."""
+    if key in COUNTED:
+        counted = count_distance(real.point, simulated.point, key)
+        if np.isfinite(counted):
+            return counted
     a = _scaled(real.point[key], logarithmic)
     b = _scaled(simulated.point[key], logarithmic)
     tolerance = math.hypot(spread_of(real.draws[key], logarithmic),

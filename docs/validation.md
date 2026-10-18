@@ -216,6 +216,14 @@ A recorded game that sat for eight hours before a two-hour game would otherwise 
 on its quiet hours, when in play is where its order delay, its makers' absence and its reaction to
 scores show.
 
+The rate of aggressive orders is compared by its count, in the report and in the fit: the signed
+root of the Poisson deviance of the recording's count against what the simulated rate expects
+over the recording's time, divided by how much more the simulated markets' counts vary than a
+Poisson count would (orders come in bursts). Where a recording saw one order in a day of markets,
+resampling its markets cannot tell a quiet fit from one that trades every minute, since the one
+market with an order is all it has to resample; the count can, and a fit that makes its market
+trade where the recording barely did is held to it.
+
 A statistic the recording measures in too few of its markets is left out of the target, and the
 fit says so: one that more than a tenth of the recording's resamples leave unmeasured, such as the
 size of aggressive orders where one recorded market alone had any. Its value would be that one
