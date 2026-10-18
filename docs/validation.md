@@ -123,6 +123,7 @@ seeds = 40            # markets each candidate is judged on, the same for every 
 generations = 80
 held_out = 200        # markets the fit is judged on afterwards, on other seeds
 window = [0, 1800]    # optional: compare only this part of each market, in seconds
+phase = "from kickoff" # optional: or the part from (or "before") a time a label of each gives
 sample_interval = 0.1 # optional: seconds between samples of the simulated book
 
 [parameters.follower_lag]
@@ -177,6 +178,12 @@ Where the recording has a reference price, such as a sharper market's mid on the
 true value (`${value_path}`) and settle them where the market settled (`${outcome}`). Nothing
 about the game's scoring is then fitted or assumed, which the book's statistics could not pin
 down anyway (see the game recovery check below), and only the traders are fitted.
+
+`phase` fits one part of each market, cut where a label of its own says, such as a game in play
+(`"from kickoff"`) or before it (`"before kickoff"`); a twin is cut where its recorded market is.
+A recorded game that sat for eight hours before a two-hour game would otherwise be fitted mostly
+on its quiet hours, when in play is where its order delay, its makers' absence and its reaction to
+scores show.
 
 Two checks guard the fit:
 
