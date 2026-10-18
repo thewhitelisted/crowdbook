@@ -139,7 +139,11 @@ side's win to recorded games this way, or the away side's or a draw, from a `sid
 recording (`${side:"home"}`: a placeholder can give what to write where nothing sets it). A draw
 cannot open above the chance of a draw in an even game, so draws open at 26% at most. The twins' book is cleared at kickoff (`clear_at`), and their makers stay away in play
 (`quiet_from`), or with a `maker_in_play_interval` label requote only that often, as recorded games
-show of some kinds of game and not others.
+show of some kinds of game and not others. [line_twins.toml](../examples/calibration/line_twins.toml) does the same for totals and
+spreads, from each market's `side` and `line` labels, the opening price setting how much its twins
+score; [prop_twins.toml](../examples/calibration/prop_twins.toml) is a first template for a
+player's prop, a total of that player's scoring alone, with thin, wide books and small
+recreational takers. Both take each market's `in_play_delay` from its label.
 
 Two checks guard the fit:
 
