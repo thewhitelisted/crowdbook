@@ -50,7 +50,7 @@ import json
 import math
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -717,6 +717,9 @@ def main() -> None:
                         help="search again this many times from the fit on fresh seeds, and add "
                         "the spread of where it lands to the intervals (2 or more; 0 for none)")
     parser.add_argument("--refit-generations", type=int, default=15)
+    parser.add_argument("--start", type=Path, metavar="SETTINGS",
+                        help="start the search from these settings, such as an earlier fit's "
+                        "settings.toml, instead of the spec's starts")
     parser.add_argument("--crowdbook", help="the crowdbook executable")
     parser.add_argument("--output", type=Path, default=Path("calibrated"),
                         help="directory for the fitted scenario and the report")
@@ -726,6 +729,8 @@ def main() -> None:
     if bool(args.real) == bool(args.truth):
         parser.error("give one of --real or --truth")
     spec = read_spec(args.spec)
+    if args.start:
+        spec = started_from(spec, tomllib.loads(args.start.read_text()))
     for name in ("generations", "seeds", "held_out"):
         if getattr(args, name) is not None:
             setattr(spec, name, getattr(args, name))
@@ -755,6 +760,14 @@ def main() -> None:
     if spec.condition:
         write_twins(spec, fitted, evaluator.targets, args.output / "twins")
     print(text)
+
+
+def started_from(spec: Spec, values: dict[str, float]) -> Spec:
+    """The spec with its searches starting from these settings, each kept within its range;
+    settings it does not name keep their starts, and ones it does not fit are ignored."""
+    parameters = [replace(p, start=min(max(float(values[p.name]), p.low), p.high))
+                  if p.name in values else p for p in spec.parameters]
+    return replace(spec, parameters=parameters)
 
 
 def settings_text(values: dict[str, float]) -> str:
