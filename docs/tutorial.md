@@ -1,6 +1,6 @@
 # Tutorial: from a recording to a tested strategy
 
-In about fifteen minutes, five of them waiting on your computer, you take a recorded market, fit
+In about fifteen minutes, six of them waiting on your computer, you take a recorded market, fit
 crowdbook's simulator to it, ask whether the fitted market can be trusted for testing
 strategies, and test a strategy in it. It is the path any recording takes, whatever market it
 comes from:
@@ -73,7 +73,7 @@ description of a market, with three blanks:
   each;
 - **followers**, twenty who trade toward the true value, but see it `${follower_lag}` late.
 
-Every trader pays a fee of a tick a lot, maker or taker. [spec.toml](../examples/tutorial/spec.toml)
+Every trader pays a fee of two ticks a lot, maker or taker (why two, below). [spec.toml](../examples/tutorial/spec.toml)
 gives each blank a range to search and a starting point, deliberately off: makers twice as wide
 as the truth, noise traders a third as busy and followers too quick.
 
@@ -86,40 +86,50 @@ kinds of trader.
 crowdbook-assess examples/tutorial/spec.toml --real recording/shard-00000 --output assessed
 ```
 
-About two and a half minutes, 9,160 simulated markets: 5,060 for the fit and the rest for the
-check. It does three things.
+About four and a half minutes on four cores: 5,060 simulated markets for the fit, and the rest
+for the check. It does three things.
 
-**It fits.** The method of simulated moments: about 48 statistics of the book, the trades and the
+**It fits.** The method of simulated moments: about 47 statistics of the book, the trades and the
 prices, measured alike on the recording and on simulated markets, and a search (CMA-ES) for the
 settings whose markets are closest, each statistic counted in units of its own sampling error.
 `assessed/report.md` has every statistic, recorded against the start and the fit:
 
 | setting | start | fitted | 68% interval |
 |---|---:|---:|---:|
-| maker_intensity | 0.4 | 0.826 | 0.816 to 0.836 |
-| noise_market_rate | 0.1 | 0.291 | 0.283 to 0.298 |
-| follower_lag | 3 s | 9.6 s | 8.9 to 10.4 s |
+| maker_intensity | 0.4 | 0.822 | 0.813 to 0.830 |
+| noise_market_rate | 0.1 | 0.303 | 0.295 to 0.311 |
+| follower_lag | 3 s | 9.5 s | 8.8 to 10.3 s |
 
-**It judges the fit on seeds the search never saw.** Its distance there is 41.6, where chance
-alone stays under 65.2 95% of the time: the fitted market is the recording's, as far as these
+**It judges the fit on seeds the search never saw.** Its distance there is 20.9, where chance
+alone stays under 64.0 95% of the time: the fitted market is the recording's, as far as these
 statistics can tell. When a fit does not reach a recording within chance, the model is missing
 something, and the report's statistics furthest from the recording say what.
 
 **It looks for false edges.** `crowdbook-sweep` runs 25 generic strategies alone in the fitted
 market (makers at half widths of 0.5 to 8 ticks, trend followers, reversal traders, order-flow
-followers) and judges each family's best on 400 fresh markets:
+followers), and trains a learner there too, a strategy of its own that weighs the recent order
+flow and trend, to find what the generic ones miss. Each family's best, and the learner, are
+judged on 400 fresh markets:
 
 | each family's best, on fresh markets | made a market (tick-lots) |
 |---|---:|
-| maker, 3 ticks either side | +0.1 [−14.8, +15.1] |
-| trend, 2 s against 20 s | −15.3 [−47.2, +16.5] |
-| reversal, 60 s against 600 s | −72.4 [−99.1, −45.6] |
-| flow, 120 s at 80% | +9.2 [−17.6, +36.0] |
+| maker, 8 ticks either side | −0.8 [−1.8, +0.3] |
+| trend, 60 s against 600 s | −24.8 [−56.8, +7.2] |
+| reversal, 60 s against 600 s | −87.8 [−114.2, −61.4] |
+| flow, 30 s at 80% | −27.0 [−55.7, +1.7] |
+| learner, 20 generations on 16 markets | −7.1 [−42.8, +28.7] |
 
 None makes money for sure, after fees. So `assessed/verdict.md` says:
 
-> **Usable for testing strategies**: the fit reaches the recording within chance and no generic
-> strategy makes money in it.
+> **Usable for testing strategies**: the fit reaches the recording within chance and no strategy
+> of the check makes money in it.
+
+Why fees of two ticks: at one tick a lot, the learner makes +87.5 [+58.5, +116.4] a market by
+following the last few seconds' order flow, and the verdict is no. That edge is real here: the
+recording was made by the very model fitted, so its market pays the same flow-follower. With a
+real recording the check cannot tell a market's own edge from one the fit invented; either way,
+a strategy tested where a simple one is paid is judged against the wrong bar, and a real fee that
+removes the edge, as here, or a closer look at the recording, comes first.
 
 and the command exits with 0, 1 when it is not usable, so that a script can act on it. When it
 says no, it says why: the statistics furthest from the recording, and any strategy the fitted
@@ -148,12 +158,12 @@ Each row runs the strategy on 200 markets, about twenty seconds:
 
 | market | made a market (tick-lots) | 95% interval | lots | per lot | markout 10 s |
 |---|---:|---|---:|---:|---:|
-| assessed/scenario.toml | -875.4 | [-901.0, -849.8] | 1,486 | -0.589 | +0.375 |
-| 20 scenarios in draws | -875.4 | [-899.8, -851.0] | 1,481 | -0.591 | +0.366 |
+| assessed/scenario.toml | -2,382.2 | [-2,411.9, -2,352.6] | 1,503 | -1.585 | +0.387 |
+| 20 scenarios in draws | -2,398.2 | [-2,430.2, -2,366.1] | 1,509 | -1.589 | +0.375 |
 
-It loses about 0.59 ticks a lot. Its fills are worth +0.37 ticks ten seconds on, before fees: it
-earns part of the spread and is not picked off, but the fee of a tick a lot takes more than all
-of it. The markout is what tells you whether a change could save it: here the fee, not adverse
+It loses about 1.6 ticks a lot. Its fills are worth +0.39 ticks ten seconds on, before fees: it
+earns part of the spread and is not picked off, but the fee of two ticks a lot takes more than
+all of it. The markout is what tells you whether a change could save it: here the fee, not adverse
 selection, is the problem, so quoting wider might, and trading faster would not.
 `crowdbook_learn.evaluate` reports more than the table shows: the lots ahead of each quote in the
 queue, the share of quoted lots that filled, how long a fill waited, markouts at 1, 10 and 60
@@ -163,8 +173,8 @@ take ([python/README.md](../python/README.md)).
 ## 5. The answer
 
 Now look at `recording/markets.csv`: the recording was made with makers at 0.8, noise traders at
-0.3 and followers 10 seconds late. The fit found 0.826, 0.291 and 9.6 s, each within 4%. Its
-intervals cover the truth for the followers only; with `--refits 4` the search is repeated from
+0.3 and followers 10 seconds late. The fit found 0.822, 0.303 and 9.5 s, each within 5%. Its
+intervals cover the truth for the noise traders and the followers, not the makers; with `--refits 4` the search is repeated from
 the fit on fresh seeds and the intervals count its own noise, and cover it more often (4 of 5 in [validation.md](validation.md#recovering-known-settings)'s
 check).
 
@@ -176,9 +186,9 @@ python examples/tutorial/strategy.py --truth maker_intensity=0.8,noise_market_ra
 
 | market | made a market (tick-lots) | 95% interval | lots | per lot | markout 10 s |
 |---|---:|---|---:|---:|---:|
-| the truth | -855.0 | [-880.5, -829.6] | 1,515 | -0.565 | +0.400 |
+| the truth | -2,375.6 | [-2,407.0, -2,344.2] | 1,515 | -1.568 | +0.400 |
 
-The fit predicted −875 a market where the truth gives −855, their intervals overlapping, and
+The fit predicted −2,382 a market where the truth gives −2,376, their intervals overlapping, and
 the same fills, the same markouts and the same verdict: don't run it. With a real recording
 there is no truth to look up. The test that takes its place is paper trading: run the strategy
 on the live market without sending orders, and set its fills beside the fitted market's.
