@@ -133,6 +133,17 @@ class PoolTest(unittest.TestCase):
         # The same seeds and policy give the same episodes.
         again = evaluate.run(join, [text, text], seeds=range(1, 7), markets=3, threads=2)
         self.assertEqual([e.score for e in again], [e.score for e in once["episodes"]])
+        # A directory of scenario files stands for its .toml files, in name order.
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as scratch:
+            for name in ("b.toml", "a.toml"):
+                (Path(scratch) / name).write_text(text)
+            (Path(scratch) / "notes.md").write_text("not a scenario")
+            self.assertEqual(evaluate.scenario_texts(Path(scratch)), [text, text])
+            from_files = evaluate.run(join, Path(scratch), seeds=range(1, 7), markets=3,
+                                      threads=2)
+        self.assertEqual([e.score for e in from_files], [e.score for e in once["episodes"]])
 
     def test_results_depend_on_seeds_and_actions_not_threads(self):
         text = short(MARKET.read_text())

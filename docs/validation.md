@@ -324,8 +324,8 @@ uv run --project analysis crowdbook-draws my_spec.toml --report calibrated/repor
 from pathlib import Path
 from crowdbook_learn.evaluate import evaluate
 
-scenarios = [path.read_text() for path in sorted(Path("draws").glob("*.toml"))]
-result = evaluate(policy, scenarios, seeds=range(1, 401), scales=(1, 2, 4))
+result = evaluate(policy, Path("draws"), seeds=range(1, 401), scales=(1, 2, 4))
+# or a twin fit's every recorded market: evaluate(policy, Path("fit/twins"), ...)
 ```
 
 `crowdbook-draws` writes scenarios whose settings are drawn about the fit, each normal in the unit
