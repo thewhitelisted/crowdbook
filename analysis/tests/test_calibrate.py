@@ -116,6 +116,27 @@ class ConditionTest(unittest.TestCase):
         self.assertEqual(calibrate.market_texts(tapes.Market(
             **{**m.__dict__, "scores": None}))["script"], "[]")
 
+    def test_a_target_market_gives_its_twins_its_value_path_and_outcome(self):
+        from crowdbook_analysis import tape as tapes
+        from test_validate import market
+        m = market("contract", duration=120.0)
+        m.value_time = np.array([-1.0, 0.0, 10.0, 20.0, 30.5, 40.0])
+        m.value = np.array([0.5, 0.52, 0.52, np.nan, 0.5425, 1.2])
+        m.outcome = 1.0
+        tape = tapes.Tape([m], tapes.Options(tick=0.01, payout=1.0))
+        [m] = calibrate.with_openings(tape)
+        self.assertEqual(m.labels["value_path"],
+                         [(0.0, 50.0), (0.0, 52.0), (30.5, 54.25), (40.0, 100.0)])
+        self.assertEqual(m.labels["outcome"], 100.0)
+        texts = calibrate.market_texts(m)
+        parsed = tomllib.loads(f"path = {texts['value_path']}\noutcome = {texts['outcome']}")
+        self.assertEqual(parsed, {"path": [[0, 50], [0, 52], [30.5, 54.25], [40, 100]],
+                                  "outcome": 100})
+        bare = market("bare", duration=60.0)
+        [bare] = calibrate.with_openings(tapes.Tape([bare], tapes.Options(payout=100.0)))
+        self.assertEqual(calibrate.market_texts(bare)["value_path"], "[]")
+        self.assertNotIn("outcome", bare.labels)
+
     def test_a_conditioned_spec_may_use_a_markets_own_values(self):
         template = TEMPLATE.replace('duration = "60s"', 'duration = "${duration}s"')
         with self.assertRaisesRegex(ValueError, "condition = true"):
@@ -203,6 +224,10 @@ class CalibrateTest(unittest.TestCase):
         self.assertIn("count =", scenario)
         self.assertEqual(data["calibration"]["compared"], ["spread_mean", "maker_at_trade"])
         self.assertIn("reached", data["calibration"])
+        refitted, _, _ = calibrate.calibrate(spec, evaluator, real, truth=truth,
+                                             log=lambda line: None, refits=2,
+                                             refit_generations=1)
+        self.assertIn("searches again on fresh seeds", refitted)
 
     def test_a_conditioned_fit_writes_the_twin_of_its_first_market(self):
         from crowdbook_analysis import validate

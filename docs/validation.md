@@ -129,8 +129,10 @@ With `condition = true` a spec fits markets that differ from one another, such a
 against synthetic twins of its own: the template may use `${duration}`, a market's length in
 seconds, any of its labels by name (such as `${kickoff}`), for a binary contract
 `${opening_probability}`, where it opened (its first reference value, else its first mid, kept
-from 5 to 90%), and for a game `${script}`, its scores replayed at the times they came
-([`script`](scenarios.md#predictiongame-optional)). `seeds` and `held_out` then count the twins of
+from 5 to 90%), `${value_path}` and `${outcome}`, its recorded reference value and what it settled
+at, in cents, for a twin whose true value is the recorded one
+([`path`](scenarios.md#prediction-optional)), and for a game `${script}`, its scores replayed at
+the times they came ([`script`](scenarios.md#predictiongame-optional)). `seeds` and `held_out` then count the twins of
 each market. Markets are compared with markets alike in what is known about them, and the luck of
 each game's result is taken out of the comparison.
 [game_twins.toml](../examples/calibration/game_twins.toml) and
