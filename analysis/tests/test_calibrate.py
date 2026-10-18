@@ -184,6 +184,20 @@ class ConditionTest(unittest.TestCase):
         cut = spec.cut(tapes.Tape(twins))
         self.assertEqual([m.duration for m in cut.markets], [80.0, 30.0, 10.0])
 
+    def test_around_trims_each_recorded_market_before_the_fit(self):
+        from crowdbook_analysis import tape as tapes
+        from test_validate import market
+        spec = spec_from('around = { label = "kickoff", before = 30, after = 20 }\n' + SPEC)
+        self.assertEqual(spec.around, ("kickoff", 30.0, 20.0))
+        m = market("game", duration=200.0)
+        m.labels = {"kickoff": 100.0}
+        [trimmed] = spec.trim(tapes.Tape([m])).markets
+        self.assertEqual((trimmed.duration, trimmed.labels["kickoff"]), (50.0, 30.0))
+        self.assertEqual(spec_from('around = { label = "kickoff", before = 30 }\n'
+                                   + SPEC).around, ("kickoff", 30.0, None))
+        with self.assertRaisesRegex(ValueError, "around is"):
+            spec_from('around = { label = "kickoff" }\n' + SPEC)
+
     def test_writes_the_twin_of_every_recorded_market(self):
         from test_validate import market
         spec = spec_from("condition = true\n" + SPEC,

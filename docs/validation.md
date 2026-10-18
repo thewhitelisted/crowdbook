@@ -124,6 +124,7 @@ generations = 80
 held_out = 200        # markets the fit is judged on afterwards, on other seeds
 window = [0, 1800]    # optional: compare only this part of each market, in seconds
 phase = "from kickoff" # optional: or the part from (or "before") a time a label of each gives
+around = { label = "kickoff", before = 3600 }   # optional: trim each recording first (below)
 sample_interval = 0.1 # optional: seconds between samples of the simulated book
 
 [parameters.follower_lag]
@@ -182,6 +183,12 @@ down anyway (see the game recovery check below), and only the traders are fitted
 `--start SETTINGS` begins the search from an earlier fit's `settings.toml` instead of the spec's
 starts, so that a fit can be carried on with more generations or seeds, or after a change to the
 template, rather than begun again.
+
+`around` trims each recorded market before anything is fitted, to the span from `before` seconds
+ahead of the time a label of its own gives to `after` seconds past it (to its end without
+`after`), its time labels moved with it. Its twins are then as short: games recorded from eight
+hours before kickoff, trimmed to the last hour and the game, fit in less than half the time, on
+the part where the book does something.
 
 `phase` fits one part of each market, cut where a label of its own says, such as a game in play
 (`"from kickoff"`) or before it (`"before kickoff"`); a twin is cut where its recorded market is.
