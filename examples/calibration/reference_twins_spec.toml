@@ -86,6 +86,11 @@ low = 0.000001
 high = 0.05
 start = 0.0001
 
+[parameters.noise_cancel_rate]
+low = 0.001
+high = 1.0
+start = 0.01
+
 [parameters.noise_limit_rate]
 low = 0.00001
 high = 0.05
