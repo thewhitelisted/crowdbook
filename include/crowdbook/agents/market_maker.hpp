@@ -44,6 +44,11 @@ struct MarketMakerConfig {
     int levels = 1;
     Price levelSpacing = 1;
     double levelGrowth = 1.0;
+    // Ticks: at a requote its timer brings, it leaves its quotes where they are while its fair
+    // price is less than this from where it was when it last set them and every quote it keeps
+    // is still in the book, as makers who do not chase each small move of a reference do. A fill
+    // requotes it whatever the threshold. 0 requotes on every tick of the timer.
+    double requoteThreshold = 0.0;
 };
 
 struct Quotes {
@@ -100,6 +105,8 @@ private:
     };
 
     void requote(AgentContext& context);
+    // Whether every quote of its ladder is in the book, none filled or on its way out.
+    [[nodiscard]] bool standing(const AgentContext& context) const;
     void maintain(AgentContext& context, std::optional<Quote>& quote, Side side,
                   std::optional<Price> price, Quantity size) const;
     // Lots quoted at each level of the ladder, the touch first.
@@ -110,6 +117,7 @@ private:
     std::optional<double> tradeAverage_;
     std::optional<Belief> belief_;
     std::optional<Timestamp> quotedAt_; // its last requote in a quiet stretch
+    std::optional<double> quotedFair_;  // its fair price when it last set its quotes
     // Its quotes a side, a level each, the touch first.
     std::vector<std::optional<Quote>> bids_;
     std::vector<std::optional<Quote>> asks_;

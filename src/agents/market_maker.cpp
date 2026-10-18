@@ -60,6 +60,9 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
         throw std::invalid_argument("market_maker's quiet stretch must start at 0 or later, end "
                                     "no sooner, and have an interval that is not negative");
     }
+    if (!(config.requoteThreshold >= 0.0)) {
+        throw std::invalid_argument("market_maker requote_threshold must not be negative");
+    }
     if (config.levels < 1 || config.levels > kMaxLevels || config.levelSpacing < 1 ||
         config.levelSpacing > kMaxPrice || !(config.levelGrowth > 0.0) ||
         !(config.levelGrowth <= kMaxGrowth)) {
@@ -155,6 +158,11 @@ void MarketMaker::requote(AgentContext& context) {
         quotedAt_ = now;
     }
     const double fair = belief_ ? belief_->look(context) : fairPrice();
+    if (config_.requoteThreshold > 0.0 && quotedFair_ &&
+        std::abs(fair - *quotedFair_) < config_.requoteThreshold && standing(context)) {
+        return;
+    }
+    quotedFair_ = fair;
     Quotes target = avellanedaStoikovQuotes(config_, fair, context.ledger().position());
     if (config_.postOnly) {
         if (target.bid && market_.bestAsk()) {
@@ -204,6 +212,18 @@ void MarketMaker::requote(AgentContext& context) {
         maintain(context, bids_[at], Side::Buy, bid, size);
         maintain(context, asks_[at], Side::Sell, ask, size);
     }
+}
+
+bool MarketMaker::standing(const AgentContext& context) const {
+    for (const auto* side : {&bids_, &asks_}) {
+        for (const std::optional<Quote>& quote : *side) {
+            const OwnOrder* live = quote ? context.ledger().find(quote->clientOrderId) : nullptr;
+            if (live == nullptr || live->cancelRequested) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 void MarketMaker::maintain(AgentContext& context, std::optional<Quote>& quote, Side side,

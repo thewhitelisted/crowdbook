@@ -47,8 +47,9 @@ quote_size = ${maker_size}      # lots each quote: the size at the touch
 levels = 5                      # a ladder of quotes a side, a tick apart,
 level_growth = ${level_growth}  # each this many times the one nearer: the depth behind the touch
 max_inventory = 1000000
-requote_interval = ${maker_requote}   # how often they move their quotes: a book that hardly
-post_only = true                       # moves is requoted rarely
+requote_interval = ${maker_requote}   # how often they look: a book that hardly moves is
+requote_threshold = ${maker_threshold:0}   # requoted rarely, or only once the value has moved
+post_only = true                       # this many ticks from where they quoted
 quiet_from = "${kickoff}s"   # in play the makers stay away, or with a label quote that often
 quiet_interval = ${maker_in_play_interval:"0s"}
 latency = { to_exchange = "20ms", from_exchange = "20ms" }
