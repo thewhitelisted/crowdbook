@@ -14,6 +14,8 @@ TEST(ParseDurationTest, ReadsEveryUnitExactly) {
     EXPECT_EQ(parseDuration("50us"), 50 * kMicrosecond);
     EXPECT_EQ(parseDuration("1.5ms"), 1'500'000);
     EXPECT_EQ(parseDuration("2s"), 2 * kSecond);
+    EXPECT_EQ(parseDuration("90m"), 5400 * kSecond);
+    EXPECT_EQ(parseDuration("1.5h"), 5400 * kSecond);
     EXPECT_EQ(parseDuration("0s"), 0);
     EXPECT_EQ(parseDuration("1.25us"), 1'250);
     EXPECT_EQ(parseDuration("0.000000001s"), 1);

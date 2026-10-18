@@ -20,7 +20,8 @@ asset's true value, and groups of agents. Run one with:
 `crowdbook agents` lists the agent types. `crowdbook play` and `crowdbook replay` run a scenario
 with a person trading in it; see [playing and replaying](#playing-and-replaying).
 
-Durations are written as text with a unit: `"250ns"`, `"50us"`, `"1.5ms"`, `"2s"`, and are shorter
+Durations are written as text with a unit: `"250ns"`, `"50us"`, `"1.5ms"`, `"2s"`, `"90m"`,
+`"1.5h"`, and are shorter
 than `"1000000000s"`, about 31 years. Numbers must be finite: `nan` and `inf` are errors. Prices are
 in ticks and quantities in lots. Any key crowdbook does not know is an error, so a typo stops the
 run instead of silently using a default.
@@ -67,6 +68,41 @@ noise; every agent keeps its prices within 1 to 99. It takes no `[fundamental]` 
 
 At most 500 pieces of news may be expected over the run. The results value each group's position
 at resolution, beside the last price.
+
+### `[prediction.game]` (optional)
+
+Makes the question a game between a home and an away side, on a clock: will the home side win?
+Before kickoff the sides' relative strength drifts as information arrives, now and then in a jump
+of news; during play each side scores at random, at a rate its strength sets, and the strength can
+drift too, while the clock stops between periods. The true value is the probability that the home
+side ends ahead, given the score, the playing time left and the strength as it is now, worked out
+exactly from the distribution of the points each side has still to score; it jumps on every
+score, and once the game ends it is 100, 0, or what a tie pays, and stays there until the market
+settles at the end of the run. `probability` is the home side's chance at kickoff, and the
+strength starts wherever gives it; `news_rate` and `news_share` are not used with a game, and
+`step` is how often the game moves. [game.toml](../examples/scenarios/game.toml) is one.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `start` | duration | `"0s"` | Kickoff, after the market opens |
+| `length` | duration | `"90m"` | Playing time, all periods together |
+| `periods` | integer | `1` | Periods of equal playing time, from 1 to 100 |
+| `break` | duration | `"0s"` | How long the clock stops between two periods |
+| `scores` | number | `2.5` | Scoring events expected in the game, both sides together; more than 0, at most 500 |
+| `points` | list of integers | `[1]` | What a scoring event can be worth, from 1 to 100 |
+| `point_weights` | list of numbers | equal | How often each of `points`, in proportion |
+| `tie` | number | `0` | Cents a share pays if the game ends level, from 0 to 100 |
+| `pregame_drift` | number | `0` | The standard deviation of the strength's change from the opening to kickoff |
+| `in_play_drift` | number | `0` | The standard deviation of its change over the playing time |
+| `news` | number | `0` | Pieces of news expected before kickoff, at most 500 |
+| `news_size` | number | `0` | The standard deviation of each piece's move in the strength |
+
+The strength is in log-odds of who scores: at strength s the home side scores a share
+1 ÷ (1 + e^(−s)) of the scoring events, so 0 is an even game and ±1 makes one side score 73% of
+them. A run that ends before the game does, after its periods and breaks, stops with the game
+unfinished, its value the probability then. A `probability` that
+no strength reaches is an error, as in a low-scoring game where a tie pays nothing and the home
+side cannot be made a near-certainty.
 
 ## `[exchange]` (optional)
 
@@ -345,7 +381,7 @@ asset is worth. That needs a `[fundamental]` or `[prediction]` section.
 | `fair_value_weight` | `0.2` | How far each trade moves its fair price toward the trade's price |
 | `post_only` | `false` | Quote with post-only orders, a tick off the far side of the book it last saw, so it only ever adds liquidity |
 | `quote_value` | `false` | Quote around the true value as it sees it, rather than the average of trades |
-| `noise`, `error`, `error_memory`, `bias`, `lag` | `1.0`, `0`, `"60s"`, `0`, `"0s"` | With `quote_value`, how it sees the value, as [below](#how-traders-see-the-true-value); without it, not allowed |
+| `noise`, `error`, `error_memory`, `bias`, `tilt`, `lag` | `1.0`, `0`, `"60s"`, `0`, `0`, `"0s"` | With `quote_value`, how it sees the value, as [below](#how-traders-see-the-true-value); without it, not allowed |
 
 Keep γ·σ²·τ, the skew per lot of inventory, small. When other traders anchor on the market maker's
 quotes, a large skew drags the whole market against its own inventory.
@@ -383,7 +419,7 @@ trades toward that position at the market, `order_size` at a time.
 | Parameter | Default | Meaning |
 |---|---|---|
 | `interval` | `"1s"` | How often it decides |
-| `noise`, `error`, `error_memory`, `bias`, `lag` | `2.0`, `0`, `"60s"`, `0`, `"0s"` | How it sees the value; see below |
+| `noise`, `error`, `error_memory`, `bias`, `tilt`, `lag` | `2.0`, `0`, `"60s"`, `0`, `0`, `"0s"` | How it sees the value; see below |
 | `fast_half_life`, `slow_half_life` | `"2s"`, `"20s"` | The trend strategy's moving averages |
 | `memory` | `"60s"` | Half-life of the track records |
 | `choice_intensity` | `1.0` | Per tick of track record: how surely the better strategy is chosen |
@@ -409,7 +445,7 @@ of its own that can smother effects that need the book to thin
 | Parameter | Default | Meaning |
 |---|---|---|
 | `interval` | `"100ms"` | How often it looks at the value |
-| `noise`, `error`, `error_memory`, `bias`, `lag` | `1.0`, `0`, `"60s"`, `0`, `"0s"` | How it sees the value; see below |
+| `noise`, `error`, `error_memory`, `bias`, `tilt`, `lag` | `1.0`, `0`, `"60s"`, `0`, `0`, `"0s"` | How it sees the value; see below |
 | `threshold` | `3.0` | Ticks of edge needed before trading: half the width of its range of fair values, inside which it does nothing |
 | `order_size` | `5` | Lots per order |
 | `max_position` | `50` | Largest position it builds, counting orders in flight |
@@ -418,14 +454,15 @@ of its own that can smother effects that need the book to thin
 ### How traders see the true value
 
 Nobody knows the true value exactly. Informed and adaptive traders, and market makers that quote
-off the value, see it through a belief, set by five parameters, in ticks (cents in a prediction market):
+off the value, see it through a belief, set by six parameters, in ticks (cents in a prediction market):
 
 | Parameter | Meaning |
 |---|---|
 | `noise` | Standard deviation of a fresh error on every look |
 | `error` | Standard deviation of the trader's own lasting error, which wanders slowly; 0 for none |
 | `error_memory` | How long a lasting error lasts: after this long, what it was and what it is have a correlation of 1/e |
-| `bias` | Added to every look: the group's tilt, such as partisans who want the answer to be yes |
+| `bias` | Added to every look: the group's leaning, such as partisans who want the answer to be yes |
+| `tilt` | In a prediction market, how far the trader pulls probabilities toward even, in log-odds: it sees logistic((1 − `tilt`) · logit(p)) for a probability p. Above 0 it rates long shots too high and favourites too low, the favourite–longshot bias of bettors; below 0, the reverse. Below 1; `0` by default |
 | `lag` | How late, on average, the trader sees the value. Each trader of a group gets its own delay, between none and twice this, so some hear the news first and some last |
 
 With the defaults a trader sees the value as it is now with fresh noise alone. The examples mix a
