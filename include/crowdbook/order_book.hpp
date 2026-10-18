@@ -100,6 +100,9 @@ public:
         }
     }
     [[nodiscard]] std::size_t orderCount() const noexcept;
+    // Every resting order: the bids, best price first, then the offers, each level in time
+    // priority.
+    [[nodiscard]] std::vector<RestingOrder> restingOrders() const;
     // Counts every change to one side's levels: a caller that remembers it can tell whether the
     // side has changed since, without looking at the levels.
     [[nodiscard]] std::uint64_t changes(Side side) const noexcept {

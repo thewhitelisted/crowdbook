@@ -196,6 +196,25 @@ void Exchange::handle(AgentId agent, const Request& request, std::vector<Event>&
     }
 }
 
+void Exchange::clearBook(std::vector<Event>& events) {
+    for (const RestingOrder& order : book_.restingOrders()) {
+        const LiveOrder live = *liveOrders_.find(order.id);
+        AgentState& state = agents_.at(live.agent);
+        book_.cancel(order.id);
+        openQuantity(state.account, order.side) -= order.remaining;
+        state.liveOrders.erase(live.clientOrderId);
+        liveOrders_.erase(order.id);
+        events.push_back(OrderCancelled{.agent = live.agent,
+                                        .clientOrderId = live.clientOrderId,
+                                        .orderId = order.id,
+                                        .quantity = order.remaining,
+                                        .reason = CancelReason::Cleared});
+    }
+    publishTopOfBook(events);
+    publishDepth(events);
+    publishIndicative(events);
+}
+
 void Exchange::setPhase(Phase phase, std::vector<Event>& events) {
     if (phase == phase_) {
         return;

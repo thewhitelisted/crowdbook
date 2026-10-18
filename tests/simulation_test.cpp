@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -13,6 +14,7 @@
 #include "crowdbook/agents/zero_intelligence.hpp"
 #include "crowdbook/event_log.hpp"
 #include "crowdbook/simulation.hpp"
+
 #include "test_agents.hpp"
 
 namespace crowdbook {
@@ -50,6 +52,87 @@ TEST(SimulationTest, RequestsAndRepliesTakeEachAgentsLatency) {
                               }));
     // Bob only gets the public update, after his own delay from the exchange.
     EXPECT_EQ(bob.received, (std::vector<Received>{{.time = 120, .event = top}}));
+}
+
+// In the order delay's stretch, new orders reach the book only after the delay, while cancels go
+// straight through; outside it nothing waits.
+TEST(SimulationTest, TheOrderDelayHoldsOrdersButNotCancels) {
+    Simulation simulation{1};
+    simulation.setOrderDelay({.from = 1'000, .until = 5'000, .delay = 2'000});
+    RecordingSink sink;
+    simulation.setEventSink(&sink);
+    auto& alice = add<RecordingAgent>(simulation, {.latency = {.toExchange = 100}});
+    alice.startHook = [](AgentContext& context) {
+        context.submitLimit(Side::Buy, 99, 5); // reaches the book at 100, before the stretch
+        context.wakeAt(1'000, 1);
+        context.wakeAt(1'200, 2);
+        context.wakeAt(6'000, 3);
+    };
+    alice.wakeupHook = [](AgentContext& context, std::uint64_t tag) {
+        if (tag == 2) {
+            context.cancel(1); // reaches the exchange at 1'300 and is not held
+        } else {
+            context.submitLimit(Side::Buy, 98, 5); // held at 1'100, not at 6'100
+        }
+    };
+
+    simulation.runUntil(10'000);
+
+    ASSERT_EQ(sink.requests.size(), 4U);
+    EXPECT_EQ(sink.requests[0].time, 100);
+    EXPECT_EQ(sink.requests[1].time, 1'300);
+    EXPECT_TRUE(std::holds_alternative<CancelOrder>(sink.requests[1].request));
+    EXPECT_EQ(sink.requests[2].time, 3'100);
+    EXPECT_EQ(sink.requests[3].time, 6'100);
+    // Held cancels wait like orders.
+    Simulation holding{1};
+    holding.setOrderDelay({.from = 0, .until = 5'000, .delay = 2'000, .cancels = true});
+    RecordingSink held;
+    holding.setEventSink(&held);
+    auto& bob = add<RecordingAgent>(holding, {.latency = {.toExchange = 100}});
+    bob.startHook = [](AgentContext& context) { context.cancel(1); };
+    holding.runUntil(10'000);
+    ASSERT_EQ(held.requests.size(), 1U);
+    EXPECT_EQ(held.requests[0].time, 2'100);
+    // A cancel of an order still held waits for it rather than overtaking it, even once the
+    // stretch is over.
+    Simulation late{1};
+    late.setOrderDelay({.from = 0, .until = 1'000, .delay = 2'000});
+    RecordingSink seen;
+    late.setEventSink(&seen);
+    auto& carol = add<RecordingAgent>(late, {.latency = {.toExchange = 100}});
+    carol.startHook = [](AgentContext& context) {
+        context.submitLimit(Side::Buy, 99, 5); // held at 100 until 2'100
+        context.wakeAt(1'500, 1);
+    };
+    carol.wakeupHook = [](AgentContext& context, std::uint64_t) { context.cancel(1); };
+    late.runUntil(10'000);
+    ASSERT_EQ(seen.requests.size(), 2U);
+    EXPECT_EQ(seen.requests[0].time, 2'100);
+    EXPECT_EQ(seen.requests[1].time, 2'100);
+    EXPECT_TRUE(std::holds_alternative<CancelOrder>(seen.requests[1].request));
+    EXPECT_EQ(late.exchange().book().orderCount(), 0U);
+    EXPECT_THROW(simulation.setOrderDelay({.from = 10, .until = 5, .delay = 1}),
+                 std::invalid_argument);
+    EXPECT_THROW(simulation.setOrderDelay({.delay = -1}), std::invalid_argument);
+}
+
+// A scheduled clear cancels the resting orders at its time, and each owner hears why.
+TEST(SimulationTest, AScheduledClearEmptiesTheBook) {
+    Simulation simulation{1};
+    simulation.scheduleClear(500);
+    auto& alice = add<RecordingAgent>(simulation, {.latency = {.toExchange = 10}});
+    alice.startHook = [](AgentContext& context) { context.submitLimit(Side::Buy, 99, 5); };
+    simulation.runUntil(1'000);
+    EXPECT_EQ(simulation.exchange().book().orderCount(), 0U);
+    const auto cancelled = std::ranges::find_if(alice.received, [](const Received& received) {
+        return std::holds_alternative<OrderCancelled>(received.event);
+    });
+    ASSERT_NE(cancelled, alice.received.end());
+    EXPECT_EQ(cancelled->time, 500);
+    EXPECT_EQ(std::get<OrderCancelled>(cancelled->event).reason, CancelReason::Cleared);
+    EXPECT_EQ(simulation.ledger(1).openQuantity(Side::Buy), 0);
+    EXPECT_THROW(simulation.scheduleClear(100), std::invalid_argument);
 }
 
 TEST(SimulationTest, AnInterruptStopsOnceEverythingDueThenHasRun) {

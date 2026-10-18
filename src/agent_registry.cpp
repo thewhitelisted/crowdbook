@@ -11,6 +11,7 @@
 #include "crowdbook/agents/informed.hpp"
 #include "crowdbook/agents/market_maker.hpp"
 #include "crowdbook/agents/momentum.hpp"
+#include "crowdbook/agents/probe.hpp"
 #include "crowdbook/agents/zero_intelligence.hpp"
 
 namespace crowdbook {
@@ -31,6 +32,7 @@ BeliefConfig readBelief(const Parameters& parameters, const BeliefConfig& defaul
             .error = parameters.number("error", defaults.error),
             .errorMemory = parameters.duration("error_memory", defaults.errorMemory),
             .bias = parameters.number("bias", defaults.bias),
+            .tilt = parameters.number("tilt", defaults.tilt),
             .lag = parameters.duration("lag", defaults.lag)};
 }
 
@@ -80,6 +82,11 @@ std::unique_ptr<Agent> makeMarketMaker(const Parameters& parameters,
             .fairValueWeight = parameters.number("fair_value_weight", defaults.fairValueWeight),
             .postOnly = parameters.flag("post_only", defaults.postOnly),
             .valueBelief = belief,
+            .quietFrom = parameters.contains("quiet_from")
+                             ? std::optional<Timestamp>{parameters.duration("quiet_from", 0)}
+                             : std::nullopt,
+            .quietUntil = parameters.duration("quiet_until", defaults.quietUntil),
+            .quietInterval = parameters.duration("quiet_interval", defaults.quietInterval),
         },
         environment.referencePrice, environment.fundamental);
 }
@@ -142,6 +149,37 @@ std::unique_ptr<Agent> makeMomentum(const Parameters& parameters,
         environment.referencePrice);
 }
 
+std::unique_ptr<Agent> makeProbe(const Parameters& parameters, const Environment& environment) {
+    const ProbeConfig defaults;
+    const std::string style = parameters.text("style", "maker");
+    ProbeStyle chosen = ProbeStyle::Maker;
+    if (style == "trend") {
+        chosen = ProbeStyle::Trend;
+    } else if (style == "reversal") {
+        chosen = ProbeStyle::Reversal;
+    } else if (style == "flow") {
+        chosen = ProbeStyle::Flow;
+    } else if (style != "maker") {
+        throw std::invalid_argument(std::format(
+            "probe style must be \"maker\", \"trend\", \"reversal\" or \"flow\", not \"{}\"",
+            style));
+    }
+    return std::make_unique<Probe>(
+        ProbeConfig{
+            .style = chosen,
+            .interval = parameters.duration("interval", defaults.interval),
+            .size = parameters.integer("size", defaults.size),
+            .maxPosition = parameters.integer("max_position", defaults.maxPosition),
+            .offset = parameters.number("offset", defaults.offset),
+            .fastHalfLife = parameters.duration("fast_half_life", defaults.fastHalfLife),
+            .slowHalfLife = parameters.duration("slow_half_life", defaults.slowHalfLife),
+            .threshold = parameters.number("threshold", defaults.threshold),
+            .window = parameters.duration("window", defaults.window),
+            .imbalance = parameters.number("imbalance", defaults.imbalance),
+        },
+        environment.referencePrice);
+}
+
 std::unique_ptr<Agent> makeInformed(const Parameters& parameters,
                                     const Environment& environment) {
     const InformedConfig defaults;
@@ -167,6 +205,7 @@ AgentRegistry AgentRegistry::withBuiltIns() {
     registry.add("market_maker", makeMarketMaker);
     registry.add("momentum", makeMomentum);
     registry.add("informed", makeInformed);
+    registry.add("probe", makeProbe);
     return registry;
 }
 

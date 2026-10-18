@@ -295,6 +295,80 @@ type = "zero_intelligence"
     EXPECT_FALSE(makeFundamental(parseScenario("[[agents]]\ntype = \"momentum\"\n")));
 }
 
+TEST(ScenarioFileTest, ReadsAGame) {
+    const Scenario scenario = parseScenario(R"(duration = "3h"
+[prediction]
+probability = 0.6
+[prediction.game]
+side = "away"
+start = "1h"
+length = "48m"
+periods = 4
+break = "5m"
+scores = 85.0
+late_scoring = 1.5
+points = [1, 2, 3]
+point_weights = [0.2, 0.55, 0.25]
+tie = 50
+pregame_drift = 0.2
+in_play_drift = 0.1
+news = 3
+news_size = 0.15
+script = [{ at = "70m", side = "away", points = 3 }, { at = "71m", side = "home" }]
+[[agents]]
+type = "zero_intelligence"
+)");
+    ASSERT_TRUE(scenario.prediction && scenario.prediction->game);
+    EXPECT_EQ(*scenario.prediction->game,
+              (GameConfig{.side = GameSide::Away,
+                          .start = 3600 * kSecond,
+                          .length = 2880 * kSecond,
+                          .periods = 4,
+                          .breakLength = 300 * kSecond,
+                          .scores = 85.0,
+                          .lateScoring = 1.5,
+                          .points = {1, 2, 3},
+                          .pointWeights = {0.2, 0.55, 0.25},
+                          .tie = 50.0,
+                          .pregameDrift = 0.2,
+                          .inPlayDrift = 0.1,
+                          .news = 3.0,
+                          .newsSize = 0.15,
+                          .script = {{.at = 4200 * kSecond, .home = false, .points = 3},
+                                     {.at = 4260 * kSecond}}}));
+    EXPECT_EQ(scenario.prediction->game->end(), 3600 * kSecond + 2880 * kSecond + 900 * kSecond);
+    EXPECT_NEAR(makeFundamental(scenario)->valueAt(0), 60.0, 1e-6);
+    const Scenario defaults =
+        parseScenario("duration = \"2h\"\n[prediction.game]\n[[agents]]\ntype = \"momentum\"\n");
+    EXPECT_EQ(*defaults.prediction->game, GameConfig{});
+}
+
+TEST(ScenarioFileTest, ReadsAnOrderDelay) {
+    const Scenario scenario = parseScenario(R"(duration = "2h"
+[exchange]
+order_delay = "5s"
+order_delay_from = "30m"
+order_delay_cancels = true
+clear_at = ["30m", "1h"]
+[[agents]]
+type = "momentum"
+)");
+    EXPECT_EQ(scenario.orderDelay, (OrderDelay{.from = 1800 * kSecond,
+                                               .until = 7200 * kSecond,
+                                               .delay = 5 * kSecond,
+                                               .cancels = true}));
+    EXPECT_EQ(parseScenario("[[agents]]\ntype = \"momentum\"\n").orderDelay, OrderDelay{});
+    EXPECT_EQ(scenario.clearAt, (std::vector<Duration>{1800 * kSecond, 3600 * kSecond}));
+    EXPECT_NE(parseError("[exchange]\norder_delay_from = \"2s\"\n[[agents]]\ntype = \"momentum\"\n")
+                  .find("needs an 'order_delay'"),
+              std::string::npos);
+    EXPECT_NE(parseError("[exchange]\norder_delay = \"1s\"\norder_delay_from = \"2s\"\n"
+                         "order_delay_until = \"1s\"\n"
+                         "[[agents]]\ntype = \"momentum\"\n")
+                  .find("'order_delay_until' must not come before 'order_delay_from'"),
+              std::string::npos);
+}
+
 TEST(ScenarioFileTest, ReadsAProbabilityFeeCurveForAPredictionMarket) {
     const Scenario scenario = parseScenario(R"([prediction]
 [exchange]
@@ -329,6 +403,20 @@ TEST(ScenarioFileTest, RejectsPredictionMarketsThatMakeNoSense) {
              std::pair{"[fundamental]\n[prediction]", "test.toml:2: a prediction market's true"},
              std::pair{"duration = \"100s\"\n[prediction]\nnews_rate = 10.0\nnews_share = 0.5",
                        "prediction: at most 500 pieces of news"},
+             std::pair{"[prediction.game]\nlength = \"0s\"",
+                       "test.toml:1: a game's 'length' must be positive"},
+             std::pair{"[prediction.game]\nhalves = 2", "test.toml:2: unknown key 'halves'"},
+             std::pair{"[prediction.game]\nside = \"left\"",
+                       "test.toml:2: 'side' is \"home\", \"away\" or \"draw\""},
+             std::pair{"[prediction.game]\npoints = [2, 3]\npoint_weights = [1.0]",
+                       "test.toml:3: 'point_weights' must be a list as long as 'points'"},
+             std::pair{"[prediction.game]\nscript = [{ at = \"1m\", side = \"left\" }]",
+                       "test.toml:2: a scripted score's 'side' is \"home\" or \"away\""},
+             std::pair{"[prediction.game]\nscript = [{ at = \"2m\", side = \"home\" }, "
+                       "{ at = \"1m\", side = \"away\" }]",
+                       "scripted scores must come in the order they were scored"},
+             std::pair{"[prediction]\nnews_rate = 0.1\n[prediction.game]",
+                       "prediction: a game brings its own news"},
          }) {
         EXPECT_NE(parseError(std::string{text} + agents).find(expected), std::string::npos)
             << text << "\n" << parseError(std::string{text} + agents);

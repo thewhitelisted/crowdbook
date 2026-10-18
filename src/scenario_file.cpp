@@ -137,10 +137,102 @@ private:
     std::string_view source_;
 };
 
+GameConfig readGame(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table,
+                     {"start", "length", "periods", "break", "scores", "points", "point_weights",
+                      "tie", "pregame_drift", "in_play_drift", "news", "news_size", "script",
+                      "late_scoring", "side"},
+                     "in [prediction.game]");
+    GameConfig game;
+    if (const auto* node = table.get("side")) {
+        const std::string side = reader.text(*node, "side");
+        if (side == "home") {
+            game.side = GameSide::Home;
+        } else if (side == "away") {
+            game.side = GameSide::Away;
+        } else if (side == "draw") {
+            game.side = GameSide::Draw;
+        } else {
+            reader.fail(*node, "'side' is \"home\", \"away\" or \"draw\"");
+        }
+    }
+    for (const auto& [key, duration] :
+         {std::pair{"start", &game.start}, std::pair{"length", &game.length},
+          std::pair{"break", &game.breakLength}}) {
+        if (const auto* node = table.get(key)) {
+            *duration = reader.duration(*node, key);
+        }
+    }
+    if (game.length <= 0) {
+        reader.fail(table, "a game's 'length' must be positive");
+    }
+    if (const auto* node = table.get("periods")) {
+        game.periods = static_cast<int>(reader.integer(*node, "periods", 1, 100));
+    }
+    for (const auto& [key, number] :
+         {std::pair{"scores", &game.scores}, std::pair{"late_scoring", &game.lateScoring},
+          std::pair{"tie", &game.tie}, std::pair{"pregame_drift", &game.pregameDrift},
+          std::pair{"in_play_drift", &game.inPlayDrift}, std::pair{"news", &game.news},
+          std::pair{"news_size", &game.newsSize}}) {
+        if (const auto* node = table.get(key)) {
+            *number = reader.number(*node, key);
+        }
+    }
+    if (const auto* node = table.get("points")) {
+        const auto* list = node->as_array();
+        if (list == nullptr || list->empty()) {
+            reader.fail(*node, "'points' must be a list of what a score can be worth");
+        }
+        game.points.clear();
+        for (const toml::node& element : *list) {
+            game.points.push_back(static_cast<int>(reader.integer(element, "points", 1, 100)));
+        }
+        game.pointWeights.assign(game.points.size(), 1.0);
+    }
+    if (const auto* node = table.get("point_weights")) {
+        const auto* list = node->as_array();
+        if (list == nullptr || list->size() != game.points.size()) {
+            reader.fail(*node, "'point_weights' must be a list as long as 'points'");
+        }
+        game.pointWeights.clear();
+        for (const toml::node& element : *list) {
+            game.pointWeights.push_back(reader.number(element, "point_weights"));
+        }
+    }
+    if (const auto* node = table.get("script")) {
+        const auto* list = node->as_array();
+        if (list == nullptr) {
+            reader.fail(*node, "'script' must be a list of scores, such as "
+                               "[{ at = \"47m\", side = \"home\", points = 1 }]");
+        }
+        for (const toml::node& element : *list) {
+            const toml::table& entry = reader.table(element, "script");
+            reader.allowOnly(entry, {"at", "side", "points"}, "in a scripted score");
+            ScriptedScore score{.at = reader.duration(reader.required(entry, "at"), "at")};
+            const std::string side = reader.text(reader.required(entry, "side"), "side");
+            if (side != "home" && side != "away") {
+                reader.fail(element, "a scripted score's 'side' is \"home\" or \"away\"");
+            }
+            score.home = side == "home";
+            if (const auto* points = entry.get("points")) {
+                score.points = static_cast<int>(reader.integer(*points, "points", 1, 100));
+            }
+            if (!game.script.empty() && score.at < game.script.back().at) {
+                reader.fail(element, "scripted scores must come in the order they were scored");
+            }
+            game.script.push_back(score);
+        }
+    }
+    return game;
+}
+
 PredictionConfig readPrediction(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"probability", "news_rate", "news_share", "step"},
+    reader.allowOnly(table, {"probability", "news_rate", "news_share", "step", "game"},
                      "in [prediction]");
     PredictionConfig config;
+    if (const auto* node = table.get("game")) {
+        config.game = readGame(reader, reader.table(*node, "game"));
+    }
     if (const auto* node = table.get("probability")) {
         config.probability = reader.number(*node, "probability");
         if (!(config.probability > 0.0 && config.probability < 1.0)) {
@@ -326,7 +418,10 @@ TradingDay readTradingDay(const Reader& reader, const toml::table& table) {
 }
 
 ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"depth_levels", "maker_fee", "taker_fee", "auction_fee", "fee_curve"},
+    reader.allowOnly(table,
+                     {"depth_levels", "maker_fee", "taker_fee", "auction_fee", "fee_curve",
+                      "order_delay", "order_delay_from", "order_delay_until", "order_delay_cancels",
+                      "clear_at"},
                      "in [exchange]");
     ExchangeConfig config;
     if (const auto* node = table.get("depth_levels")) {
@@ -440,8 +535,15 @@ AgentOptions readParticipant(const Reader& reader, const toml::table& table) {
 }
 
 LearningFeed readFeed(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"interval", "lag", "noise", "trigger"}, "in learning.feed");
+    reader.allowOnly(table, {"interval", "lag", "noise", "trigger", "of"}, "in learning.feed");
     LearningFeed feed;
+    if (const auto* node = table.get("of")) {
+        const std::string of = reader.text(*node, "of");
+        if (of != "underlying" && of != "value") {
+            reader.fail(*node, "the feed's 'of' is \"underlying\" or \"value\"");
+        }
+        feed.value = of == "value";
+    }
     if (const auto* node = table.get("interval")) {
         feed.interval = reader.duration(*node, "interval");
         if (feed.interval < kMinFeedInterval) {
@@ -793,6 +895,43 @@ Scenario detail::readScenario(const toml::table& root, std::string_view source) 
     if (const auto* node = root.get("exchange")) {
         const toml::table& table = reader.table(*node, "exchange");
         scenario.exchange = readExchange(reader, table);
+        // Orders held before they reach the book: from the start, or `order_delay_from`, to the
+        // end, or `order_delay_until`.
+        if (const auto* delay = table.get("order_delay")) {
+            scenario.orderDelay = {.until = scenario.duration,
+                                   .delay = reader.duration(*delay, "order_delay")};
+            for (const auto& [key, field] :
+                 {std::pair{"order_delay_from", &scenario.orderDelay.from},
+                  std::pair{"order_delay_until", &scenario.orderDelay.until}}) {
+                if (const auto* entry = table.get(key)) {
+                    *field = reader.duration(*entry, key);
+                }
+            }
+            if (scenario.orderDelay.until < scenario.orderDelay.from) {
+                reader.fail(table, "'order_delay_until' must not come before 'order_delay_from'");
+            }
+            if (const auto* entry = table.get("order_delay_cancels")) {
+                const auto* flag = entry->as_boolean();
+                if (flag == nullptr) {
+                    reader.fail(*entry, "'order_delay_cancels' must be true or false");
+                }
+                scenario.orderDelay.cancels = flag->get();
+            }
+        } else if (const auto* stray = table.get("order_delay_from") ? table.get("order_delay_from")
+                                       : table.get("order_delay_until")
+                                           ? table.get("order_delay_until")
+                                           : table.get("order_delay_cancels")) {
+            reader.fail(*stray, "an order delay's stretch needs an 'order_delay'");
+        }
+        if (const auto* times = table.get("clear_at")) {
+            const auto* list = times->as_array();
+            if (list == nullptr) {
+                reader.fail(*times, "'clear_at' must be a list of times, such as [\"30m\"]");
+            }
+            for (const toml::node& element : *list) {
+                scenario.clearAt.push_back(reader.duration(element, "clear_at"));
+            }
+        }
         if (scenario.exchange.feeCurve == FeeCurve::Probability && !scenario.prediction) {
             reader.fail(*table.get("fee_curve"),
                         "fee_curve = \"probability\" needs a market whose shares pay out: add a "

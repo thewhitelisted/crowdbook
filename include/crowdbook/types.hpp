@@ -118,6 +118,7 @@ enum class CancelReason : std::uint8_t {
     Requested,         // the owner cancelled it
     ImmediateOrCancel, // immediate-or-cancel or market order that could not fill completely
     SelfTrade,         // reached a resting order from the same owner
+    Cleared,           // the exchange cleared the book, as at the start of an event in play
 };
 
 // The order book only produces NonPositiveQuantity, DuplicateOrderId and UnknownOrderId; the

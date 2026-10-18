@@ -153,14 +153,34 @@ TEST(BeliefTest, ErrorsLastAndBiasTilts) {
     EXPECT_NEAR(product / sumSquares, std::exp(-1.0), 0.05);
 }
 
+// A tilt pulls a probability toward even in log-odds: a tilt of a half sees 80% as 2:1 on, 66.7%,
+// and 20% as 33.3%, and leaves 50% where it is; below 0 it pushes away from even.
+TEST(BeliefTest, ATiltBendsProbabilitiesTowardEven) {
+    for (const double probability : {0.8, 0.2, 0.5}) {
+        const auto value = std::make_shared<Fundamental>(
+            PredictionConfig{.probability = probability}, 100 * kSecond, Random{1, 0});
+        FakeContext context;
+        Belief tilted{BeliefConfig{.noise = 0.0, .tilt = 0.5}, value};
+        const double odds = std::sqrt(probability / (1.0 - probability));
+        EXPECT_NEAR(tilted.look(context), 100.0 * odds / (1.0 + odds), 1e-6);
+        Belief sharpened{BeliefConfig{.noise = 0.0, .tilt = -1.0}, value};
+        const double squared = probability * probability /
+                               (probability * probability + (1 - probability) * (1 - probability));
+        EXPECT_NEAR(sharpened.look(context), 100.0 * squared, 1e-6);
+    }
+}
+
 TEST(BeliefTest, SettingsAreChecked) {
     const auto value = walk();
     for (const BeliefConfig& config :
          {BeliefConfig{.noise = -1.0}, BeliefConfig{.error = -1.0}, BeliefConfig{.lag = -1},
           BeliefConfig{.errorMemory = 0}, BeliefConfig{.bias = std::nan("")},
-          BeliefConfig{.lag = kMaxDuration + 1}}) {
+          BeliefConfig{.lag = kMaxDuration + 1}, BeliefConfig{.tilt = 0.5}}) {
         EXPECT_THROW(Belief(config, value), std::invalid_argument);
     }
+    const auto question =
+        std::make_shared<Fundamental>(PredictionConfig{}, 100 * kSecond, Random{1, 0});
+    EXPECT_THROW(Belief(BeliefConfig{.tilt = 1.0}, question), std::invalid_argument);
     EXPECT_THROW(Belief(BeliefConfig{}, nullptr), std::invalid_argument);
 }
 

@@ -28,7 +28,7 @@ class Idle final : public Agent {};
 TEST(AgentRegistryTest, KnowsTheBuiltInTypes) {
     EXPECT_EQ(AgentRegistry::withBuiltIns().types(),
               (std::vector<std::string>{"adaptive", "execution", "informed", "market_maker",
-                                        "momentum", "zero_intelligence"}));
+                                        "momentum", "probe", "zero_intelligence"}));
 }
 
 TEST(AgentRegistryTest, CreatesBuiltInAgentsFromParameters) {

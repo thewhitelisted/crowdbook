@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -56,6 +57,20 @@ struct AgentOptions {
 // one link (an agent to the exchange, or the exchange to an agent) never overtake each other, even
 // with jitter or delays drawn from a distribution: a message held up holds up those behind it, as
 // on one connection. The exchange itself takes no time to process a request.
+// New orders and amendments held at the exchange before they reach the book, for a stretch of the
+// run, as betting exchanges hold bets while an event is in play: one that arrives from `from` until
+// `until` waits `delay` more, and is accepted, or rejected, only then. Cancels are not held, so a
+// resting order can still be cancelled at once, unless `cancels` holds them too. A cancel or an
+// amendment of an order still held waits for it, so that it never overtakes the order.
+struct OrderDelay {
+    Timestamp from = 0;
+    Timestamp until = 0;
+    Duration delay = 0;
+    bool cancels = false;
+
+    friend bool operator==(const OrderDelay&, const OrderDelay&) = default;
+};
+
 class Simulation {
 public:
     // Throws std::invalid_argument for exchange settings Exchange rejects.
@@ -76,6 +91,14 @@ public:
     // exchange's halt duration, which takes effect only if the market is still halted then.
     // Throws std::invalid_argument for a time in the past.
     void schedulePhase(Timestamp time, Phase phase);
+
+    // Clears the exchange's book at `time`, cancelling every resting order, as a scheduled action
+    // like any other. Throws std::invalid_argument for a time in the past.
+    void scheduleClear(Timestamp time);
+
+    // Holds new orders and amendments that arrive in the delay's stretch of the run. Throws
+    // std::invalid_argument for a negative delay or a stretch that ends before it starts.
+    void setOrderDelay(const OrderDelay& delay);
 
     // Processes everything scheduled up to and including `endTime`, then moves the clock there.
     // Throws std::invalid_argument for a time after kLatestTime.
@@ -144,6 +167,7 @@ private:
     struct Arrival {
         AgentId sender = 0;
         Request request{};
+        bool held = false; // already held by the order delay, now reaching the book
     };
     // An event reaching an agent: one of its own, which its ledger records, or a public one.
     struct Delivery {
@@ -156,7 +180,9 @@ private:
         Phase phase = Phase::Continuous;
         bool endsHalt = false;
     };
-    using Action = std::variant<Start, Wakeup, Arrival, Delivery, PhaseAction>;
+    // The exchange clearing its book.
+    struct Clear {};
+    using Action = std::variant<Start, Wakeup, Arrival, Delivery, PhaseAction, Clear>;
 
     // The exchange's public state from `time` until the next change.
     struct PublicState {
@@ -187,6 +213,7 @@ private:
     void process(const Arrival& arrival);
     void process(const Delivery& delivery);
     void process(const PhaseAction& action);
+    void process(const Clear& clear);
     // Logs, delivers and publishes the events in events_, and schedules the end of a halt that
     // one of them starts.
     void dispatch();
@@ -203,6 +230,10 @@ private:
     bool failed_ = false; // set while a run is under way, and left set if an exception escapes
     bool interrupted_ = false; // asked to stop after the current time
     EventSink* sink_ = nullptr;
+    OrderDelay orderDelay_{};
+    // Orders and amendments being held, by sender and client order id, with when they reach the
+    // book: requests about them wait until then. Ordered, so nothing depends on hashing.
+    std::map<std::pair<AgentId, ClientOrderId>, Timestamp> heldOrders_;
     std::vector<Event> events_; // reused for every request
 
     std::vector<AgentId> streamed_; // agents sent every public update

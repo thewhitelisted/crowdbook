@@ -10,7 +10,7 @@ link. Spreads, depth, price impact and volatility are not assumed; they emerge f
 interact. Writing your own agent means writing one C++ class and naming it in a scenario file,
 or writing a program in any language that trades over the network.
 
-> **Status:** the order book, the exchange, the simulation kernel, six built-in agents, scenario
+> **Status:** the order book, the exchange, the simulation kernel, seven built-in agents, scenario
 > files, the `crowdbook` command and the Python analysis package are done, and
 > [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself, in
 > real time, and replay the session exactly afterwards, and a server lets several people and bots
@@ -28,7 +28,11 @@ or writing a program in any language that trades over the network.
 > fitted to them, every setting at once, with uncertainties, judged on seeds the fit never saw;
 > takers pay Polymarket's own fee. A learning agent can step markets from Python, many at once on
 > threads of their own, each through a seat of its own, with rewards from the scoring rules and the
-> market's settings drawn at random for each episode, and every episode replays exactly. Next:
+> market's settings drawn at random for each episode, and every episode replays exactly. Any
+> market, recorded or simulated, can be held against another statistic by statistic with intervals,
+> a scenario fitted to a recording is checked against settings it knows, and labelled synthetic
+> markets come by the thousand; a contract can be on a game, its probability jumping on scores,
+> with orders held while the game is in play. Next:
 > industry protocols, FIX and a binary encoding, so trading systems can use crowdbook as a test
 > exchange. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
 > approach and the roadmap.
@@ -57,9 +61,10 @@ noise                     20          0          -1575        -1575
 A market maker with a fast connection earns the spread from twenty zero-intelligence traders.
 `run.csv` holds every order, cancel, fill, trade and top-of-book change. The same seed always
 reproduces the same run, byte for byte, on any platform.
-[examples/scenarios](examples/scenarios) has thirteen scenarios, from this one to thousand-trader
+[examples/scenarios](examples/scenarios) has fourteen scenarios, from this one to thousand-trader
 markets with informed traders, memory, or brokers working large orders, a trading day, a
-prediction market and one fitted to Polymarket's fifteen-minute Bitcoin questions;
+prediction market, one fitted to Polymarket's fifteen-minute Bitcoin questions and a contract on
+a game, whose probability jumps when either side scores;
 [docs/scenarios.md](docs/scenarios.md) describes the file format and every agent parameter.
 
 ## Results
@@ -118,6 +123,11 @@ uv run --project analysis crowdbook-prediction
 uv run --project analysis crowdbook-polymarket --from 2026-09-28 --to 2026-10-12
 uv run --project analysis crowdbook-realism
 ```
+
+Any market, recorded or simulated, can be held against another: [docs/validation.md](docs/validation.md)
+describes the format both are read in, a report of the same statistics on each with intervals and
+distances, a calibration that fits any scenario to a recording and checks that it can find
+settings it knows, and a generator of many labelled markets for training and analysis.
 
 ## Trade in it yourself
 

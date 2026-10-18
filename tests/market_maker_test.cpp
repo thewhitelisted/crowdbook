@@ -212,6 +212,54 @@ TEST(MarketMakerTest, QuotesAroundTheValueItSees) {
                                                         limitOrder(2, Side::Sell, 61, 5)}));
 }
 
+// In a quiet stretch with no interval it pulls its quotes and stays out, then comes back.
+TEST(MarketMakerTest, StaysOutOfAQuietStretch) {
+    MarketMakerConfig config = kConfig;
+    config.quietFrom = kSecond;
+    config.quietUntil = 5 * kSecond;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    ASSERT_EQ(context.takeSent().size(), 2U);
+    context.accept(1);
+    context.accept(2);
+    context.setNow(kSecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{CancelOrder{.clientOrderId = 1},
+                                                        CancelOrder{.clientOrderId = 2}}));
+    context.setNow(3 * kSecond);
+    maker.onWakeup(context, 0);
+    EXPECT_TRUE(context.takeSent().empty());
+    context.setNow(5 * kSecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(context.takeSent().size(), 2U);
+}
+
+// With an interval it requotes only that often in the quiet stretch, whatever the market does.
+TEST(MarketMakerTest, QuotesRarelyInAQuietStretch) {
+    MarketMakerConfig config = kConfig;
+    config.quietFrom = 0;
+    config.quietInterval = 2 * kSecond;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    ASSERT_EQ(context.takeSent().size(), 2U);
+    context.accept(1);
+    context.accept(2);
+    const auto move = [&](Timestamp time, Price mid) {
+        context.setNow(time);
+        maker.onTopOfBook(context, {.bid = LevelSummary{.price = mid - 1, .quantity = 1},
+                                    .ask = LevelSummary{.price = mid + 1, .quantity = 1}});
+        maker.onWakeup(context, 0);
+        return context.takeSent().size();
+    };
+    EXPECT_EQ(move(kSecond, 110), 0U);
+    EXPECT_EQ(move(2 * kSecond, 120), 2U); // both quotes move
+    EXPECT_EQ(move(3 * kSecond, 130), 0U);
+}
+
 TEST(MarketMakerTest, NeedsAValueToQuoteOff) {
     MarketMakerConfig config = kConfig;
     config.valueBelief = BeliefConfig{};
@@ -237,6 +285,14 @@ TEST(MarketMakerTest, RejectsInvalidConfigs) {
     EXPECT_THROW(
         (MarketMaker{withChange([](auto& c) { c.maxInventory = kMaxQuantity + 1; }), kReference}),
         std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) {
+                                  c.quietFrom = 5;
+                                  c.quietUntil = 4;
+                              }),
+                              kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.quietInterval = -1; }), kReference}),
+                 std::invalid_argument);
 }
 
 } // namespace

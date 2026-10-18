@@ -56,7 +56,8 @@ constexpr std::array kFeeCurves{std::pair{std::string_view{"flat"}, FeeCurve::Fl
 constexpr std::array kCancelReasons{
     std::pair{std::string_view{"requested"}, CancelReason::Requested},
     std::pair{std::string_view{"immediate-or-cancel"}, CancelReason::ImmediateOrCancel},
-    std::pair{std::string_view{"self-trade"}, CancelReason::SelfTrade}};
+    std::pair{std::string_view{"self-trade"}, CancelReason::SelfTrade},
+    std::pair{std::string_view{"cleared"}, CancelReason::Cleared}};
 constexpr std::array kMarks{std::pair{std::string_view{"last"}, Mark::LastTrade},
                             std::pair{std::string_view{"value"}, Mark::Value},
                             std::pair{std::string_view{"book"}, Mark::Book}};

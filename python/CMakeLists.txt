@@ -29,6 +29,7 @@ set_target_properties(crowdbook_learn_core PROPERTIES
 target_link_libraries(crowdbook_learn_core PRIVATE crowdbook::learning)
 crowdbook_set_warnings(crowdbook_learn_core)
 configure_file(crowdbook_learn/__init__.py "${package}/__init__.py" COPYONLY)
+configure_file(crowdbook_learn/evaluate.py "${package}/evaluate.py" COPYONLY)
 
 if(CROWDBOOK_BUILD_TESTS)
     # The tests need NumPy; Gymnasium's are skipped without it.

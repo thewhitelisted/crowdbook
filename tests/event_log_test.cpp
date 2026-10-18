@@ -1,10 +1,12 @@
 #include <algorithm>
 #include <cstddef>
 #include <initializer_list>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -142,6 +144,27 @@ TEST(PriceSamplerTest, WritesTheMarketAsOfEachInterval) {
                          "300,99,101,101\n"
                          "400,99,101,101\n");
     EXPECT_THROW((PriceSampler{out, 0}), std::invalid_argument);
+}
+
+// A game's samples carry its score, home less away, beside its value.
+TEST(PriceSamplerTest, WritesAGamesScoreBesideItsValue) {
+    std::ostringstream out;
+    const PredictionConfig config{
+        .game = GameConfig{.length = 10 * kSecond,
+                           .script = {{.at = 2 * kSecond, .home = false, .points = 1}}}};
+    PriceSampler sampler{out, kSecond,
+                         std::make_shared<Fundamental>(config, 10 * kSecond, Random{1, 0})};
+    sampler.finish(3 * kSecond);
+    std::istringstream lines{out.str()};
+    std::string header;
+    std::string row;
+    std::getline(lines, header);
+    EXPECT_EQ(header, "time,bid,ask,last_trade,value,lead");
+    std::vector<std::string> leads;
+    while (std::getline(lines, row)) {
+        leads.push_back(row.substr(row.rfind(',') + 1));
+    }
+    EXPECT_EQ(leads, (std::vector<std::string>{"0", "0", "-1", "-1"}));
 }
 
 TEST(CsvEventLogTest, LeavesDepthUpdatesOut) {
