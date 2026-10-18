@@ -504,6 +504,11 @@ replays exactly.
   same items in the same order as running past it. So `session()` writes an episode as a session
   file that `crowdbook replay` and `crowdbook report` read and that replays byte for byte. A step
   returns the simulated time that passed.
+- **Copies.** `copyFrom` (`Pool.copy` in Python) makes a market a copy of another as it stands, so
+  that a strategy can search ahead by trying actions in copies. A copy is made by resetting with
+  the source's scenario and seed and taking its decisions again, not by copying the agents, the
+  exchange and the kernel: nothing has to know how to copy itself, the copy is exact because every
+  run is, and it costs what the episode so far cost, a few milliseconds a minute of a busy market.
 - **The observation** is everything the seat heard since the last decision, as one stream of events
   in the order it heard them, each a row of seven whole numbers: its type, the time it arrived, and
   five fields. The stream holds trades, changes of the best prices, depth updates, the seat's own
@@ -1036,6 +1041,7 @@ Choices for later milestones may change once they are implemented; changes are r
 | Learning environment | Many markets in one C++ object, stepped on threads of their own and bound to Python with nanobind; buffers the pool owns, which Python views without copying | Python hands over actions and reads results once a step for every market, so a step costs what the markets cost; markets that share nothing give results that depend on their seeds and actions alone |
 | Learning decisions | At every interval of market time and when the seat's own order fills, returning the time that passed | A fixed clock gives a step a steady meaning, a fill gets an answer at once, and each step reports the simulated time that passed |
 | Stopping a run for a decision | `Simulation::interrupt`, which lets everything due at that nanosecond run first | Acting then is acting at that time in a replay, so an episode is a session that replays exactly |
+| Copying a learning market | Reset with the source's scenario and seed, and its decisions taken again | Exact for free, since every run is the same from the same inputs; a deep copy would have every agent, the exchange and the kernel copy themselves, a cost in every agent and a bug wherever one forgets a field. To change it: copy constructors down the simulation, if copies from long episodes become the bottleneck |
 | Learning actions | A small numbered set of orders relative to the best prices heard, one resting order a side moved with a modify, at sizes from the scenario | Orders that rest between decisions keep their place in the queue, and a decision can quote both sides at once |
 | Learning rewards | The change in the session scorer's score: at the true value between decisions where there is one, closed through the book or at resolution at the end | Rewards from the scoring rules add up to the score the engine computes for the episode; closing through the book cannot be moved by a last small trade |
 | Learning episodes | Started by the caller, with a seed for the market and one for its settings, never automatically | Every episode's seeds are chosen, so any episode can be run again on its own |
@@ -1157,7 +1163,7 @@ slips. Marked **owner** where a decision of the project's owner comes first.
 | M27 | A real fit proven: a market fitted to a public recording, reaching it within chance on held-out markets | The held-out distance below chance's 95th percentile; the fitted settings recovered on the engine's own markets at the same settings | Next |
 | M28 | A learner-based artifact check: a learning agent trained in the fitted market finds no edge the recording lacks, beyond the generic strategies of the no-false-edge check | The learner, trained in a market with an edge planted, finds it; trained in the fit, it makes nothing the recording would not pay | Next |
 | M29 | Simulated fills against paper fills: a strategy's fill rates, queue position, waits and markouts in the fitted market set beside a paper trader's on the real market | Each within its interval of the paper trader's, or the difference named and fixed | Next: needs a paper trader's fills |
-| M30 | An environment for AI trading agents: a market driven turn by turn through the gateway, so that an agent's thinking time changes nothing and the same messages replay the same run; a market's state copied mid-run, for references that search ahead; seats alike for every agent | An agent process trades turn by turn and its run replays byte for byte; a copied market continues exactly as the original | In progress: turn-by-turn driving through the gateway is tested (the same messages at the same wall times give every seat the same bytes); copying a market's state is next |
+| M30 | An environment for AI trading agents: a market driven turn by turn through the gateway, so that an agent's thinking time changes nothing and the same messages replay the same run; a market's state copied mid-run, for references that search ahead; seats alike for every agent | An agent process trades turn by turn and its run replays byte for byte; a copied market continues exactly as the original | In progress: turn-by-turn driving through the gateway is tested (the same messages at the same wall times give every seat the same bytes), and a learning market can be copied mid-episode (`copyFrom`, `Pool.copy`) |
 | Later | One stock on several exchanges, ETFs and their constituents, rule-based agents | | Off the roadmap |
 
 The order puts outside participants, scores and reports before more realism: every use above

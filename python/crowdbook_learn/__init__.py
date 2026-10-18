@@ -165,6 +165,16 @@ class Pool:
         return (dict(self.observation), self._buffers["rewards"], self._buffers["terminated"],
                 self._buffers["truncated"], dict(self.info))
 
+    def copy(self, source: int, targets):
+        """Makes each market in `targets` a copy of market `source` as it stands: the same
+        episode at the same decision, from which a copy goes on as the source does given the same
+        actions, and its own way given others. For strategies that search ahead, trying actions
+        in copies. A copy takes the source's decisions again from the start of its episode, so it
+        costs what the episode so far cost. Returns the observation and the info, as reset does."""
+        chosen = [int(target) for target in np.atleast_1d(targets)]
+        self._pool.copy(int(source), chosen)
+        return dict(self.observation), dict(self.info)
+
     def session(self, market: int) -> str:
         """Market `market`'s episode so far as a session file, which `crowdbook replay` and
         `crowdbook report` read."""

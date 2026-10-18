@@ -662,6 +662,103 @@ Score replayedScore(const Session& session, std::string_view mark) {
     return result.scores.at(0).score;
 }
 
+// A session as its file's text, to compare sessions.
+std::string sessionText(const Session& session) {
+    std::ostringstream out;
+    writeSession(out, session);
+    return out.str();
+}
+
+// Takes decision `step` in a market: an action at random on even steps, explicit orders around
+// the best prices on odd ones, so that a copy has both kinds of answer to take again.
+LearningStep decide(LearningMarket& market, Buffers& buffers, RandomPolicy& policy,
+                    std::size_t step) {
+    if (step % 2 == 0) {
+        const auto [action, size] = policy.next();
+        return market.step(action, size, buffers.view());
+    }
+    const std::int64_t bid = buffers.field("bid_price");
+    const std::int64_t ask = buffers.field("ask_price");
+    return market.stepOrders({.bidPrice = bid > 1 ? bid - 1 : 0,
+                              .bidSize = 2,
+                              .askPrice = ask > 0 ? ask + 1 : 0,
+                              .askSize = 2,
+                              .take = step % 3 == 0 ? 1 : 0},
+                             buffers.view());
+}
+
+bool sameReport(const LearningStep& a, const LearningStep& b) {
+    const auto same = [](double x, double y) { return x == y || (std::isnan(x) && std::isnan(y)); };
+    return same(a.reward, b.reward) && a.terminated == b.terminated && a.stopped == b.stopped &&
+           a.elapsed == b.elapsed && a.score == b.score && same(a.value, b.value);
+}
+
+bool sameObservation(const Buffers& a, const Buffers& b) {
+    return a.state == b.state && a.orders == b.orders && a.events == b.events &&
+           a.depth == b.depth && a.book == b.book && a.counts == b.counts;
+}
+
+TEST(LearningTest, ACopyGoesOnAsTheOriginalDoes) {
+    Started original{kBusy};
+    RandomPolicy policy{3};
+    LearningStep last = original.first;
+    for (std::size_t step = 0; step < 15; ++step) {
+        last = decide(original.market, original.buffers, policy, step);
+    }
+    ASSERT_FALSE(last.terminated);
+
+    LearningMarket copy{original.market.shape(), registry()};
+    Buffers copied{copy.shape()};
+    EXPECT_TRUE(sameReport(copy.copyFrom(original.market, copied.view()), last));
+    EXPECT_TRUE(sameObservation(copied, original.buffers));
+    EXPECT_EQ(copy.now(), original.market.now());
+
+    // A second copy, taken somewhere else, changes nothing in the original or the first copy.
+    LearningMarket other{original.market.shape(), registry()};
+    Buffers otherBuffers{other.shape()};
+    other.copyFrom(original.market, otherBuffers.view());
+    RandomPolicy elsewhere{99};
+    for (std::size_t step = 0; step < 10 && !other.finished(); ++step) {
+        decide(other, otherBuffers, elsewhere, step);
+    }
+
+    // The original and the first copy, given the same answers, go on alike to the end.
+    RandomPolicy forOriginal{7};
+    RandomPolicy forCopy{7};
+    for (std::size_t step = 15; !original.market.finished(); ++step) {
+        const LearningStep a = decide(original.market, original.buffers, forOriginal, step);
+        const LearningStep b = decide(copy, copied, forCopy, step);
+        ASSERT_TRUE(sameReport(a, b)) << "at step " << step;
+        ASSERT_TRUE(sameObservation(original.buffers, copied)) << "at step " << step;
+    }
+    EXPECT_TRUE(copy.finished());
+    EXPECT_EQ(sessionText(copy.session()), sessionText(original.market.session()));
+    // And other, which answered otherwise, went another way.
+    EXPECT_NE(sessionText(other.session()), sessionText(original.market.session()));
+
+    // A finished episode copies as finished.
+    LearningMarket ended{original.market.shape(), registry()};
+    Buffers endedBuffers{ended.shape()};
+    EXPECT_TRUE(ended.copyFrom(original.market, endedBuffers.view()).terminated);
+    EXPECT_TRUE(ended.finished());
+}
+
+TEST(LearningTest, ACopyNeedsAnEpisodeOfTheSameShape) {
+    Started original{kBusy};
+    LearningMarket empty{original.market.shape(), registry()};
+    Buffers buffers{empty.shape()};
+    EXPECT_THROW(original.market.copyFrom(original.market, original.buffers.view()),
+                 std::invalid_argument);
+    EXPECT_THROW(original.market.copyFrom(empty, original.buffers.view()), std::logic_error);
+    LearningConfig other = original.market.shape();
+    other.sizes = {1};
+    LearningMarket narrower{other, registry()};
+    Buffers narrowerBuffers{narrower.shape()};
+    EXPECT_THROW(narrower.copyFrom(original.market, narrowerBuffers.view()),
+                 std::invalid_argument);
+    EXPECT_FALSE(narrower.started());
+}
+
 TEST(LearningTest, RewardsAddUpToTheScoreClosedThroughTheBook) {
     Started started{kBusy};
     // The busy market has a true value, which rewards use between decisions.
@@ -1240,6 +1337,42 @@ TEST(LearningPoolTest, AMarketsResultsDependOnlyOnItsSeedsAndActions) {
                     buffers.view());
         EXPECT_TRUE(same(seen[3][2 * step - 1])) << "at step " << step;
     }
+}
+
+TEST(LearningPoolTest, CopiesAMarketIntoOthersThatThenGoOnAlike) {
+    const std::string text = rangedScenario();
+    LearningPool pool{text, "test", 4, 2, registry()};
+    pool.reset(std::vector<std::uint64_t>{100, 101, 102, 103});
+    std::vector<std::int64_t> actions(8);
+    for (std::size_t step = 1; step <= 6; ++step) {
+        choose(actions, step);
+        pool.step(actions);
+    }
+    const Snapshot untouched = snapshot(pool, 1);
+    const std::vector<std::size_t> targets{2, 3};
+    pool.copy(0, targets);
+    EXPECT_EQ(snapshot(pool, 2), snapshot(pool, 0));
+    EXPECT_EQ(snapshot(pool, 3), snapshot(pool, 0));
+    EXPECT_EQ(snapshot(pool, 1), untouched);
+    EXPECT_EQ(sessionText(pool.session(2)), sessionText(pool.session(0)));
+
+    // Given market 0's actions, the copies go on as it does.
+    for (std::size_t step = 7; step <= 12; ++step) {
+        choose(actions, step);
+        for (const std::size_t market : targets) {
+            actions[2 * market] = actions[0];
+            actions[2 * market + 1] = actions[1];
+        }
+        pool.step(actions);
+        ASSERT_EQ(snapshot(pool, 2), snapshot(pool, 0)) << "at step " << step;
+        ASSERT_EQ(snapshot(pool, 3), snapshot(pool, 0)) << "at step " << step;
+    }
+
+    EXPECT_THROW(pool.copy(0, std::vector<std::size_t>{0}), std::invalid_argument);
+    EXPECT_THROW(pool.copy(4, targets), std::out_of_range);
+    EXPECT_THROW(pool.copy(0, std::vector<std::size_t>{4}), std::out_of_range);
+    LearningPool fresh{text, "test", 2, 1, registry()};
+    EXPECT_THROW(fresh.copy(0, std::vector<std::size_t>{1}), std::logic_error);
 }
 
 TEST(LearningPoolTest, ResetsTheMarketsAskedAndChecksWhatItIsGiven) {
