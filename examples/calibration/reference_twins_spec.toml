@@ -42,12 +42,6 @@ high = 3600.0
 start = 10.0
 kind = "duration"
 
-[parameters.maker_threshold]
-low = 0.0
-high = 10.0
-start = 0.5
-log = false
-
 [parameters.sharp_lag]
 low = 0.2
 high = 30.0
