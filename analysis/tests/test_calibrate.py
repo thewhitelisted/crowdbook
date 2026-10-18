@@ -137,6 +137,23 @@ class ConditionTest(unittest.TestCase):
         self.assertEqual(calibrate.market_texts(bare)["value_path"], "[]")
         self.assertNotIn("outcome", bare.labels)
 
+    def test_writes_the_twin_of_every_recorded_market(self):
+        from test_validate import market
+        spec = spec_from("condition = true\n" + SPEC,
+                         TEMPLATE.replace('duration = "60s"', 'duration = "${duration}s"'))
+        values = {p.name: p.start for p in spec.parameters}
+        with tempfile.TemporaryDirectory() as scratch:
+            paths = calibrate.write_twins(spec, values, [market("game/1", duration=30.0),
+                                                         market("game 2", duration=45.0)],
+                                          Path(scratch) / "twins")
+            self.assertEqual([p.name for p in paths], ["0000_game_1.toml", "0001_game_2.toml"])
+            self.assertEqual(tomllib.loads(paths[1].read_text())["duration"], "45s")
+
+    def test_writes_the_settings_as_toml(self):
+        values = {"rate": np.float64(0.25), "traders": 30.0, "tiny": np.float64(1e-7)}
+        self.assertEqual(tomllib.loads(calibrate.settings_text(values)),
+                         {"rate": 0.25, "traders": 30.0, "tiny": 1e-7})
+
     def test_a_conditioned_spec_may_use_a_markets_own_values(self):
         template = TEMPLATE.replace('duration = "60s"', 'duration = "${duration}s"')
         with self.assertRaisesRegex(ValueError, "condition = true"):
