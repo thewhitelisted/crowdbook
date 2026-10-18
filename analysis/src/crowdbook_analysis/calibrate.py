@@ -179,10 +179,19 @@ def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[t
     more than 90%, so a heavier favourite is started there. Each is labelled too with
     `value_path`, its reference value as (seconds, cents) pairs, and `outcome`, what it settled
     at in cents, or where its reference value ended for a market not yet settled, where the tape
-    has them."""
+    has them. A `kickoff` label outside the market's run is moved to its nearer end.
+    """
     if not t.options.payout:
         return t.markets
     for m in t.markets:
+        # A twin's kickoff falls within its run: a game already under way when the recording
+        # began kicks off at its opening, and one after the recording ended at its close. The
+        # recorded label is kept as `kickoff_recorded`.
+        kickoff = m.labels.get("kickoff")
+        if isinstance(kickoff, (int, float)) and not isinstance(kickoff, bool) \
+                and np.isfinite(kickoff) and not 0.0 <= kickoff <= m.duration:
+            m.labels["kickoff_recorded"] = kickoff
+            m.labels["kickoff"] = float(np.clip(kickoff, 0.0, m.duration))
         m.labels["value_path"] = value_path(m, t.options.payout)
         if m.outcome is not None and np.isfinite(m.outcome):
             m.labels["outcome"] = float(np.clip(m.outcome * 100.0 / t.options.payout, 0, 100))
@@ -205,8 +214,8 @@ def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[t
 
 def _plain(value: float) -> str:
     """A number as a scenario file and a duration both read it: positional, never with an
-    exponent, to full precision."""
-    return np.format_float_positional(float(value), trim="-")
+    exponent, to a millionth, so that seconds are never finer than the engine's clock."""
+    return np.format_float_positional(round(float(value), 6), trim="-")
 
 
 def market_texts(market: tapes.Market) -> dict[str, str]:

@@ -31,6 +31,7 @@ import tempfile
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -83,7 +84,10 @@ class Tape:
 
 
 def _table(directory: Path, name: str, required: bool = True) -> pl.DataFrame | None:
-    for suffix, reader in ((".parquet", pl.read_parquet), (".csv", pl.read_csv)):
+    # A CSV's whole length decides each column's type, so that a column whole for a while and
+    # then not is read as numbers with fractions.
+    csv = partial(pl.read_csv, infer_schema_length=None)
+    for suffix, reader in ((".parquet", pl.read_parquet), (".csv", csv)):
         path = directory / f"{name}{suffix}"
         if path.is_file():
             frame = reader(path)
