@@ -409,9 +409,22 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
         delays = np.arange(0.0, config.max_delay + 1e-9, config.delay_step)
         at = np.arange(config.max_delay, m.duration, config.grid)
         now = sample_last(m.book_time, mid, at)
+        # Where the grid and the longest delay are whole numbers of delay steps, every time
+        # looked back to lies on one fine grid: the value is sampled there once and shifted.
+        per_grid = config.grid / config.delay_step
+        per_max = config.max_delay / config.delay_step
+        aligned = (abs(per_grid - round(per_grid)) < 1e-9
+                   and abs(per_max - round(per_max)) < 1e-9 and len(at))
+        if aligned:
+            fine = sample_last(m.value_time, m.value,
+                               np.arange(round(per_max) + round(per_grid) * len(at))
+                               * config.delay_step)
+            looked = round(per_max) + round(per_grid) * np.arange(len(at))
         rows = []
-        for d in delays:
-            gap = np.abs(now - sample_last(m.value_time, m.value, at - d))
+        for j, d in enumerate(delays):
+            then = (fine[looked - j] if aligned
+                    else sample_last(m.value_time, m.value, at - d))
+            gap = np.abs(now - then)
             ok = np.isfinite(gap)
             rows.append([gap[ok].sum(), ok.sum()])
         p["lateness"] = np.array(rows)
