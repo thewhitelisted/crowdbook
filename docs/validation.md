@@ -218,11 +218,16 @@ scores show.
 
 The rate of aggressive orders is compared by its count, in the report and in the fit: the signed
 root of the Poisson deviance of the recording's count against what the simulated rate expects
-over the recording's time, divided by how much more the simulated markets' counts vary than a
-Poisson count would (orders come in bursts). Where a recording saw one order in a day of markets,
+over the recording's time, divided by the noise of the simulated count itself (1 plus the
+recording's time over the simulation's) and by how much more the simulated markets' counts vary
+than a Poisson count would, measured among the twins of each recorded market, which differ only
+in their seeds (orders come in bursts; twins of different markets differ by design). Where a
+recording saw one order in a day of markets,
 resampling its markets cannot tell a quiet fit from one that trades every minute, since the one
 market with an order is all it has to resample; the count can, and a fit that makes its market
-trade where the recording barely did is held to it.
+trade where the recording barely did is held to it. The fit's intervals still weigh the rate by
+its resampled tolerance, not its count, so where the count is what pins a setting down, such as
+how often the noise traders take, its interval is wider than the count would make it.
 
 A statistic the recording measures in too few of its markets is left out of the target, and the
 fit says so: one that more than a tenth of the recording's resamples leave unmeasured, such as the

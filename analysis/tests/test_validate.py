@@ -189,16 +189,18 @@ class StatisticsTest(unittest.TestCase):
                 tape.read_tape(scratch)
 
     def test_a_rate_of_events_is_compared_by_its_count(self):
-        # One order recorded in an hour; twins that make one a minute expect 60 there. The
-        # Poisson deviance is 2 (1 ln(1/60) + 59) = 109.8, a distance of +10.5.
+        # One order recorded in an hour; twins that make one a minute over ten hours expect 60
+        # there. The Poisson deviance is 2 (1 ln(1/60) + 59) = 109.8, over 1 + 60/600 for the
+        # twins' own count: a distance of +9.99.
         real = {"_orders": 1.0, "_minutes": 60.0}
         twins = {"_orders": 600.0, "_minutes": 600.0, "_orders_dispersion": 1.0}
+        deviance = 2 * (math.log(1 / 60) + 59) / 1.1
         self.assertAlmostEqual(validate.count_distance(real, twins, "orders_per_minute"),
-                               math.sqrt(2 * (math.log(1 / 60) + 59)))
+                               math.sqrt(deviance))
         # Bursty twins, four times as variable as Poisson, are farther from nothing less.
         bursty = dict(twins, _orders_dispersion=4.0)
         self.assertAlmostEqual(validate.count_distance(real, bursty, "orders_per_minute"),
-                               math.sqrt(2 * (math.log(1 / 60) + 59) / 4))
+                               math.sqrt(deviance / 4))
         # Too few is negative; the same rate is 0; none recorded is 2 e.
         self.assertLess(validate.count_distance({"_orders": 90.0, "_minutes": 60.0}, twins,
                                                 "orders_per_minute"), 0)
@@ -206,7 +208,12 @@ class StatisticsTest(unittest.TestCase):
                                                        twins, "orders_per_minute"), 0.0)
         self.assertAlmostEqual(validate.count_distance({"_orders": 0.0, "_minutes": 60.0},
                                                        twins, "orders_per_minute"),
-                               math.sqrt(120))
+                               math.sqrt(120 / 1.1))
+        # Neither side traded: within chance however the times compare.
+        for minutes in (600.0, 60_000.0):
+            none = {"_orders": 0.0, "_minutes": 6_000.0}
+            quiet = {"_orders": 0.0, "_minutes": minutes, "_orders_dispersion": 1.0}
+            self.assertLess(validate.count_distance(none, quiet, "orders_per_minute"), 1.0)
         self.assertTrue(np.isnan(validate.count_distance({}, twins, "orders_per_minute")))
 
     def test_dispersion_of_counts_over_markets(self):
@@ -214,6 +221,28 @@ class StatisticsTest(unittest.TestCase):
         # Counts of 0 and 10 at one rate of 5: Pearson's (25 + 25) / 5 over 1 degree = 10.
         self.assertAlmostEqual(validate._dispersion([0, 10], [1, 1]), 10.0)
         self.assertEqual(validate._dispersion([0, 0], [1, 1]), 1.0)
+        # Twins of two recorded markets at different rates by design, steady within each: no
+        # bursts. Across them they would look a hundred times as variable as Poisson.
+        counts, exposures = [10, 10, 1000, 1000], [1, 1, 1, 1]
+        self.assertEqual(validate._dispersion(counts, exposures, ["a", "a", "b", "b"]), 1.0)
+        self.assertGreater(validate._dispersion(counts, exposures), 100)
+        self.assertEqual(validate._dispersion([3, 7], [1, 1], ["a", "b"]), 1.0)  # no replicates
+
+    def test_a_count_distance_grows_with_the_rate_where_twins_differ(self):
+        # Ten recorded markets of 60 to 600 minutes with one order between them, two twins each,
+        # the longer twins trading faster: the distance must keep growing as the rate does.
+        exposures = np.repeat(np.linspace(60, 600, 10), 2)
+        groups = np.repeat([str(i) for i in range(10)], 2)
+        real = {"_orders": 1.0, "_minutes": float(exposures.sum() / 2)}
+        last = 0.0
+        for scale in (1, 10, 100, 1000):
+            rates = scale * 0.01 * np.repeat(np.linspace(1, 10, 10), 2)
+            counts = np.random.default_rng(1).poisson(rates * exposures)
+            twins = {"_orders": float(counts.sum()), "_minutes": float(exposures.sum()),
+                     "_orders_dispersion": validate._dispersion(counts, exposures, groups)}
+            distance = validate.count_distance(real, twins, "orders_per_minute")
+            self.assertGreater(distance, 2 * last, scale)
+            last = distance
 
     def test_the_report_and_the_fit_measure_orders_by_their_count(self):
         # A recording with an order in one market of two, an hour each, against twins with an

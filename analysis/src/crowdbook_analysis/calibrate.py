@@ -394,6 +394,7 @@ class Evaluator:
             target = self.targets[index % len(self.targets)]
             own = {k: v for k, v in target.labels.items() if not isinstance(v, list)}
             market.labels = own | market.labels
+            market.labels["twin_of"] = index % len(self.targets)
             # A twin is cut where its recorded market is, or left out with it.
             if self.spec.phase is not None:
                 label = self.spec.phase[0]
