@@ -88,6 +88,15 @@ void step(LearningPool& pool, const Actions& actions) {
     pool.step({actions.data(), actions.shape(0) * 2});
 }
 
+void stepOrders(LearningPool& pool, const Actions& orders) {
+    if (orders.shape(1) != crowdbook::kOrderFields) {
+        throw std::invalid_argument(
+            "the orders must have five columns: the bid's price and size, the offer's price and "
+            "size, and the quantity to take");
+    }
+    pool.stepOrders({orders.data(), orders.shape(0) * crowdbook::kOrderFields});
+}
+
 std::string session(const LearningPool& pool, std::size_t market) {
     std::ostringstream out;
     crowdbook::writeSession(out, pool.session(market));
@@ -138,8 +147,8 @@ NB_MODULE(_core, module) {
     nb::exception<crowdbook::ScenarioError>(module, "ScenarioError", PyExc_ValueError);
 
     nb::class_<LearningPool>(module, "Pool")
-        .def(nb::init<std::string, std::string, std::size_t, std::size_t>(), "text"_a,
-             "source"_a, "markets"_a, "threads"_a = 0,
+        .def(nb::init<std::string, std::string, std::size_t, std::size_t>(), "text"_a, "source"_a,
+             "markets"_a, "threads"_a = 0,
              "Builds `markets` markets of the scenario in `text`, stepped on `threads` threads, "
              "0 for every core.")
         .def("reset", &reset, "seeds"_a, "settings_seeds"_a = nb::none(), "mask"_a = nb::none(),
@@ -148,6 +157,10 @@ NB_MODULE(_core, module) {
         .def("step", &step, "actions"_a, nb::call_guard<nb::gil_scoped_release>(),
              "Takes each market's action, a row of the action's number and the size's, and runs "
              "every market to its next decision.")
+        .def("step_orders", &stepOrders, "orders"_a, nb::call_guard<nb::gil_scoped_release>(),
+             "Places each market's orders instead of an action, a row of the bid's price and "
+             "size, the offer's price and size, and the quantity to take (negative to sell), and "
+             "runs every market to its next decision.")
         .def("buffers", &buffers, "The pool's buffers as read-only NumPy arrays over its memory.")
         .def("session", &session, "market"_a,
              "Market `market`'s episode so far, as a session file crowdbook can replay.")

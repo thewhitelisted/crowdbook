@@ -123,6 +123,22 @@ class ConditionTest(unittest.TestCase):
         self.assertIn('duration = "90s"', scenario)
 
 
+class FitDrawsTest(unittest.TestCase):
+    def test_draws_spread_about_the_fit_as_its_intervals_say(self):
+        spec = spec_from()
+        rows = [{"name": "traders", "fitted": 10.0, "low": 9.0, "high": 11.0},
+                {"name": "rate", "fitted": 0.1, "low": 0.09, "high": 0.11},
+                {"name": "lag", "fitted": 0.002, "low": None, "high": None}]
+        draws = calibrate.draw_settings(spec, rows, 3000, widen=1.0)
+        rates = np.log([d["rate"] for d in draws])
+        self.assertAlmostEqual(np.median(rates), np.log(0.1), delta=0.01)
+        # Logarithmic: the interval's half width in the log is the standard deviation.
+        self.assertAlmostEqual(np.std(rates), (np.log(0.11) - np.log(0.09)) / 2, delta=0.01)
+        self.assertTrue(all(d["lag"] == 0.002 for d in draws))
+        wider = calibrate.draw_settings(spec, rows, 3000, widen=2.0)
+        self.assertGreater(np.std(np.log([d["rate"] for d in wider])), 1.8 * np.std(rates))
+
+
 class DrawTest(unittest.TestCase):
     def test_draws_within_ranges_on_their_scales_and_holds_fixed_settings(self):
         spec = spec_from()

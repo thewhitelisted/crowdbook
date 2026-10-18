@@ -26,12 +26,26 @@ pool.reset(seeds=range(64, 128), mask=terminated.copy())        # new episodes w
   what you keep. `reset` and `step` return new dicts of those arrays, which callers may change.
   Calls to one pool from several threads take turns. `STATE_NAMES`, `EVENT_NAMES`, `action_names`,
   `sizes` and `setting_names` name their columns and numbers.
+- `step_orders(orders)` places explicit orders instead of an action, a row a market: the bid's
+  price and size, the offer's price and size, and a quantity to take, negative to sell. A side
+  with a price or size of 0 has no quote; a quote already at its price keeps its place in the
+  queue; a take first cancels the quote on the side it takes from. Any strategy that names its
+  prices can trade through it.
 - `session(i)` is market i's episode as a session file, which `crowdbook replay` and
   `crowdbook report` read.
 - `VectorEnv(path, num_envs, threads=0)` puts a pool behind Gymnasium's vector API, with automatic
   resets disabled: reset the episodes that ended with
   `reset(seed=..., options={"reset_mask": terminated})`. A whole-number seed also seeds the
   environment's generator, which draws the seeds of later resets given none.
+
+`crowdbook_learn.evaluate` runs a strategy in many markets: `evaluate(policy, scenarios, seeds,
+scales=(1, 2, 4))` steps a policy that answers each decision with `step_orders`' rows, across one
+scenario or several (draws from a fit's uncertainty, from `crowdbook-draws`, or a recording's
+twins), and reports what it made a market with a 95% interval, the lots it traded and its share
+as a maker, what it made a lot, and the size-weighted markouts of its fills 1, 10 and 60 seconds
+on: its adverse selection. Each scale multiplies its sizes and runs the same seeds again, so that
+what it makes a lot as it grows shows the market's capacity for it. `per_market(decide)` turns a
+function of one market's arrays into a policy.
 
 The scenario's `[learning]` section sets the decisions, the actions, the sizes and the settings
 drawn for each episode; [docs/scenarios.md](../docs/scenarios.md#learning-optional) lists its keys

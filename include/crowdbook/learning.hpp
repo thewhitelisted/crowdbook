@@ -79,6 +79,25 @@ struct LearningObservation {
     std::span<std::int64_t> counts; // kCountColumns
 };
 
+// A decision given as orders rather than an action: the seat's bid and offer at the prices it
+// names, and a quantity to take. A side with a size or a price of 0 has no quote, and any the
+// seat has there is cancelled; a quote already at its price is left alone, keeping its place in
+// the queue, and one elsewhere moves there. Quotes are post-only, so one that would trade is
+// turned away. `take` buys that many at the best offer, or sells -take at the best bid, take_ticks
+// past it, immediate-or-cancel, after cancelling the seat's quote on the side it takes from, which
+// is then not placed at this decision. Sizes are cut to what the position limit and the largest
+// order allow.
+struct LearningOrders {
+    Price bidPrice = 0;
+    Quantity bidSize = 0;
+    Price askPrice = 0;
+    Quantity askSize = 0;
+    Quantity take = 0;
+};
+
+// The numbers a market's orders take in LearningPool::stepOrders, in LearningOrders' order.
+inline constexpr std::size_t kOrderFields = 5;
+
 // What a decision reports beside the observation.
 struct LearningStep {
     double reward = 0.0;     // the change in the score since the last decision, in tick-lots
@@ -151,6 +170,10 @@ public:
     // writes its observation. Throws std::invalid_argument for an action or size out of range
     // or buffers of the wrong sizes, and std::logic_error once the episode is over.
     LearningStep step(std::size_t action, std::size_t size, const LearningObservation& out);
+    // Places these orders now instead of an action, runs to the next decision and writes its
+    // observation. Throws std::invalid_argument for negative sizes or prices or buffers of the
+    // wrong sizes, and std::logic_error once the episode is over.
+    LearningStep stepOrders(const LearningOrders& orders, const LearningObservation& out);
 
     [[nodiscard]] bool started() const noexcept;
     [[nodiscard]] bool finished() const noexcept;
@@ -162,6 +185,10 @@ public:
 
 private:
     struct Episode;
+    // Checks that a step can be taken, and the buffers.
+    Episode& stepping(const LearningObservation& out);
+    // Runs from the decision just taken to the next, and reports it.
+    LearningStep advance(const LearningObservation& out);
     LearningConfig shape_;
     const AgentRegistry* registry_;
     EventSink* sink_;
@@ -199,6 +226,9 @@ public:
     // std::logic_error if a market's episode is over and it has not been reset. If a market
     // throws, the first such market's exception is rethrown once every market has stepped.
     void step(std::span<const std::int64_t> actions);
+    // As step, with each market's orders instead of an action: kOrderFields numbers a market, the
+    // bid's price and size, the offer's price and size, and the quantity to take.
+    void stepOrders(std::span<const std::int64_t> orders);
 
     [[nodiscard]] std::size_t markets() const noexcept;
     [[nodiscard]] std::size_t threads() const noexcept;

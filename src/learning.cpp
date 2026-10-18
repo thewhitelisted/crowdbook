@@ -12,6 +12,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <variant>
 
@@ -21,6 +22,7 @@
 #include "crowdbook/live.hpp"
 #include "crowdbook/math.hpp"
 #include "crowdbook/random.hpp"
+
 #include "overloaded.hpp"
 #include "scenario_toml.hpp"
 
@@ -856,6 +858,26 @@ struct LearningMarket::Episode {
             : episode_(episode), context_(context), ledger_(context.ledger()),
               account_(episode.scenario.participant.account) {}
 
+        void apply(const LearningOrders& orders) {
+            Side taken = Side::Buy;
+            if (orders.take != 0) {
+                taken = orders.take > 0 ? Side::Buy : Side::Sell;
+                take(taken, orders.take > 0 ? orders.take : -orders.take);
+            }
+            for (const auto& [side, price, size] :
+                 {std::tuple{Side::Buy, orders.bidPrice, orders.bidSize},
+                  std::tuple{Side::Sell, orders.askPrice, orders.askSize}}) {
+                if (orders.take != 0 && side == opposite(taken)) {
+                    continue; // cancelled to take from; not placed again until the next decision
+                }
+                if (size < 1 || price < 1) {
+                    cancelQuote(side);
+                } else {
+                    quoteAtPrice(side, price, size);
+                }
+            }
+        }
+
         void apply(LearningAction action, Quantity size) {
             switch (action) {
             case LearningAction::Hold:
@@ -958,7 +980,6 @@ struct LearningMarket::Episode {
             if (!best) {
                 return;
             }
-            const Price highest = context_.maxPrice();
             const Price better = side == Side::Buy ? 1 : -1;
             Price price = *best;
             if (how == LearningAction::BidImprove || how == LearningAction::AskImprove) {
@@ -974,7 +995,13 @@ struct LearningMarket::Episode {
             } else if (how == LearningAction::BidBehind || how == LearningAction::AskBehind) {
                 price = *best - better;
             }
-            if (price < 1 || price > highest) {
+            quoteAtPrice(side, price, size);
+        }
+
+        // Keeps the seat's quote on `side` at `price`, moving the one it has there, or leaving it
+        // alone where it is already at that price.
+        void quoteAtPrice(Side side, Price price, Quantity size) {
+            if (price < 1 || price > context_.maxPrice()) {
                 return;
             }
             const OwnOrder* own = episode_.quote(ledger_, side);
@@ -1141,8 +1168,7 @@ LearningStep LearningMarket::reset(Scenario scenario, const LearningObservation&
     return report;
 }
 
-LearningStep LearningMarket::step(std::size_t action, std::size_t size,
-                                  const LearningObservation& out) {
+LearningMarket::Episode& LearningMarket::stepping(const LearningObservation& out) {
     if (!episode_) {
         throw std::logic_error("the market has no episode: reset it first");
     }
@@ -1151,6 +1177,12 @@ LearningStep LearningMarket::step(std::size_t action, std::size_t size,
         throw std::logic_error("the episode is over: reset the market for another");
     }
     checkSizes(shape_, out);
+    return e;
+}
+
+LearningStep LearningMarket::step(std::size_t action, std::size_t size,
+                                  const LearningObservation& out) {
+    Episode& e = stepping(out);
     if (action >= shape_.actions.size() || size >= shape_.sizes.size()) {
         throw std::invalid_argument(std::format(
             "action {} at size {}: there are {} actions and {} sizes", action, size,
@@ -1161,6 +1193,22 @@ LearningStep LearningMarket::step(std::size_t action, std::size_t size,
     e.simulation->act(e.seat, [&](AgentContext& context) {
         Episode::Decision{e, context}.apply(chosen, quantity);
     });
+    return advance(out);
+}
+
+LearningStep LearningMarket::stepOrders(const LearningOrders& orders,
+                                        const LearningObservation& out) {
+    Episode& e = stepping(out);
+    if (orders.bidPrice < 0 || orders.askPrice < 0 || orders.bidSize < 0 || orders.askSize < 0) {
+        throw std::invalid_argument("orders' prices and sizes must not be negative");
+    }
+    e.simulation->act(e.seat,
+                      [&](AgentContext& context) { Episode::Decision{e, context}.apply(orders); });
+    return advance(out);
+}
+
+LearningStep LearningMarket::advance(const LearningObservation& out) {
+    Episode& e = *episode_;
     const Duration interval = e.config.interval;
     const Timestamp next = (e.now() / interval + 1) * interval;
     e.runToDecision(std::min(next, e.end));
@@ -1398,6 +1446,35 @@ void LearningPool::step(std::span<const std::int64_t> actions) {
         s.report(market, s.each[market].step(static_cast<std::size_t>(actions[2 * market]),
                                              static_cast<std::size_t>(actions[2 * market + 1]),
                                              s.observation(market)));
+    });
+}
+
+void LearningPool::stepOrders(std::span<const std::int64_t> orders) {
+    State& s = *state_;
+    const std::scoped_lock lock{s.calls};
+    if (orders.size() != kOrderFields * s.markets) {
+        throw std::invalid_argument(std::format(
+            "the orders must be {} numbers a market, the bid's price and size, the offer's price "
+            "and size, and the quantity to take: {} for {} markets",
+            kOrderFields, orders.size(), s.markets));
+    }
+    for (std::size_t market = 0; market < s.markets; ++market) {
+        if (!s.each[market].started()) {
+            throw std::logic_error(std::format("market {} has no episode: reset it first", market));
+        }
+        if (s.each[market].finished()) {
+            throw std::logic_error(
+                std::format("market {}'s episode is over: reset it before stepping", market));
+        }
+    }
+    s.forEach([&](std::size_t market) {
+        const std::int64_t* row = orders.data() + kOrderFields * market;
+        s.report(market, s.each[market].stepOrders({.bidPrice = row[0],
+                                                    .bidSize = row[1],
+                                                    .askPrice = row[2],
+                                                    .askSize = row[3],
+                                                    .take = row[4]},
+                                                   s.observation(market)));
     });
 }
 
