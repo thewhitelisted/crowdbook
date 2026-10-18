@@ -141,6 +141,15 @@ class StatisticsTest(unittest.TestCase):
         self.assertAlmostEqual(found["maker_after_1"], 1.0)
         self.assertAlmostEqual(found["maker_at_settlement"], 51.0)
 
+    def test_how_often_the_touch_moves(self):
+        still = market(duration=100.0)
+        # A book that never moves counts half a move over the 100 one-second steps seen.
+        self.assertAlmostEqual(self.measure(still)["touch_moves"], 60 * 0.5 / 100)
+        busy = market(duration=100.0)
+        busy.bid_price[:, 0] -= np.arange(len(busy.book_time)) % 2  # the bid moves every second
+        # 99 moves in 100 steps: the last step, to the end, has no snapshot after the last.
+        self.assertAlmostEqual(self.measure(busy)["touch_moves"], 60 * 99 / 100)
+
     def test_what_a_standing_quote_would_earn(self):
         # Every second a buyer takes at 51, a tick above the mid of 50; at second 10.5 the buyer
         # sweeps on to 54 in the same order. The market settles at 100.
