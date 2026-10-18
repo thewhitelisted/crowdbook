@@ -27,7 +27,8 @@ pool.reset(seeds=range(64, 128), mask=terminated.copy())        # new episodes w
   Calls to one pool from several threads take turns. `STATE_NAMES`, `EVENT_NAMES`, `action_names`,
   `sizes` and `setting_names` name their columns and numbers.
 - `step_orders(orders)` places explicit orders instead of an action, a row a market: the bid's
-  price and size, the offer's price and size, and a quantity to take, negative to sell. A side
+  price and size, the offer's price and size, a quantity to take, negative to sell, and
+  optionally the take's limit price, at the best price on the other side without one. A side
   with a price or size of 0 has no quote; a quote already at its price keeps its place in the
   queue; a take first cancels the quote on the side it takes from. Any strategy that names its
   prices can trade through it.

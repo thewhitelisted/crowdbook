@@ -25,18 +25,18 @@ inline constexpr std::string_view kLearningSeat = "learner";
 // The rows of the observation's event stream, by what they report. Each row is
 // [type, time, a, b, c, d, e]: the type, the time the seat heard it, and five fields.
 enum class LearningEvent : std::int64_t {
-    None = 0,       // an empty row
-    Trade = 1,      // a: price, b: quantity, c: aggressor, +1 buy and -1 sell, d: 1 in an auction
-    Quote = 2,      // the best prices: a, b: bid and its size, c, d: offer and its size; 0 if none
-    Depth = 3,      // a: the update's row in `depth`, or -1 if it was not kept
-    Fill = 4,       // the seat's: a: side, b: price, c: quantity, d: liquidity, e: fee units
-    Accepted = 5,   // the seat's: a: side, b: price, c: quantity, d: 1 for a market order
-    Modified = 6,   // the seat's: a: side, b: price, c: open quantity
-    Cancelled = 7,  // the seat's: a: side, b: quantity cancelled, c: why
-    Rejected = 8,   // the seat's: a: side, b: request, 0 new, 1 cancel, 2 modify, c: why
-    Phase = 9,      // a: the phase, b: the price an auction uncrossed at, or 0
+    None = 0,        // an empty row
+    Trade = 1,       // a: price, b: quantity, c: aggressor, +1 buy and -1 sell, d: 1 in an auction
+    Quote = 2,       // the best prices: a, b: bid and its size, c, d: offer and its size; 0 if none
+    Depth = 3,       // a: the update's row in `depth`, or -1 if it was not kept
+    Fill = 4,        // the seat's: a: side, b: price, c: quantity, d: liquidity, e: fee units
+    Accepted = 5,    // the seat's: a: side, b: price, c: quantity, d: 1 for a market order
+    Modified = 6,    // the seat's: a: side, b: price, c: open quantity
+    Cancelled = 7,   // the seat's: a: side, b: quantity cancelled, c: why
+    Rejected = 8,    // the seat's: a: side, b: request, 0 new, 1 cancel, 2 modify, c: why
+    Phase = 9,       // a: the phase, b: the price an auction uncrossed at, or 0
     Indicative = 10, // a: price, b: lots that would trade, c: imbalance; 0 if none
-    Feed = 11,      // a: the underlying, in millionths of its units
+    Feed = 11,       // a: the underlying, or the value, in millionths of its units
 };
 
 inline constexpr std::size_t kEventColumns = 7;
@@ -83,20 +83,22 @@ struct LearningObservation {
 // names, and a quantity to take. A side with a size or a price of 0 has no quote, and any the
 // seat has there is cancelled; a quote already at its price is left alone, keeping its place in
 // the queue, and one elsewhere moves there. Quotes are post-only, so one that would trade is
-// turned away. `take` buys that many at the best offer, or sells -take at the best bid, take_ticks
-// past it, immediate-or-cancel, after cancelling the seat's quote on the side it takes from, which
-// is then not placed at this decision. Sizes are cut to what the position limit and the largest
-// order allow.
+// turned away. `take` buys that many, or sells -take, immediate-or-cancel, at `takePrice`, or with
+// none at the best price on the other side, take_ticks past it, after cancelling the seat's quote
+// on the side it takes from, which is then not placed at this decision. Sizes are cut to what the
+// position limit and the largest order allow.
 struct LearningOrders {
     Price bidPrice = 0;
     Quantity bidSize = 0;
     Price askPrice = 0;
     Quantity askSize = 0;
     Quantity take = 0;
+    Price takePrice = 0;
 };
 
-// The numbers a market's orders take in LearningPool::stepOrders, in LearningOrders' order.
-inline constexpr std::size_t kOrderFields = 5;
+// The numbers a market's orders take in LearningPool::stepOrders, in LearningOrders' order: all
+// of them, or all but the take's price.
+inline constexpr std::size_t kOrderFields = 6;
 
 // What a decision reports beside the observation.
 struct LearningStep {
@@ -226,9 +228,10 @@ public:
     // std::logic_error if a market's episode is over and it has not been reset. If a market
     // throws, the first such market's exception is rethrown once every market has stepped.
     void step(std::span<const std::int64_t> actions);
-    // As step, with each market's orders instead of an action: kOrderFields numbers a market, the
-    // bid's price and size, the offer's price and size, and the quantity to take.
-    void stepOrders(std::span<const std::int64_t> orders);
+    // As step, with each market's orders instead of an action: `fields` numbers a market,
+    // kOrderFields or one fewer, the bid's price and size, the offer's price and size, the
+    // quantity to take and, with kOrderFields, the take's price.
+    void stepOrders(std::span<const std::int64_t> orders, std::size_t fields = kOrderFields);
 
     [[nodiscard]] std::size_t markets() const noexcept;
     [[nodiscard]] std::size_t threads() const noexcept;

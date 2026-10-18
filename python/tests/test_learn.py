@@ -90,6 +90,18 @@ class PoolTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             pool.step_orders(np.zeros((2, 4), dtype=np.int64))
 
+    def test_a_take_can_carry_a_limit_price(self):
+        pool = crowdbook_learn.Pool(MARKET, markets=2, threads=1)
+        obs, _ = pool.reset(seeds=1)
+        names = crowdbook_learn.STATE_NAMES
+        ask = obs["state"][:, names.index("ask_price")].copy()
+        # Market 0 bids for two lots a tick below the offer, which cannot fill; market 1 at it.
+        orders = np.array([[0, 0, 0, 0, 2, ask[0] - 1], [0, 0, 0, 0, 2, ask[1]]], dtype=np.int64)
+        obs, *_ = pool.step_orders(orders)
+        position = names.index("position")
+        self.assertEqual(obs["state"][0, position], 0)
+        self.assertEqual(obs["state"][1, position], 2)
+
     def test_a_strategy_is_evaluated_across_markets_and_scales(self):
         from crowdbook_learn import evaluate
         state = crowdbook_learn.STATE_NAMES

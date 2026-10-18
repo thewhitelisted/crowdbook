@@ -673,8 +673,8 @@ struct LearningMarket::Episode {
         bool moved = false;
         while (nextFeed <= now / feed.interval) {
             const Timestamp time = nextFeed * feed.interval;
-            static_cast<void>(feedValue->valueAt(std::max<Timestamp>(time - feed.lag, 0)));
-            double underlying = feedValue->walk();
+            const double seen = feedValue->valueAt(std::max<Timestamp>(time - feed.lag, 0));
+            double underlying = feed.value ? seen : feedValue->walk();
             if (feed.noise > 0.0) {
                 underlying += feedNoise.normal(0.0, feed.noise);
             }
@@ -862,7 +862,7 @@ struct LearningMarket::Episode {
             Side taken = Side::Buy;
             if (orders.take != 0) {
                 taken = orders.take > 0 ? Side::Buy : Side::Sell;
-                take(taken, orders.take > 0 ? orders.take : -orders.take);
+                take(taken, orders.take > 0 ? orders.take : -orders.take, orders.takePrice);
             }
             for (const auto& [side, price, size] :
                  {std::tuple{Side::Buy, orders.bidPrice, orders.bidSize},
@@ -1027,8 +1027,15 @@ struct LearningMarket::Episode {
             }
         }
 
-        // An immediate-or-cancel order on `side` at the best price on the other, take_ticks past.
-        void takeAt(Side side, Quantity quantity) {
+        // An immediate-or-cancel order on `side` at `limit`, or with none at the best price on the
+        // other, take_ticks past.
+        void takeAt(Side side, Quantity quantity, Price limit = 0) {
+            if (limit > 0) {
+                if (quantity >= 1 && limit <= context_.maxPrice()) {
+                    submit(side, limit, quantity, TimeInForce::ImmediateOrCancel);
+                }
+                return;
+            }
             const std::optional<Price> facing = episode_.othersBest(ledger_, opposite(side));
             if (!facing || quantity < 1) {
                 return;
@@ -1041,9 +1048,9 @@ struct LearningMarket::Episode {
 
         // Cancels the seat's own order on the side it takes from first, which the book would
         // otherwise meet before anyone else's and turn the order away as a trade with itself.
-        void take(Side side, Quantity size) {
+        void take(Side side, Quantity size, Price limit = 0) {
             cancelQuote(opposite(side));
-            takeAt(side, sized(size, room(side, 0)));
+            takeAt(side, sized(size, room(side, 0)), limit);
         }
 
         void close() {
@@ -1199,7 +1206,8 @@ LearningStep LearningMarket::step(std::size_t action, std::size_t size,
 LearningStep LearningMarket::stepOrders(const LearningOrders& orders,
                                         const LearningObservation& out) {
     Episode& e = stepping(out);
-    if (orders.bidPrice < 0 || orders.askPrice < 0 || orders.bidSize < 0 || orders.askSize < 0) {
+    if (orders.bidPrice < 0 || orders.askPrice < 0 || orders.bidSize < 0 || orders.askSize < 0 ||
+        orders.takePrice < 0) {
         throw std::invalid_argument("orders' prices and sizes must not be negative");
     }
     e.simulation->act(e.seat,
@@ -1449,14 +1457,15 @@ void LearningPool::step(std::span<const std::int64_t> actions) {
     });
 }
 
-void LearningPool::stepOrders(std::span<const std::int64_t> orders) {
+void LearningPool::stepOrders(std::span<const std::int64_t> orders, std::size_t fields) {
     State& s = *state_;
     const std::scoped_lock lock{s.calls};
-    if (orders.size() != kOrderFields * s.markets) {
+    if ((fields != kOrderFields && fields != kOrderFields - 1) ||
+        orders.size() != fields * s.markets) {
         throw std::invalid_argument(std::format(
-            "the orders must be {} numbers a market, the bid's price and size, the offer's price "
-            "and size, and the quantity to take: {} for {} markets",
-            kOrderFields, orders.size(), s.markets));
+            "the orders must be {} or {} numbers a market, the bid's price and size, the offer's "
+            "price and size, the quantity to take and its price: {} for {} markets",
+            kOrderFields - 1, kOrderFields, orders.size(), s.markets));
     }
     for (std::size_t market = 0; market < s.markets; ++market) {
         if (!s.each[market].started()) {
@@ -1468,13 +1477,15 @@ void LearningPool::stepOrders(std::span<const std::int64_t> orders) {
         }
     }
     s.forEach([&](std::size_t market) {
-        const std::int64_t* row = orders.data() + kOrderFields * market;
-        s.report(market, s.each[market].stepOrders({.bidPrice = row[0],
-                                                    .bidSize = row[1],
-                                                    .askPrice = row[2],
-                                                    .askSize = row[3],
-                                                    .take = row[4]},
-                                                   s.observation(market)));
+        const std::int64_t* row = orders.data() + fields * market;
+        s.report(market,
+                 s.each[market].stepOrders({.bidPrice = row[0],
+                                            .bidSize = row[1],
+                                            .askPrice = row[2],
+                                            .askSize = row[3],
+                                            .take = row[4],
+                                            .takePrice = fields == kOrderFields ? row[5] : 0},
+                                           s.observation(market)));
     });
 }
 

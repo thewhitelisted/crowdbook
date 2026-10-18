@@ -89,12 +89,13 @@ void step(LearningPool& pool, const Actions& actions) {
 }
 
 void stepOrders(LearningPool& pool, const Actions& orders) {
-    if (orders.shape(1) != crowdbook::kOrderFields) {
+    const std::size_t fields = orders.shape(1);
+    if (fields != crowdbook::kOrderFields && fields != crowdbook::kOrderFields - 1) {
         throw std::invalid_argument(
-            "the orders must have five columns: the bid's price and size, the offer's price and "
-            "size, and the quantity to take");
+            "the orders must have five or six columns: the bid's price and size, the offer's "
+            "price and size, the quantity to take and, optionally, its price");
     }
-    pool.stepOrders({orders.data(), orders.shape(0) * crowdbook::kOrderFields});
+    pool.stepOrders({orders.data(), orders.shape(0) * fields}, fields);
 }
 
 std::string session(const LearningPool& pool, std::size_t market) {
