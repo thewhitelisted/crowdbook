@@ -41,34 +41,15 @@ risk_aversion = 0.0001
 volatility = 1.0
 intensity = ${maker_intensity}
 quote_size = ${maker_size}      # lots each quote: the size at the touch
-max_inventory = 100000
+levels = 5                      # a ladder of quotes a side, a tick apart,
+level_growth = ${level_growth}  # each this many times the one nearer: the depth behind the touch
+max_inventory = 1000000
 requote_interval = "500ms"
 post_only = true
 quiet_from = "${kickoff}s"   # in play the makers stay away, or with a label quote that often
 quiet_interval = ${maker_in_play_interval:"0s"}
 latency = { to_exchange = "20ms", from_exchange = "20ms" }
-account = { max_position = 200000, max_order_quantity = 10000 }
-
-[[agents]]
-type = "market_maker"
-name = "deep_makers"         # wider quotes behind the touch: the depth further out
-count = 2
-quote_value = true
-noise = 0.5
-error = 0.7
-error_memory = "120s"
-lag = "5s"
-risk_aversion = 0.0001
-volatility = 1.0
-intensity = 0.25
-quote_size = ${deep_size}
-max_inventory = 100000
-requote_interval = "5s"
-post_only = true
-quiet_from = "${kickoff}s"
-quiet_interval = ${maker_in_play_interval:"0s"}
-latency = { to_exchange = "20ms", from_exchange = "20ms" }
-account = { max_position = 200000, max_order_quantity = 10000 }
+account = { max_position = 2000000, max_order_quantity = 100000 }
 
 [[agents]]
 type = "informed"
