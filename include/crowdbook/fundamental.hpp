@@ -48,6 +48,9 @@ struct GameConfig {
     int periods = 1;                  // of equal length, with a break between each two
     Duration breakLength = 0;         // how long each break stops the clock
     double scores = 2.5;              // scoring events expected in the game, both sides together
+    // How much faster they come at the end of the playing time than at its start, the rate
+    // changing in a straight line between; 1 for an even pace.
+    double lateScoring = 1.0;
     std::vector<int> points{1};       // what a scoring event can be worth
     // How often a scoring event is worth each of `points`, in proportion.
     std::vector<double> pointWeights{1.0};
@@ -151,6 +154,8 @@ private:
     [[nodiscard]] Duration playedBy(Timestamp time) const noexcept;
     [[nodiscard]] double gameProbability(Timestamp time, double lead, double strength) const;
     void pointsToCome(double expectedEvents, std::vector<double>& pmf) const;
+    // Scoring events expected between two playing times.
+    [[nodiscard]] double expectedScores(Duration from, Duration to) const noexcept;
     std::int64_t poisson(double mean);
 
     FundamentalConfig config_;

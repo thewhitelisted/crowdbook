@@ -140,7 +140,8 @@ private:
 GameConfig readGame(const Reader& reader, const toml::table& table) {
     reader.allowOnly(table,
                      {"start", "length", "periods", "break", "scores", "points", "point_weights",
-                      "tie", "pregame_drift", "in_play_drift", "news", "news_size", "script"},
+                      "tie", "pregame_drift", "in_play_drift", "news", "news_size", "script",
+                      "late_scoring"},
                      "in [prediction.game]");
     GameConfig game;
     for (const auto& [key, duration] :
@@ -157,8 +158,8 @@ GameConfig readGame(const Reader& reader, const toml::table& table) {
         game.periods = static_cast<int>(reader.integer(*node, "periods", 1, 100));
     }
     for (const auto& [key, number] :
-         {std::pair{"scores", &game.scores}, std::pair{"tie", &game.tie},
-          std::pair{"pregame_drift", &game.pregameDrift},
+         {std::pair{"scores", &game.scores}, std::pair{"late_scoring", &game.lateScoring},
+          std::pair{"tie", &game.tie}, std::pair{"pregame_drift", &game.pregameDrift},
           std::pair{"in_play_drift", &game.inPlayDrift}, std::pair{"news", &game.news},
           std::pair{"news_size", &game.newsSize}}) {
         if (const auto* node = table.get(key)) {

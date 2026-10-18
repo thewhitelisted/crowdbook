@@ -89,6 +89,7 @@ strength starts wherever gives it; `news_rate` and `news_share` are not used wit
 | `periods` | integer | `1` | Periods of equal playing time, from 1 to 100 |
 | `break` | duration | `"0s"` | How long the clock stops between two periods |
 | `scores` | number | `2.5` | Scoring events expected in the game, both sides together; more than 0, at most 500 |
+| `late_scoring` | number | `1` | How many times faster scoring events come at the end of the playing time than at its start, the rate changing in a straight line between; above 0, at most 100 |
 | `points` | list of integers | `[1]` | What a scoring event can be worth, from 1 to 100 |
 | `point_weights` | list of numbers | equal | How often each of `points`, in proportion |
 | `tie` | number | `0` | Cents a share pays if the game ends level, from 0 to 100 |

@@ -20,6 +20,7 @@ length = "90m"           # playing time
 periods = 2
 break = "15m"
 scores = ${scores}
+late_scoring = ${late_scoring}
 points = [1]
 tie = 0                  # cents a share pays on a draw
 pregame_drift = ${pregame_drift}

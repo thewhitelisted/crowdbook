@@ -305,6 +305,7 @@ length = "48m"
 periods = 4
 break = "5m"
 scores = 85.0
+late_scoring = 1.5
 points = [1, 2, 3]
 point_weights = [0.2, 0.55, 0.25]
 tie = 50
