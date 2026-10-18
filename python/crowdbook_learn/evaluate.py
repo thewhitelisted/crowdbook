@@ -10,14 +10,17 @@ its fills were worth a while later, and how that holds up as it trades bigger.
 The policy answers each decision with orders, as `Pool.step_orders` takes them: the bid's price
 and size, the offer's price and size, a quantity to take, negative to sell, and optionally the
 take's limit price. Markets come from
-one scenario or from several, such as draws from a fit's uncertainty, one per seed in turn, so
-that a strategy is judged across what the fit allows rather than at its point alone. At each
+one scenario or from several, such as draws from a fit's uncertainty or a twin fit's `twins/`,
+one per seed in turn, so that a strategy is judged across what the fit allows rather than at its
+point alone. A scenario is its text, or a path: a file, or a directory standing for the .toml
+files in it. At each
 scale every size the policy asks for is multiplied by the scale, and the same seeds run again:
 where what it makes a lot falls as it grows, the market's depth is its capacity.
 """
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -84,11 +87,26 @@ def _record(episode: Episode, row_state: np.ndarray, events: np.ndarray,
         episode.mids.append((int(row_state[_TIME]), (row_state[_BID] + row_state[_ASK]) / 2))
 
 
-def run(policy: Callable, scenarios: str | Sequence[str], seeds: Sequence[int], *,
+def scenario_texts(scenarios: str | Path | Sequence[str | Path]) -> list[str]:
+    """Scenarios as texts: text as it is, a file's contents, a directory's .toml files' contents
+    in name order."""
+    found = []
+    for item in [scenarios] if isinstance(scenarios, (str, Path)) else scenarios:
+        if isinstance(item, Path):
+            files = sorted(item.glob("*.toml")) if item.is_dir() else [item]
+            found += [f.read_text() for f in files]
+        else:
+            found.append(item)
+    if not found:
+        raise ValueError(f"no scenarios in {scenarios}")
+    return found
+
+
+def run(policy: Callable, scenarios: str | Path | Sequence[str | Path], seeds: Sequence[int], *,
         markets: int = 32, threads: int = 0, scale: int = 1) -> list[Episode]:
     """Every seed's episode, in the order of the seeds: seed i runs scenarios[i % len], and the
     policy's sizes are multiplied by `scale`."""
-    texts = [scenarios] if isinstance(scenarios, str) else list(scenarios)
+    texts = scenario_texts(scenarios)
     seeds = list(seeds)
     pool = Pool.from_text(texts[0], markets=min(markets, len(seeds)), threads=threads)
     count = pool.markets
@@ -203,7 +221,8 @@ def summarize(episodes: list[Episode], horizons: Sequence[float] = (1, 10, 60)) 
     }
 
 
-def evaluate(policy: Callable, scenarios: str | Sequence[str], seeds: Sequence[int], *,
+def evaluate(policy: Callable, scenarios: str | Path | Sequence[str | Path],
+             seeds: Sequence[int], *,
              scales: Sequence[int] = (1,), horizons: Sequence[float] = (1, 10, 60),
              markets: int = 32, threads: int = 0) -> dict:
     """The strategy at each scale, on the same seeds: a summary each, and the episodes."""
