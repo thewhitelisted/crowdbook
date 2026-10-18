@@ -105,6 +105,11 @@ public:
     // then the indicative price.
     void setPhase(Phase phase, std::vector<Event>& events);
     [[nodiscard]] Phase phase() const noexcept { return phase_; }
+    // Cancels every resting order, the bids best first and then the offers, each with its
+    // owner's OrderCancelled for the reason Cleared, then the best prices, depth and, in an
+    // auction, the indicative price if they changed: what a betting exchange does to its books when
+    // an event goes in play.
+    void clearBook(std::vector<Event>& events);
     // The last auction's price, or the configured reference price before any auction.
     [[nodiscard]] Price reference() const noexcept { return reference_; }
 

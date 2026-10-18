@@ -260,7 +260,7 @@ class Cancelled:
     id: int
     order_id: int
     quantity: int
-    reason: Literal["requested", "immediate-or-cancel", "self-trade"]
+    reason: Literal["requested", "immediate-or-cancel", "self-trade", "cleared"]
 
 
 @dataclass(frozen=True)

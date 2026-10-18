@@ -18,6 +18,11 @@ crowdbook-prediction = "crowdbook_analysis.prediction:main"
 crowdbook-polymarket = "crowdbook_analysis.polymarket:main"
 crowdbook-realism = "crowdbook_analysis.realism:main"
 crowdbook-fit = "crowdbook_analysis.fit:main"
+crowdbook-validate = "crowdbook_analysis.validate:main"
+crowdbook-calibrate = "crowdbook_analysis.calibrate:main"
+crowdbook-generate = "crowdbook_analysis.generate:main"
+crowdbook-sweep = "crowdbook_analysis.sweep:main"
+crowdbook-draws = "crowdbook_analysis.calibrate:draws_main"
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]

@@ -1,5 +1,6 @@
 #include "crowdbook/scenario.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <format>
 #include <memory>
@@ -94,6 +95,14 @@ void validate(const Scenario& scenario) {
                 kPredictionPayout - 1));
         }
     }
+    if (std::ranges::any_of(scenario.clearAt, [](Duration time) { return time < 0; })) {
+        throw ScenarioError("exchange: the book cannot be cleared before the start");
+    }
+    if (const OrderDelay& delay = scenario.orderDelay;
+        delay.delay < 0 || delay.from < 0 || delay.until < delay.from) {
+        throw ScenarioError("exchange: an order delay must not be negative, and its stretch must "
+                            "not end before it starts");
+    }
     if (const auto& day = scenario.tradingDay) {
         if (day->openingAuction < 0 || day->closingAuction < 0 ||
             day->openingAuction + day->closingAuction > scenario.duration) {
@@ -163,6 +172,12 @@ ScenarioRun::ScenarioRun(const Scenario& scenario, const AgentRegistry& registry
         }
         simulation.schedulePhase(scenario.duration, Phase::Closed);
         environment.activity = {.amplitude = day->activity, .day = scenario.duration};
+    }
+    if (scenario.orderDelay.delay > 0) {
+        state_->simulation.setOrderDelay(scenario.orderDelay);
+    }
+    for (const Duration time : scenario.clearAt) {
+        state_->simulation.scheduleClear(time);
     }
     environment.fundamental = makeFundamental(scenario);
     state_->fundamental = environment.fundamental;

@@ -22,6 +22,12 @@ Belief::Belief(const BeliefConfig& config, std::shared_ptr<Fundamental> value)
                                     "at most 1000000000s, the bias must be a number, and the "
                                     "error memory must be positive");
     }
+    if (!(config.tilt < 1.0) || !std::isfinite(config.tilt)) {
+        throw std::invalid_argument("the tilt must be a number below 1");
+    }
+    if (config.tilt != 0.0 && !value_->resolution()) {
+        throw std::invalid_argument("a tilt bends probabilities: it needs a [prediction] section");
+    }
     // The latest a trader of this group can see the value.
     value_->remember(2 * config.lag);
 }
@@ -33,7 +39,14 @@ double Belief::look(AgentContext& context) {
         delay_ = random.uniformInt(0, 2 * config_.lag);
     }
     const Timestamp now = context.now();
-    double estimate = value_->valueAt(std::max<Timestamp>(now - delay_.value_or(0), 0)) + noise;
+    double seen = value_->valueAt(std::max<Timestamp>(now - delay_.value_or(0), 0));
+    if (config_.tilt != 0.0) {
+        // In log-odds, kept off certainty so that a settled question stays near where it settled.
+        const double p = std::clamp(seen / 100.0, 1e-4, 1.0 - 1e-4);
+        const double odds = (1.0 - config_.tilt) * std::log(p / (1.0 - p));
+        seen = 100.0 / (1.0 + math::exp(-odds));
+    }
+    double estimate = seen + noise;
     if (config_.error > 0.0) {
         // The lasting error wanders back and forth around zero, an Ornstein–Uhlenbeck process
         // sampled exactly at each look.

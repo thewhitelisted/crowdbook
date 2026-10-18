@@ -63,6 +63,8 @@ std::string_view toString(CancelReason reason) noexcept {
         return "immediate-or-cancel";
     case CancelReason::SelfTrade:
         return "self-trade";
+    case CancelReason::Cleared:
+        return "cleared";
     }
     return "unknown";
 }

@@ -76,8 +76,9 @@ private:
 class PriceSampler final : public IntervalSampler {
 public:
     // With `value`, a true value started afresh for this run (makeFundamental), each row also has
-    // it in a last column, `value`, so that prices can be compared with it. Reading it changes
-    // nothing about the run. Throws std::invalid_argument unless the interval is positive.
+    // it in a column `value`, so that prices can be compared with it, and for a game the score,
+    // home less away, in a last column, `lead`. Reading them changes nothing about the run. Throws
+    // std::invalid_argument unless the interval is positive.
     PriceSampler(std::ostream& out, Duration interval,
                  std::shared_ptr<Fundamental> value = nullptr);
 
