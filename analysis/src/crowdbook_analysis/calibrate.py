@@ -29,8 +29,8 @@ a verdict on seeds the search never used, and the sandwich formula for the setti
 With `condition = true`, each market of the target gets synthetic twins of its own: the template
 may use `${duration}`, its length in seconds, any of its labels by name (such as `${kickoff}`),
 for a binary contract `${opening_probability}`, where it opened, `${value_path}`, its reference
-value as a `[prediction]` path, and `${outcome}`, what it settled at (`${outcome:50}` gives a
-default for a market that has none), and for a game `${script}`, its scores replayed (see
+value as a `[prediction]` path, and `${outcome}`, what it settled at (where its value ended if it
+has not settled), and for a game `${script}`, its scores replayed (see
 `[prediction.game]`); `seeds` and
 `held_out` then count the twins of each market. Markets alike in what is known about them are
 compared with each other, and the luck of a game's result is taken out of the comparison.
@@ -178,13 +178,16 @@ def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[t
     twins open where it did. A game whose draw pays nothing cannot start its home side at much
     more than 90%, so a heavier favourite is started there. Each is labelled too with
     `value_path`, its reference value as (seconds, cents) pairs, and `outcome`, what it settled
-    at in cents, where the tape has them."""
+    at in cents, or where its reference value ended for a market not yet settled, where the tape
+    has them."""
     if not t.options.payout:
         return t.markets
     for m in t.markets:
         m.labels["value_path"] = value_path(m, t.options.payout)
         if m.outcome is not None and np.isfinite(m.outcome):
             m.labels["outcome"] = float(np.clip(m.outcome * 100.0 / t.options.payout, 0, 100))
+        elif m.labels["value_path"]:
+            m.labels["outcome"] = m.labels["value_path"][-1][1]
         first = np.nan
         if m.value is not None and len(m.value):
             first = m.value[np.isfinite(m.value)][0] if np.isfinite(m.value).any() else np.nan
@@ -470,7 +473,8 @@ def draw_settings(spec: Spec, rows: list[dict], count: int, *, seed: int = 1,
     box about its fitted value, with its 68% interval's half width, times `widen`, as the standard
     deviation, and kept within its range. A setting the fit could not pin down stays at its
     fitted value. `widen` is 2 by default since recovering known settings found the intervals
-    about half as wide as they should be (docs/validation.md)."""
+    about half as wide as they should be without refits (docs/validation.md); 1 suits intervals
+    that count them."""
     rng = np.random.default_rng(seed)
     by_name = {row["name"]: row for row in rows}
     drawn = []
@@ -497,17 +501,22 @@ def draws_main() -> None:
                         help="the fit's report.json, from crowdbook-calibrate")
     parser.add_argument("--count", type=int, default=20)
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--widen", type=float, default=2.0)
+    parser.add_argument("--widen", type=float,
+                        help="times the intervals' half widths (2, or 1 for a fit with --refits)")
     parser.add_argument("--out", type=Path, required=True, help="a directory for the scenarios")
     args = parser.parse_args()
     spec = read_spec(args.spec)
     if spec.condition:
         parser.error("a conditioned spec's scenarios are twins of recorded markets: draw "
                      "settings with calibrate.draw_settings and fill each twin")
-    rows = json.loads(args.report.read_text())["calibration"]["settings"]
+    calibration = json.loads(args.report.read_text())["calibration"]
+    rows = calibration["settings"]
+    # Intervals that count the search's own noise need no widening.
+    widen = args.widen if args.widen is not None else (
+        1.0 if calibration.get("refits", 0) >= 2 else 2.0)
     args.out.mkdir(parents=True, exist_ok=True)
     for index, values in enumerate(draw_settings(spec, rows, args.count, seed=args.seed,
-                                                 widen=args.widen)):
+                                                 widen=widen)):
         header = "".join(f"# {k} = {v!r}\n" for k, v in values.items())
         (args.out / f"draw-{index:03d}.toml").write_text(
             f"# Drawn from the fit's uncertainty, draw {index}:\n{header}\n"
@@ -586,7 +595,8 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
              verdict, "", "## Settings", "", settings_table(rows, truth), "",
              ("68% intervals from the sandwich formula of simulated moments, with the spread of "
               f"{refits} searches again on fresh seeds added: they count sampling error, the "
-              "simulation's noise and the search's own"
+              "simulation's noise and the search's own, the simulation's noise in both parts, so "
+              "they lean wide"
               if refits >= 2 else
               "68% intervals from the sandwich formula of simulated moments: they count sampling "
               "error and the simulation's noise, not the search's own, which leaves them about "
@@ -596,7 +606,8 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     data["calibration"] = {"settings": rows, "distance_fit_seeds": score,
                            "distance_held_out": held_distance, "reached": reached,
                            "compared": target.keys,
-                           "runs": evaluator.runs, "truth": truth}
+                           "runs": evaluator.runs, "truth": truth,
+                           "refits": refits if refits >= 2 else 0}
     if spec.condition:
         first = evaluator.targets[0]
         scenario = (f"# The fitted settings, in the twin of the recorded market {first.name}.\n"
@@ -625,6 +636,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("calibrated"),
                         help="directory for the fitted scenario and the report")
     args = parser.parse_args()
+    if args.refits < 0 or args.refits == 1:
+        parser.error("--refits is 0, for none, or 2 or more: one search alone has no spread")
     if bool(args.real) == bool(args.truth):
         parser.error("give one of --real or --truth")
     spec = read_spec(args.spec)
