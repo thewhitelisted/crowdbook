@@ -12,14 +12,14 @@ held_out = 10
 sample_interval = 1.0
 
 [parameters.maker_intensity]
-low = 0.2
+low = 0.05
 high = 3.0
-start = 0.8
+start = 0.5
 
 [parameters.maker_size]
 low = 5
-high = 5000
-start = 100
+high = 50000
+start = 1000
 whole = true
 
 [parameters.deep_size]
@@ -36,9 +36,14 @@ kind = "duration"
 
 [parameters.bettor_interval]
 low = 10.0
-high = 100000.0
-start = 600.0
+high = 10000000.0
+start = 3600.0
 kind = "duration"
+
+[parameters.sharp_threshold]
+low = 0.5
+high = 50.0
+start = 3.0
 
 [parameters.tilt]
 low = -0.2
@@ -47,6 +52,6 @@ start = 0.2
 log = false
 
 [parameters.noise_rate]
-low = 0.00001
+low = 0.000001
 high = 0.05
-start = 0.001
+start = 0.0001
