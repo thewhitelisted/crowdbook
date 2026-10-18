@@ -106,7 +106,7 @@ account = { max_position = 400, max_order_quantity = 400 }
 type = "zero_intelligence"
 name = "noise"
 count = 10
-limit_rate = 0.01
+limit_rate = ${noise_limit_rate}   # their limit orders land inside a wide spread: few in a quiet book
 market_rate = ${noise_rate}
 cancel_rate = 0.01
 max_offset = 4
