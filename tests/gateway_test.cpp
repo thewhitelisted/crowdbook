@@ -708,6 +708,62 @@ TEST(GatewayTest, ConflatingSendsOnlyTheLatestSnapshots) {
     }
 }
 
+// Driven turn by turn with a wall clock of the driver's own, as a harness for agents that think
+// at their own pace does: the market runs to each turn, the seats read what it sent and answer at
+// the turn's time. The same messages at the same wall times give the same bytes to every seat;
+// `late` moves one answer by a nanosecond.
+std::vector<std::string> lockstep(std::int64_t late = 0) {
+    GatewayOptions options = twoSeats();
+    options.maxMessagesPerSecond = 1'000'000;
+    options.helloTimeout = 1'000'000 * kSecond;
+    options.clockInterval = 1'000'000 * kSecond;
+    Gateway gateway{parseScenario(kScenario), std::string{kScenario},
+                    AgentRegistry::withBuiltIns(), std::move(options)};
+    gateway.conflate(true);
+    Client alice{gateway, 0};
+    Client bob{gateway, 0};
+    alice.hello("alice", 0);
+    bob.hello("bob", 0);
+    std::vector<std::string> heard(2);
+    const auto take = [&](const Client& client, std::string& into) {
+        const std::string_view pending = gateway.pendingOutput(client.id());
+        into += pending;
+        gateway.consumeOutput(client.id(), pending.size());
+    };
+    ClientOrderId next = 1;
+    for (std::int64_t turn = 0; !gateway.finished(); ++turn) {
+        const std::int64_t now = turn * 250 * kMs;
+        gateway.advance(now);
+        take(alice, heard[0]);
+        take(bob, heard[1]);
+        if (turn % 4 == 1) {
+            alice.send(bid(next++, 995 + turn % 7, 2), now + (turn == 9 ? late : 0));
+        } else if (turn % 4 == 3) {
+            bob.send(NewOrder{.clientOrderId = next++,
+                              .side = Side::Sell,
+                              .type = OrderType::Market,
+                              .quantity = 1},
+                     now);
+        }
+        EXPECT_LT(turn, 1'000) << "the session never finished";
+        if (turn >= 1'000) {
+            break;
+        }
+    }
+    return heard;
+}
+
+TEST(GatewayTest, TheSameMessagesAtTheSameWallTimesGiveTheSameBytes) {
+    const std::vector<std::string> first = lockstep();
+    const std::vector<std::string> second = lockstep();
+    EXPECT_EQ(first, second);
+    for (const std::string& heard : first) {
+        EXPECT_GT(std::ranges::count(heard, '\n'), 50);
+    }
+    // And the comparison can tell: an answer a nanosecond later is another run.
+    EXPECT_NE(lockstep(1), first);
+}
+
 TEST(GatewayTest, TheEndReportsTheSeatsResults) {
     Started market;
     market.alice.send(NewOrder{.clientOrderId = 1,
