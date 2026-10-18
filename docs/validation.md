@@ -121,7 +121,8 @@ The method is that of the fifteen-minute fit in [results.md](results.md#a-market
 made general: the method of simulated moments, tolerances from resampling the target and the
 starting market, CMA-ES over every setting at once on common seeds, a verdict on held-out seeds,
 and 68% intervals from the sandwich formula. It writes the fitted scenario, the report of the start
-and the fit against the target, and the settings with their intervals, as Markdown and JSON.
+and the fit against the target, and the settings with their intervals, as Markdown and JSON; for
+a twin fit, also `twins/`, the fitted twin of every recorded market, one scenario file each.
 
 ### Twins
 
@@ -241,7 +242,9 @@ or settlement after fees, so that picking the luckiest of 37 is not taken for an
 market is shown to pay nothing (its resting orders' markouts in the validation report, a real
 strategy's test), a flag means the fit offers an edge the real market lacks, and nothing learned
 in it should be trusted until the fit is corrected. `--latency` runs the probes at a slower seat,
-`--families maker,trend` runs only some.
+`--families maker,trend` runs only some. Given several scenarios, or a directory such as a twin
+fit's `twins/`, the markets take them in turn, so that the check covers every recorded market's
+twin and not one alone.
 
 On the fitted fifteen-minute question ([up_or_down.toml](../examples/scenarios/up_or_down.toml)),
 100 markets a probe and 400 fresh ones, 18 seconds on four cores:

@@ -1,5 +1,9 @@
+import os
+import sys
+import tempfile
 import tomllib
 import unittest
+from pathlib import Path
 
 import numpy as np
 
@@ -40,6 +44,34 @@ class SweepTest(unittest.TestCase):
     def test_every_family_is_swept(self):
         families = {p.family for p in sweep.default_probes()}
         self.assertEqual(families, {"maker", "trend", "reversal", "flow"})
+
+    def test_several_scenarios_take_the_seeds_in_turn(self):
+        # A stand-in for the engine: the probe makes what the scenario's first line says.
+        fake = ("import json, sys\n"
+                "args = sys.argv\n"
+                "made = float(open(args[2]).readline().split('=')[1])\n"
+                "group = {'name': 'probe', 'cash': made, 'initial_cash': 0, 'position': 0,\n"
+                "         'initial_position': 0, 'fees': 0, 'traded': 1}\n"
+                "json.dump({'final_value': 50, 'last_price': 50, 'groups': [group]},\n"
+                "          open(args[args.index('--json') + 1], 'w'))\n")
+        with tempfile.TemporaryDirectory() as scratch:
+            tool = Path(scratch) / "crowdbook"
+            tool.write_text(f"#!{sys.executable}\n" + fake)
+            os.chmod(tool, 0o755)
+            probe = sweep.Probe.of("maker", {"offset": 1.0})
+            rows = sweep.run_probe(tool, ["made = 1\n", "made = 10\n", "made = 100\n"], probe,
+                                   range(7, 14), latency="1ms", size=1, max_position=10)
+            self.assertEqual(rows[:, 0].tolist(), [1, 10, 100, 1, 10, 100, 1])
+            folder = Path(scratch) / "twins"
+            folder.mkdir()
+            for name in ("b.toml", "a.toml", "notes.md"):
+                (folder / name).write_text("")
+            self.assertEqual([f.name for f in sweep.scenario_files([folder, tool])],
+                             ["a.toml", "b.toml", "crowdbook"])
+            (Path(scratch) / "empty").mkdir()
+            for missing in ("empty", "nowhere"):
+                with self.assertRaises(SystemExit):
+                    sweep.scenario_files([Path(scratch) / missing])
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ after fees where the real market offers nothing.
 
     uv run --project analysis crowdbook-sweep my_fitted_market.toml
     uv run --project analysis crowdbook-sweep my_fitted_market.toml --seeds 400 --confirm 1600
+    uv run --project analysis crowdbook-sweep fit/twins     # every recorded market's twin, in turn
 
 A market fitted to a real one can offer edges the real one does not: a book wider and thinner than
 the real one pays a patient maker, a price slower than the real one pays whoever follows it. Each
@@ -12,7 +13,8 @@ under many seeds. What it makes is valued at the true value where the market has
 settlement for a contract that settles, after fees; a family's best on the first seeds is then
 judged on fresh ones, so that picking the luckiest of many does not count as an edge. A probe
 whose interval on the fresh seeds lies above zero is flagged: the market pays it, and unless the
-real market is shown to pay it too, the fit has an edge the real one lacks.
+real market is shown to pay it too, the fit has an edge the real one lacks. Given several
+scenarios, or a directory of them such as a twin fit's `twins/`, the seeds take them in turn.
 """
 
 import argparse
@@ -89,16 +91,22 @@ def made(result: dict) -> tuple[float, int]:
     raise KeyError("probe")
 
 
-def run_probe(tool: Path, scenario: str, probe: Probe, seeds, *, latency: str, size: int,
-              max_position: int) -> np.ndarray:
-    """What the probe made in each market, and what it traded: one row a seed."""
-    text = scenario + probe.section(latency, size, max_position)
+def run_probe(tool: Path, scenario: str | list[str], probe: Probe, seeds, *, latency: str,
+              size: int, max_position: int) -> np.ndarray:
+    """What the probe made in each market, and what it traded: one row a seed. Given several
+    scenarios, the i-th seed runs the (i mod n)-th."""
+    scenarios = [scenario] if isinstance(scenario, str) else scenario
+    section = probe.section(latency, size, max_position)
+    seeds = list(seeds)
     with tempfile.TemporaryDirectory() as scratch:
-        path = Path(scratch) / "scenario.toml"
-        path.write_text(text)
+        paths = []
+        for index, text in enumerate(scenarios):
+            paths.append(Path(scratch) / f"scenario{index}.toml")
+            paths[-1].write_text(text + section)
 
-        def one(seed: int) -> tuple[float, int]:
-            out = Path(scratch) / f"{seed}.json"
+        def one(index: int) -> tuple[float, int]:
+            seed, path = seeds[index], paths[index % len(paths)]
+            out = Path(scratch) / f"{index}.json"
             finished = subprocess.run([str(tool), "run", str(path), "--seed", str(seed),
                                        "--json", str(out)], capture_output=True, text=True)
             if finished.returncode != 0:
@@ -106,7 +114,7 @@ def run_probe(tool: Path, scenario: str, probe: Probe, seeds, *, latency: str, s
             return made(json.loads(out.read_text()))
 
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-            return np.array(list(pool.map(one, seeds)), dtype=float)
+            return np.array(list(pool.map(one, range(len(seeds)))), dtype=float)
 
 
 def summary(rows: np.ndarray) -> dict:
@@ -119,7 +127,7 @@ def summary(rows: np.ndarray) -> dict:
             "lots": float(lots.mean()), "markets": len(pnl)}
 
 
-def sweep(tool: Path, scenario: str, probes: list[Probe], search: int, confirm: int, *,
+def sweep(tool: Path, scenario: str | list[str], probes: list[Probe], search: int, confirm: int, *,
           latency: str = "1ms", size: int = 1, max_position: int = 10, log=print) -> dict:
     """Every probe on the search seeds; each family's best on the confirming seeds."""
     found = {}
@@ -163,9 +171,22 @@ def report(name: str, results: dict, search: int, confirm: int) -> tuple[str, bo
     return "\n".join(lines) + "\n", flagged
 
 
+def scenario_files(paths: list[Path]) -> list[Path]:
+    """The scenario files given, a directory standing for the .toml files in it, in name order."""
+    files = []
+    for path in paths:
+        if not path.exists():
+            raise SystemExit(f"no such scenario file or directory: {path}")
+        files += sorted(path.glob("*.toml")) if path.is_dir() else [path]
+    if not files:
+        raise SystemExit(f"no scenario files in {', '.join(map(str, paths))}")
+    return files
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("scenario", type=Path)
+    parser.add_argument("scenario", type=Path, nargs="+",
+                        help="scenario files, or directories of them, taken in turn")
     parser.add_argument("--seeds", type=int, default=200, help="markets for each probe (200)")
     parser.add_argument("--confirm", type=int, default=800,
                         help="fresh markets for each family's best (800)")
@@ -177,15 +198,18 @@ def main() -> None:
     parser.add_argument("--crowdbook", help="the crowdbook executable")
     parser.add_argument("--out", type=Path, help="write the Markdown here")
     args = parser.parse_args()
-    scenario = args.scenario.read_text()
-    tomllib.loads(scenario)  # a clear error for a file that is not a scenario
+    files = scenario_files(args.scenario)
+    scenarios = [f.read_text() for f in files]
+    for text in scenarios:
+        tomllib.loads(text)  # a clear error for a file that is not a scenario
     probes = default_probes()
     if args.families:
         wanted = set(args.families.split(","))
         probes = [p for p in probes if p.family in wanted]
-    results = sweep(find_tool(args.crowdbook), scenario, probes, args.seeds, args.confirm,
+    results = sweep(find_tool(args.crowdbook), scenarios, probes, args.seeds, args.confirm,
                     latency=args.latency, size=args.size, max_position=args.max_position)
-    text, flagged = report(args.scenario.name, results, args.seeds, args.confirm)
+    name = files[0].name if len(files) == 1 else f"{len(files)} scenarios from {args.scenario[0]}"
+    text, flagged = report(name, results, args.seeds, args.confirm)
     if args.out:
         args.out.write_text(text)
     print(text)
