@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sysconfig
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -15,14 +16,20 @@ DEFAULT_TOOL = REPO / "build" / "release" / "apps" / "crowdbook"
 
 def find_tool(path: str | None) -> Path:
     """The crowdbook executable: `path`, else $CROWDBOOK, else the Release build of this checkout,
-    else `crowdbook` on the path, where the crowdbook-engine wheel installs it."""
+    else the one the crowdbook-engine wheel installed beside this package, else `crowdbook` on the
+    path."""
     chosen = path or os.environ.get("CROWDBOOK")
-    tool = Path(chosen) if chosen else DEFAULT_TOOL
-    if not chosen and not tool.is_file() and (installed := shutil.which("crowdbook")):
-        tool = Path(installed)
+    if chosen:
+        tool = Path(chosen)
+    else:
+        candidates = [DEFAULT_TOOL, Path(sysconfig.get_path("scripts")) / "crowdbook"]
+        if on_path := shutil.which("crowdbook"):
+            candidates.append(Path(on_path))
+        tool = next((t for t in candidates if t.is_file()), DEFAULT_TOOL)
     if not tool.is_file():
+        where = f" at {tool}" if chosen or (REPO / "CMakeLists.txt").is_file() else ""
         raise SystemExit(
-            f"crowdbook not found at {tool}; install it with `pip install crowdbook-engine` (or "
+            f"crowdbook not found{where}; install it with `pip install crowdbook-engine` (or "
             "`pip install .` in crowdbook's checkout), build it with `cmake --workflow --preset "
             "release`, or pass --crowdbook"
         )

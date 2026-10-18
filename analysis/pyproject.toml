@@ -3,6 +3,7 @@ name = "crowdbook-analysis"
 version = "0.13.0"
 description = "Fitting, checking and analysing crowdbook markets: crowdbook-assess, crowdbook-calibrate, crowdbook-validate and the experiments"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "matplotlib>=3.9",
