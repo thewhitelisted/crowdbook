@@ -198,8 +198,6 @@ class Evaluator:
     def point(self, values: dict[str, float], seeds) -> dict[str, float]:
         t = self.tape(values, seeds)
         ps = validate.pieces(t, self.config)
-        for p in ps:
-            p["tick"] = t.options.tick
         return validate.measure(ps, self.config)
 
     def summary(self, name: str, values: dict[str, float], seeds, seed: int) -> validate.Summary:
