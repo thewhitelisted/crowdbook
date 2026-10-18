@@ -89,6 +89,15 @@ def generate(spec: Spec, tool: Path, markets: int, out: Path, *, seed: int = 1,
     return labels
 
 
+def read_dataset(directory: Path | str):
+    """A dataset's markets one at a time, shard by shard, so that it never has to fit in memory:
+    each a `tape.Market` whose labels hold its settings and outcomes. The table of every market's
+    labels is `markets.csv` beside the shards."""
+    directory = Path(directory)
+    for shard in sorted(directory.glob("shard-*")):
+        yield from tapes.read_tape(shard).markets
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("spec", type=Path)
