@@ -15,7 +15,7 @@ low = 0.5
 high = 3.0
 start = 1.0
 
-# Recorded props' books were some 12 cents wide: a half spread near 6 cents, an intensity near 1/6.
+# A start for thin, wide books: a half spread near 6 ticks, an intensity near 1/6.
 [parameters.maker_intensity]
 low = 0.05
 high = 1.0
