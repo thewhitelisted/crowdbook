@@ -414,6 +414,7 @@ asset is worth. That needs a `[fundamental]` or `[prediction]` section.
 | `quote_size` | `5` | Lots per quote |
 | `max_inventory` | `50` | Never quotes a side that could take its position past this |
 | `requote_interval` | `"100ms"` | How often it requotes; it also requotes after each of its fills |
+| `requote_threshold` | `0` | Ticks: at a requote its timer brings, it leaves its quotes where they are while its fair price is less than this from where it was when it last set them and every quote it set then is still in the book at its full size, as makers who do not chase each small move of a reference do; a fill or a rejected modify requotes it regardless, and a side it left out then, at its inventory limit or where a post-only quote would have met the book, stays out until it requotes |
 | `fair_value_weight` | `0.2` | How far each trade moves its fair price toward the trade's price |
 | `post_only` | `false` | Quote with post-only orders, a tick off the far side of the book it last saw, so it only ever adds liquidity |
 | `quote_value` | `false` | Quote around the true value as it sees it, rather than the average of trades |

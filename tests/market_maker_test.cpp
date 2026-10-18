@@ -88,6 +88,111 @@ TEST(MarketMakerTest, RequotesStraightAfterAFill) {
                                                                     .quantity = 5}}));
 }
 
+// With a threshold its timer leaves its quotes alone until its fair price has moved that far
+// from where it set them; without one the same small move requotes it.
+TEST(MarketMakerTest, LeavesItsQuotesWhileItsFairPriceMovesLessThanItsThreshold) {
+    for (const double threshold : {0.0, 2.0}) {
+        MarketMakerConfig config = kConfig;
+        config.requoteThreshold = threshold;
+        MarketMaker maker{config, kReference};
+        FakeContext context;
+        maker.onTopOfBook(context, kTop);
+        maker.onStart(context); // fair 100, the mid: bid 99, ask 101
+        static_cast<void>(context.takeSent());
+        context.accept(1);
+        context.accept(2);
+        const auto tick = [&](Timestamp time, Price traded) {
+            context.setNow(time);
+            maker.onTrade(context, {.price = traded, .quantity = 1});
+            maker.onWakeup(context, 0);
+            return context.takeSent().size();
+        };
+        // The first trade sets the fair price to 101: a tick from where it quoted.
+        EXPECT_EQ(tick(100 * kMillisecond, 101), threshold > 0 ? 0U : 2U) << threshold;
+        if (threshold > 0) {
+            // 101 + 0.2 * (104 - 101) = 101.6, still within 2 of 100: nothing.
+            EXPECT_EQ(tick(200 * kMillisecond, 104), 0U);
+            // 101.6 + 0.2 * (110 - 101.6) = 103.28: past it, both quotes move.
+            EXPECT_EQ(tick(300 * kMillisecond, 110), 2U);
+            // And it measures from there: a small move back is left alone.
+            EXPECT_EQ(tick(400 * kMillisecond, 103), 0U);
+        }
+    }
+}
+
+// A fill requotes it within its threshold, and a quote missing from the book does at its timer.
+TEST(MarketMakerTest, RequotesAfterAFillWhateverItsThreshold) {
+    MarketMakerConfig config = kConfig;
+    config.requoteThreshold = 5.0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+    context.fill(1, 5);
+    maker.onFilled(context, {});
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(3, Side::Buy, 97, 5),
+                                                        ModifyOrder{.clientOrderId = 2,
+                                                                    .price = 99,
+                                                                    .quantity = 5}}));
+    // Its new bid is cancelled by the exchange: the timer puts it back though the fair price
+    // has not moved.
+    context.accept(3);
+    static_cast<void>(context.cancelRest(3));
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(4, Side::Buy, 97, 5)}));
+}
+
+// A partial fill tops the quote up, and a rejected modify is sent again at the next timer, both
+// within the threshold.
+TEST(MarketMakerTest, TopsUpAndResendsWithinItsThreshold) {
+    MarketMakerConfig config = kConfig;
+    config.requoteThreshold = 2.0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+    // As TopsUpAPartlyFilledQuote: short 2, the ask back to 5 lots at 102.
+    context.fill(2, 2);
+    maker.onFilled(context, {});
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{ModifyOrder{.clientOrderId = 2,
+                                                                    .price = 102,
+                                                                    .quantity = 5}}));
+    // The exchange turns the modify away: the ask stays at 101 with 3 lots, and the next tick
+    // of the timer asks again though the fair price has not moved.
+    maker.onRejected(context, context.rejectModify(2, RejectReason::PostOnlyWouldTrade));
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{ModifyOrder{.clientOrderId = 2,
+                                                                    .price = 102,
+                                                                    .quantity = 5}}));
+}
+
+// A ladder level left out at its limit does not keep the threshold from holding the rest.
+TEST(MarketMakerTest, HoldsItsQuotesWithALevelLeftOut) {
+    MarketMakerConfig config = kConfig;
+    config.levels = 2;
+    config.maxInventory = 5; // room for the touch's 5 lots a side, not the second level's
+    config.requoteThreshold = 2.0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    ASSERT_EQ(context.takeSent().size(), 2U);
+    context.accept(1);
+    context.accept(2);
+    context.setNow(100 * kMillisecond);
+    maker.onTrade(context, {.price = 101, .quantity = 1}); // fair 101: within 2 of 100
+    maker.onWakeup(context, 0);
+    EXPECT_TRUE(context.takeSent().empty());
+}
+
 TEST(MarketMakerTest, TopsUpAPartlyFilledQuote) {
     MarketMaker maker{kConfig, kReference};
     FakeContext context;
@@ -236,6 +341,28 @@ TEST(MarketMakerTest, StaysOutOfAQuietStretch) {
     EXPECT_EQ(context.takeSent().size(), 2U);
 }
 
+// A maker with a threshold comes back after a quiet stretch though its fair price has not moved.
+TEST(MarketMakerTest, ComesBackAfterAQuietStretchWhateverItsThreshold) {
+    MarketMakerConfig config = kConfig;
+    config.quietFrom = kSecond;
+    config.quietUntil = 5 * kSecond;
+    config.requoteThreshold = 2.0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    ASSERT_EQ(context.takeSent().size(), 2U);
+    context.accept(1);
+    context.accept(2);
+    context.setNow(kSecond);
+    maker.onWakeup(context, 0);
+    ASSERT_EQ(context.takeSent().size(), 2U); // both cancelled
+    context.setNow(5 * kSecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(3, Side::Buy, 99, 5),
+                                                        limitOrder(4, Side::Sell, 101, 5)}));
+}
+
 // With an interval it requotes only that often in the quiet stretch, whatever the market does.
 TEST(MarketMakerTest, QuotesRarelyInAQuietStretch) {
     MarketMakerConfig config = kConfig;
@@ -364,6 +491,8 @@ TEST(MarketMakerTest, RejectsInvalidConfigs) {
     EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.quietInterval = -1; }), kReference}),
                  std::invalid_argument);
     EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levels = 0; }), kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.requoteThreshold = -0.5; }), kReference}),
                  std::invalid_argument);
     EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levels = 51; }), kReference}),
                  std::invalid_argument);

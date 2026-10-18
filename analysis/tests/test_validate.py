@@ -148,6 +148,54 @@ class StatisticsTest(unittest.TestCase):
         self.assertAlmostEqual(found["order_size_median"], 3.0)
         self.assertAlmostEqual(found["order_gap_cv"], 0.0)
 
+    def test_prints_microseconds_apart_on_one_side_are_one_order(self):
+        # A venue that stamps each fill of one order apart: a buy of 3 in three prints 20 us
+        # apart, a sell 20 us later, and a buy 2 ms after that.
+        m = market(duration=60.0)
+        m.trade_time = np.array([10.0, 10.00002, 10.00004, 10.00006, 10.00206])
+        m.trade_price = np.array([101.0, 101.0, 102.0, 99.0, 101.0])
+        m.trade_size = np.array([1.0, 1.0, 1.0, 4.0, 2.0])
+        m.trade_sign = np.array([1.0, 1.0, 1.0, -1.0, 1.0])
+        times, sizes, signs, prices = validate._orders(m, same_order=0.001)
+        np.testing.assert_allclose(times, [10.0, 10.00006, 10.00206])
+        np.testing.assert_array_equal(sizes, [3.0, 4.0, 2.0])
+        np.testing.assert_array_equal(signs, [1.0, -1.0, 1.0])
+        self.assertAlmostEqual(prices[0], 304.0 / 3)
+        # Without a window, as for the engine's own tapes, only prints at one time are one order:
+        # orders of others a moment apart stay apart.
+        self.assertEqual(len(validate._orders(m)[0]), 5)
+        m.trade_time = np.array([10.0, 10.0, 10.0, 10.00006, 10.00206])
+        self.assertEqual(len(validate._orders(m)[0]), 3)
+        # The tape says which: its same_order reaches the report.
+        found = StatisticsTest().measure(m, options=tape.Options(same_order=0.001))
+        self.assertAlmostEqual(found["prints_per_order"], 5 / 3)
+        # On a tape stamped to the millisecond, prints a millisecond apart are two orders,
+        # however their seconds round.
+        m.trade_time = np.round(np.arange(100) * 0.001 + 1234.567, 3)
+        m.trade_price, m.trade_size = np.full(100, 101.0), np.ones(100)
+        m.trade_sign = np.ones(100)
+        self.assertEqual(len(validate._orders(m, same_order=0.001)[0]), 100)
+
+    def test_a_tapes_window_for_one_order_reads_back(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            for same_order in (0.0, 0.001):
+                tape.write_tape(tape.Tape([market("a")], tape.Options(same_order=same_order)),
+                                scratch)
+                self.assertEqual(tape.read_tape(scratch).options.same_order, same_order)
+            with open(Path(scratch) / "tape.toml", "a") as file:
+                file.write("same_order = -1\n")
+            with self.assertRaises(ValueError):
+                tape.read_tape(scratch)
+
+    def test_draws_that_all_agree_have_no_spread(self):
+        # The mean of draws all 589 is not exactly 589, so their spread rounds to about 1e-16,
+        # which as a tolerance made any miss a distance of 1e16.
+        same = np.full(200, 589.0)
+        self.assertEqual(validate.spread_of(same, True), 0.0)
+        self.assertEqual(validate.spread_of(same, False), 0.0)
+        self.assertGreater(validate.spread_of(np.array([1.0, 2.0, 3.0]), False), 0.5)
+        self.assertTrue(np.isnan(validate.spread_of(np.array([1.0, 2.0]), False)))
+
     def test_what_resting_orders_earn(self):
         # Every print a buy at the ask, a tick above the mid, in a market that settles at 0.
         found = self.measure(market(spread=2.0, outcome=0.0))

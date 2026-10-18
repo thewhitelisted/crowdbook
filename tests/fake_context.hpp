@@ -98,6 +98,17 @@ public:
         return event;
     }
 
+    // Plays the exchange: rejects a modify, leaving the order as it was. Returns the event, for
+    // the test to hand to the agent.
+    OrderRejected rejectModify(ClientOrderId clientOrderId, RejectReason reason) {
+        const OrderRejected event{.agent = id_,
+                                  .clientOrderId = clientOrderId,
+                                  .request = RequestKind::Modify,
+                                  .reason = reason};
+        ledger_.apply(event);
+        return event;
+    }
+
     // Plays the exchange: confirms a modify.
     void confirmModify(ClientOrderId clientOrderId, Price price, Quantity quantity) {
         ledger_.apply(OrderModified{.agent = id_,

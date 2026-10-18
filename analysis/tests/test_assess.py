@@ -41,7 +41,7 @@ class VerdictTest(unittest.TestCase):
         text, usable = assess.verdict(report(False), swept(True), 100, 400)
         self.assertFalse(usable)
         self.assertIn("does not reach the recording within chance", text)
-        self.assertIn("pays a generic strategy: maker (offset 1.0)", text)
+        self.assertIn("pays a strategy: maker (offset 1.0)", text)
         self.assertIn("**edge**", text)
         _, unchecked = assess.verdict(report(True), None, 100, 400)
         self.assertFalse(unchecked)

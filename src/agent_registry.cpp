@@ -93,6 +93,8 @@ std::unique_ptr<Agent> makeMarketMaker(const Parameters& parameters,
                 std::clamp<std::int64_t>(parameters.integer("levels", defaults.levels), 0, 1000)),
             .levelSpacing = parameters.integer("level_spacing", defaults.levelSpacing),
             .levelGrowth = parameters.number("level_growth", defaults.levelGrowth),
+            .requoteThreshold =
+                parameters.number("requote_threshold", defaults.requoteThreshold),
         },
         environment.referencePrice, environment.fundamental);
 }
