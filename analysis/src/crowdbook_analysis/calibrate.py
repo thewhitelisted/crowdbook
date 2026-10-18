@@ -253,18 +253,20 @@ def search(evaluator: Evaluator, target: Target, seeds, generations: int,
 def derivatives(evaluator: Evaluator, target: Target, values: dict[str, float],
                 seeds) -> np.ndarray:
     """How each compared statistic moves with each setting in the unit box, by central
-    differences on common seeds; a whole number steps to its neighbours."""
+    differences on common seeds, a step of 0.05 of the range either way; a whole number steps at
+    least to its neighbours. A step of one alone, for a count of 20, moves the statistics by
+    little more than their noise, and a noisy derivative makes the intervals too narrow."""
     spec = evaluator.spec
     center = spec.to_unit(values)
     columns = []
     for index, p in enumerate(spec.parameters):
         high, low = center.copy(), center.copy()
+        high[index] = min(center[index] + 0.05, 1.0)
+        low[index] = max(center[index] - 0.05, 0.0)
         if p.whole:
-            high[index] = p.to_unit(min(values[p.name] + 1, p.high))
-            low[index] = p.to_unit(max(values[p.name] - 1, p.low))
-        else:
-            high[index] = min(center[index] + 0.05, 1.0)
-            low[index] = max(center[index] - 0.05, 0.0)
+            above = max(p.from_unit(high[index]), min(values[p.name] + 1, p.high))
+            below = min(p.from_unit(low[index]), max(values[p.name] - 1, p.low))
+            high[index], low[index] = p.to_unit(above), p.to_unit(below)
         if high[index] == low[index]:
             columns.append(np.zeros(len(target.keys)))
             continue
