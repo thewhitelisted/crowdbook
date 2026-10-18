@@ -66,6 +66,9 @@ struct Scenario {
     // `fundamental`.
     std::optional<PredictionConfig> prediction{};
     ExchangeConfig exchange{};
+    // New orders and amendments held before they reach the book, for a stretch of the run; none
+    // with a delay of 0.
+    OrderDelay orderDelay{};
     // Without one, the market trades continuously from start to end.
     std::optional<TradingDay> tradingDay{};
     std::vector<AgentGroup> groups{};

@@ -120,6 +120,8 @@ Rules and market data that apply to everyone.
 | `taker_fee` | number | `0` | Ticks per lot paid by the owner of the incoming order |
 | `auction_fee` | number | `0` | Ticks per lot paid by both sides of a trade in an auction's uncross; not negative |
 | `fee_curve` | string | `"flat"` | How fees vary with the price of a fill: `"flat"`, or `"probability"` in a prediction market, where a fill at price p pays each fee times 4·q·(1 − q) for q = p ÷ 100, the share of the payout: the whole fee at 50 and less toward either end |
+| `order_delay` | duration | none | New orders and amendments wait this long at the exchange before they reach the book, as betting exchanges hold bets while an event is in play; cancels do not wait, so a resting order can still be pulled at once. An order is accepted, or rejected, only when it reaches the book |
+| `order_delay_from`, `order_delay_until` | duration | the start, the end | The stretch of the run in which orders are held: an order is held if it reaches the exchange from `order_delay_from` until before `order_delay_until`. They need an `order_delay` |
 
 Fees take at most three decimals, such as `-0.25`, and `maker_fee + taker_fee` must not be
 negative: no exchange pays out more in rebates than it collects. Fees are kept apart from cash,

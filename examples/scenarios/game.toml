@@ -36,6 +36,9 @@ news_size = 0.15
 
 [exchange]
 depth_levels = 10
+order_delay = "5s"         # while the game is in play, orders wait before they reach the book;
+order_delay_from = "30m"   # cancels do not
+order_delay_until = "135m"
 
 [participant]
 latency = { to_exchange = "50ms", from_exchange = "50ms" }

@@ -262,7 +262,22 @@ void Simulation::process(const PhaseAction& action) {
     dispatch();
 }
 
+void Simulation::setOrderDelay(const OrderDelay& delay) {
+    if (delay.delay < 0 || delay.until < delay.from) {
+        throw std::invalid_argument(
+            "an order delay must not be negative and its stretch must not end before it starts");
+    }
+    orderDelay_ = delay;
+}
+
 void Simulation::process(const Arrival& arrival) {
+    if (!arrival.held && orderDelay_.delay > 0 && now_ >= orderDelay_.from &&
+        now_ < orderDelay_.until && !std::holds_alternative<CancelOrder>(arrival.request)) {
+        // Copied out first: scheduling may move the action being processed.
+        Arrival held{.sender = arrival.sender, .request = arrival.request, .held = true};
+        schedule(now_ + orderDelay_.delay).emplace<Arrival>(std::move(held));
+        return;
+    }
     if (sink_ != nullptr) {
         sink_->onRequest(now_, arrival.sender, arrival.request);
     }

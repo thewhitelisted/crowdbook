@@ -406,7 +406,9 @@ TradingDay readTradingDay(const Reader& reader, const toml::table& table) {
 }
 
 ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"depth_levels", "maker_fee", "taker_fee", "auction_fee", "fee_curve"},
+    reader.allowOnly(table,
+                     {"depth_levels", "maker_fee", "taker_fee", "auction_fee", "fee_curve",
+                      "order_delay", "order_delay_from", "order_delay_until"},
                      "in [exchange]");
     ExchangeConfig config;
     if (const auto* node = table.get("depth_levels")) {
@@ -873,6 +875,26 @@ Scenario detail::readScenario(const toml::table& root, std::string_view source) 
     if (const auto* node = root.get("exchange")) {
         const toml::table& table = reader.table(*node, "exchange");
         scenario.exchange = readExchange(reader, table);
+        // Orders held before they reach the book: from the start, or `order_delay_from`, to the
+        // end, or `order_delay_until`.
+        if (const auto* delay = table.get("order_delay")) {
+            scenario.orderDelay = {.until = scenario.duration,
+                                   .delay = reader.duration(*delay, "order_delay")};
+            for (const auto& [key, field] :
+                 {std::pair{"order_delay_from", &scenario.orderDelay.from},
+                  std::pair{"order_delay_until", &scenario.orderDelay.until}}) {
+                if (const auto* entry = table.get(key)) {
+                    *field = reader.duration(*entry, key);
+                }
+            }
+            if (scenario.orderDelay.until < scenario.orderDelay.from) {
+                reader.fail(table, "'order_delay_until' must not come before 'order_delay_from'");
+            }
+        } else if (const auto* stray = table.get("order_delay_from")
+                                           ? table.get("order_delay_from")
+                                           : table.get("order_delay_until")) {
+            reader.fail(*stray, "an order delay's stretch needs an 'order_delay'");
+        }
         if (scenario.exchange.feeCurve == FeeCurve::Probability && !scenario.prediction) {
             reader.fail(*table.get("fee_curve"),
                         "fee_curve = \"probability\" needs a market whose shares pay out: add a "

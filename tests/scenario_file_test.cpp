@@ -341,6 +341,27 @@ type = "zero_intelligence"
     EXPECT_EQ(*defaults.prediction->game, GameConfig{});
 }
 
+TEST(ScenarioFileTest, ReadsAnOrderDelay) {
+    const Scenario scenario = parseScenario(R"(duration = "2h"
+[exchange]
+order_delay = "5s"
+order_delay_from = "30m"
+[[agents]]
+type = "momentum"
+)");
+    EXPECT_EQ(scenario.orderDelay,
+              (OrderDelay{.from = 1800 * kSecond, .until = 7200 * kSecond, .delay = 5 * kSecond}));
+    EXPECT_EQ(parseScenario("[[agents]]\ntype = \"momentum\"\n").orderDelay, OrderDelay{});
+    EXPECT_NE(parseError("[exchange]\norder_delay_from = \"2s\"\n[[agents]]\ntype = \"momentum\"\n")
+                  .find("needs an 'order_delay'"),
+              std::string::npos);
+    EXPECT_NE(parseError("[exchange]\norder_delay = \"1s\"\norder_delay_from = \"2s\"\n"
+                         "order_delay_until = \"1s\"\n"
+                         "[[agents]]\ntype = \"momentum\"\n")
+                  .find("'order_delay_until' must not come before 'order_delay_from'"),
+              std::string::npos);
+}
+
 TEST(ScenarioFileTest, ReadsAProbabilityFeeCurveForAPredictionMarket) {
     const Scenario scenario = parseScenario(R"([prediction]
 [exchange]
