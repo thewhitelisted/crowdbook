@@ -266,6 +266,62 @@ TEST(MarketMakerTest, NeedsAValueToQuoteOff) {
     EXPECT_THROW((MarketMaker{config, kReference}), std::invalid_argument);
 }
 
+// A ladder: three levels a side, two ticks apart, each twice the size of the one nearer the
+// touch, the first where the one quote would be.
+TEST(MarketMakerTest, QuotesALadderOfLevels) {
+    MarketMakerConfig config = kConfig;
+    config.levels = 3;
+    config.levelSpacing = 2;
+    config.levelGrowth = 2.0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{
+                                      limitOrder(1, Side::Buy, 99, 5),
+                                      limitOrder(2, Side::Sell, 101, 5),
+                                      limitOrder(3, Side::Buy, 97, 10),
+                                      limitOrder(4, Side::Sell, 103, 10),
+                                      limitOrder(5, Side::Buy, 95, 20),
+                                      limitOrder(6, Side::Sell, 105, 20),
+                                  }));
+    for (ClientOrderId id = 1; id <= 6; ++id) {
+        context.accept(id);
+    }
+    // The touch bid fills: long 5, r = 98, so the whole ladder moves down two ticks, a new touch
+    // bid at 97 and every other level modified.
+    context.fill(1, 5);
+    maker.onFilled(context, {});
+    EXPECT_EQ(context.takeSent(),
+              (std::vector<Request>{
+                  limitOrder(7, Side::Buy, 97, 5),
+                  ModifyOrder{.clientOrderId = 2, .price = 99, .quantity = 5},
+                  ModifyOrder{.clientOrderId = 3, .price = 95, .quantity = 10},
+                  ModifyOrder{.clientOrderId = 4, .price = 101, .quantity = 10},
+                  ModifyOrder{.clientOrderId = 5, .price = 93, .quantity = 20},
+                  ModifyOrder{.clientOrderId = 6, .price = 103, .quantity = 20},
+              }));
+}
+
+// A level is quoted only while filling it and every level nearer the touch keeps the position
+// within max_inventory: with 20 lots at most, the third level (5 + 10 + 20) is left out.
+TEST(MarketMakerTest, ALadderStopsAtItsInventoryLimit) {
+    MarketMakerConfig config = kConfig;
+    config.maxInventory = 20;
+    config.levels = 3;
+    config.levelGrowth = 2.0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{
+                                      limitOrder(1, Side::Buy, 99, 5),
+                                      limitOrder(2, Side::Sell, 101, 5),
+                                      limitOrder(3, Side::Buy, 98, 10),
+                                      limitOrder(4, Side::Sell, 102, 10),
+                                  }));
+}
+
 TEST(MarketMakerTest, RejectsInvalidConfigs) {
     const auto withChange = [](auto change) {
         MarketMakerConfig config = kConfig;
@@ -292,6 +348,14 @@ TEST(MarketMakerTest, RejectsInvalidConfigs) {
                               kReference}),
                  std::invalid_argument);
     EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.quietInterval = -1; }), kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levels = 0; }), kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levels = 51; }), kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levelSpacing = 0; }), kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levelGrowth = 0.0; }), kReference}),
                  std::invalid_argument);
 }
 

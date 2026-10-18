@@ -10,6 +10,10 @@
 
 namespace crowdbook {
 
+namespace {
+constexpr int kMaxLevels = 50;
+} // namespace
+
 Quotes avellanedaStoikovQuotes(const MarketMakerConfig& config, double fairPrice,
                                Quantity inventory) {
     const double gamma = config.riskAversion;
@@ -55,9 +59,23 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
         throw std::invalid_argument("market_maker's quiet stretch must start at 0 or later, end "
                                     "no sooner, and have an interval that is not negative");
     }
+    if (config.levels < 1 || config.levels > kMaxLevels || config.levelSpacing < 1 ||
+        !(config.levelGrowth > 0.0) || !std::isfinite(config.levelGrowth)) {
+        throw std::invalid_argument(std::format(
+            "market_maker needs 1 to {} levels, a level_spacing of at least 1 tick and a "
+            "positive level_growth",
+            kMaxLevels));
+    }
     if (config.valueBelief) {
         belief_.emplace(*config.valueBelief, std::move(fundamental));
     }
+    bids_.resize(static_cast<std::size_t>(config.levels));
+    asks_.resize(static_cast<std::size_t>(config.levels));
+}
+
+Quantity MarketMaker::levelSize(int level) const noexcept {
+    const double size = static_cast<double>(config_.quoteSize) * std::pow(config_.levelGrowth, level);
+    return std::clamp<Quantity>(static_cast<Quantity>(std::llround(size)), 1, config_.maxInventory);
 }
 
 void MarketMaker::onStart(AgentContext& context) {
@@ -76,11 +94,13 @@ void MarketMaker::onFilled(AgentContext& context, const OrderFilled& /*event*/) 
 
 void MarketMaker::onRejected(AgentContext& context, const OrderRejected& event) {
     // The order kept its old price; remember that, so the next requote asks again.
-    for (std::optional<Quote>* quote : {&bid_, &ask_}) {
-        if (event.request == RequestKind::Modify && *quote &&
-            (*quote)->clientOrderId == event.clientOrderId) {
-            if (const OwnOrder* live = context.ledger().find(event.clientOrderId)) {
-                (*quote)->price = live->price;
+    for (auto* side : {&bids_, &asks_}) {
+        for (std::optional<Quote>& quote : *side) {
+            if (event.request == RequestKind::Modify && quote &&
+                quote->clientOrderId == event.clientOrderId) {
+                if (const OwnOrder* live = context.ledger().find(event.clientOrderId)) {
+                    quote->price = live->price;
+                }
             }
         }
     }
@@ -116,8 +136,11 @@ void MarketMaker::requote(AgentContext& context) {
     const Timestamp now = context.now();
     if (config_.quietFrom && now >= *config_.quietFrom && now < config_.quietUntil) {
         if (config_.quietInterval == 0) {
-            maintain(context, bid_, Side::Buy, std::nullopt);
-            maintain(context, ask_, Side::Sell, std::nullopt);
+            for (int level = 0; level < config_.levels; ++level) {
+                const auto at = static_cast<std::size_t>(level);
+                maintain(context, bids_[at], Side::Buy, std::nullopt, levelSize(level));
+                maintain(context, asks_[at], Side::Sell, std::nullopt, levelSize(level));
+            }
             return;
         }
         if (quotedAt_ && now - *quotedAt_ < config_.quietInterval) {
@@ -151,12 +174,34 @@ void MarketMaker::requote(AgentContext& context) {
             target.ask.reset();
         }
     }
-    maintain(context, bid_, Side::Buy, target.bid);
-    maintain(context, ask_, Side::Sell, target.ask);
+    // The ladder: each level behind the touch quote, quoted while filling it and every level
+    // nearer would keep the position within max_inventory.
+    const Quantity position = context.ledger().position();
+    Quantity bought = 0;
+    Quantity sold = 0;
+    for (int level = 0; level < config_.levels; ++level) {
+        const auto at = static_cast<std::size_t>(level);
+        const Quantity size = levelSize(level);
+        const Price behind = static_cast<Price>(level) * config_.levelSpacing;
+        bought += size;
+        sold += size;
+        std::optional<Price> bid;
+        if (target.bid && *target.bid - behind >= 1 &&
+            position + bought <= config_.maxInventory) {
+            bid = *target.bid - behind;
+        }
+        std::optional<Price> ask;
+        if (target.ask && *target.ask + behind <= highest &&
+            position - sold >= -config_.maxInventory) {
+            ask = *target.ask + behind;
+        }
+        maintain(context, bids_[at], Side::Buy, bid, size);
+        maintain(context, asks_[at], Side::Sell, ask, size);
+    }
 }
 
 void MarketMaker::maintain(AgentContext& context, std::optional<Quote>& quote, Side side,
-                           std::optional<Price> price) const {
+                           std::optional<Price> price, Quantity size) const {
     const OwnOrder* live = quote ? context.ledger().find(quote->clientOrderId) : nullptr;
     if (live == nullptr || live->cancelRequested) {
         quote.reset(); // filled, cancelled, or already on its way out
@@ -172,10 +217,10 @@ void MarketMaker::maintain(AgentContext& context, std::optional<Quote>& quote, S
         const TimeInForce timeInForce =
             config_.postOnly ? TimeInForce::PostOnly : TimeInForce::GoodTillCancel;
         quote = Quote{
-            .clientOrderId = context.submitLimit(side, *price, config_.quoteSize, timeInForce),
+            .clientOrderId = context.submitLimit(side, *price, size, timeInForce),
             .price = *price};
-    } else if (quote->price != *price || live->leaves != config_.quoteSize) {
-        context.modify(quote->clientOrderId, *price, config_.quoteSize);
+    } else if (quote->price != *price || live->leaves != size) {
+        context.modify(quote->clientOrderId, *price, size);
         quote->price = *price;
     }
 }

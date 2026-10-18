@@ -1,5 +1,6 @@
 #include "crowdbook/agent_registry.hpp"
 
+#include <algorithm>
 #include <format>
 #include <optional>
 #include <stdexcept>
@@ -87,6 +88,11 @@ std::unique_ptr<Agent> makeMarketMaker(const Parameters& parameters,
                              : std::nullopt,
             .quietUntil = parameters.duration("quiet_until", defaults.quietUntil),
             .quietInterval = parameters.duration("quiet_interval", defaults.quietInterval),
+            // Kept in range before narrowing, so that a huge count is refused, not wrapped.
+            .levels = static_cast<int>(
+                std::clamp<std::int64_t>(parameters.integer("levels", defaults.levels), 0, 1000)),
+            .levelSpacing = parameters.integer("level_spacing", defaults.levelSpacing),
+            .levelGrowth = parameters.number("level_growth", defaults.levelGrowth),
         },
         environment.referencePrice, environment.fundamental);
 }
