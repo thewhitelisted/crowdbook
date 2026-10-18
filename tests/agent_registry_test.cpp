@@ -55,6 +55,23 @@ TEST(AgentRegistryTest, CreatesBuiltInAgentsFromParameters) {
     EXPECT_NE(registry.create("informed", Parameters{}, withValue), nullptr);
 }
 
+TEST(AgentRegistryTest, AMarketMakerSeesTheValueOnlyWhenItQuotesOffIt) {
+    const AgentRegistry registry = AgentRegistry::withBuiltIns();
+    Environment withValue;
+    withValue.fundamental = std::make_shared<Fundamental>(FundamentalConfig{}, Random{1, 0});
+    Parameters offValue;
+    offValue.set("quote_value", true);
+    offValue.set("lag", std::string{"100ms"});
+    EXPECT_NE(registry.create("market_maker", offValue, withValue), nullptr);
+    EXPECT_THROW(static_cast<void>(registry.create("market_maker", offValue, {})),
+                 std::invalid_argument);
+
+    Parameters lagAlone;
+    lagAlone.set("lag", std::string{"100ms"});
+    EXPECT_NE(creationError(registry, "market_maker", lagAlone).find("unknown parameter"),
+              std::string::npos);
+}
+
 TEST(AgentRegistryTest, RejectsUnknownTypesAndNamesTheKnownOnes) {
     const std::string error =
         creationError(AgentRegistry::withBuiltIns(), "market_taker", Parameters{});
@@ -85,8 +102,7 @@ TEST(AgentRegistryTest, RejectsInvalidValues) {
 
     Parameters badStyle;
     badStyle.set("style", std::string{"iceberg"});
-    EXPECT_NE(creationError(registry, "execution", badStyle)
-                  .find("\"twap\", \"pov\" or \"vwap\""),
+    EXPECT_NE(creationError(registry, "execution", badStyle).find("\"twap\", \"pov\" or \"vwap\""),
               std::string::npos);
 
     Parameters badSpread;
@@ -100,13 +116,12 @@ TEST(AgentRegistryTest, RejectsInvalidValues) {
 
 TEST(AgentRegistryTest, AcceptsUserDefinedTypes) {
     AgentRegistry registry = AgentRegistry::withBuiltIns();
-    registry.add("idle", [](const Parameters&, const Environment&) {
-        return std::make_unique<Idle>();
-    });
+    registry.add("idle",
+                 [](const Parameters&, const Environment&) { return std::make_unique<Idle>(); });
     EXPECT_NE(registry.create("idle", Parameters{}, {}), nullptr);
-    EXPECT_THROW(registry.add("idle", [](const Parameters&, const Environment&) {
-        return std::make_unique<Idle>();
-    }), std::invalid_argument);
+    EXPECT_THROW(registry.add("idle", [](const Parameters&,
+                                         const Environment&) { return std::make_unique<Idle>(); }),
+                 std::invalid_argument);
     EXPECT_THROW(registry.add("empty", nullptr), std::invalid_argument);
 }
 

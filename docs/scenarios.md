@@ -329,7 +329,10 @@ always has. [memory_market.toml](../examples/scenarios/memory_market.toml) uses 
 
 Quotes a bid and an ask around a reservation price that leans against its inventory, after
 Avellaneda and Stoikov (2008): `r = s − q·γ·σ²·τ`, with a half spread of
-`γσ²τ/2 + ln(1 + γ/k)/γ`. Its fair price `s` is a running average of trade prices.
+`γσ²τ/2 + ln(1 + γ/k)/γ`. Its fair price `s` is a running average of trade prices, or, with
+`quote_value`, the true value as it sees it at each requote: a market maker who prices off what the
+asset is worth, as those of crypto prediction markets quote off an exchange's price. That needs a
+`[fundamental]` or `[prediction]` section.
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -342,6 +345,8 @@ Avellaneda and Stoikov (2008): `r = s − q·γ·σ²·τ`, with a half spread o
 | `requote_interval` | `"100ms"` | How often it requotes; it also requotes after each of its fills |
 | `fair_value_weight` | `0.2` | How far each trade moves its fair price toward the trade's price |
 | `post_only` | `false` | Quote with post-only orders, a tick off the far side of the book it last saw, so it only ever adds liquidity |
+| `quote_value` | `false` | Quote around the true value as it sees it, rather than the average of trades |
+| `noise`, `error`, `error_memory`, `bias`, `lag` | `1.0`, `0`, `"60s"`, `0`, `"0s"` | With `quote_value`, how it sees the value, as [below](#how-traders-see-the-true-value); without it, not allowed |
 
 Keep γ·σ²·τ, the skew per lot of inventory, small. When other traders anchor on the market maker's
 quotes, a large skew drags the whole market against its own inventory.
@@ -413,8 +418,8 @@ of its own that can smother effects that need the book to thin
 
 ### How traders see the true value
 
-Nobody knows the true value exactly. Informed and adaptive traders see it through a belief, set by
-five parameters, in ticks (cents in a prediction market):
+Nobody knows the true value exactly. Informed and adaptive traders, and market makers that quote
+off the value, see it through a belief, set by five parameters, in ticks (cents in a prediction market):
 
 | Parameter | Meaning |
 |---|---|

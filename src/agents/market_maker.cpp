@@ -4,6 +4,7 @@
 #include <cmath>
 #include <format>
 #include <stdexcept>
+#include <utility>
 
 #include "crowdbook/math.hpp"
 
@@ -30,23 +31,27 @@ Quotes avellanedaStoikovQuotes(const MarketMakerConfig& config, double fairPrice
     return quotes;
 }
 
-MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice)
+MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
+                         std::shared_ptr<Fundamental> fundamental)
     : config_(config), market_(referencePrice) {
-    if (!(config.riskAversion > 0.0) || !(config.intensity > 0.0) ||
-        !(config.volatility >= 0.0) || config.horizon < 0) {
+    if (!(config.riskAversion > 0.0) || !(config.intensity > 0.0) || !(config.volatility >= 0.0) ||
+        config.horizon < 0) {
         throw std::invalid_argument("market_maker needs risk_aversion > 0, intensity > 0, "
                                     "volatility >= 0 and a horizon that is not negative");
     }
     if (config.quoteSize < 1 || config.maxInventory < config.quoteSize ||
         config.maxInventory > kMaxQuantity) {
-        throw std::invalid_argument(std::format(
-            "market_maker needs 1 <= quote_size <= max_inventory <= {}", kMaxQuantity));
+        throw std::invalid_argument(
+            std::format("market_maker needs 1 <= quote_size <= max_inventory <= {}", kMaxQuantity));
     }
     if (config.requoteInterval <= 0) {
         throw std::invalid_argument("market_maker requote_interval must be positive");
     }
     if (!(config.fairValueWeight > 0.0) || config.fairValueWeight > 1.0) {
         throw std::invalid_argument("market_maker fair_value_weight must be in (0, 1]");
+    }
+    if (config.valueBelief) {
+        belief_.emplace(*config.valueBelief, std::move(fundamental));
     }
 }
 
@@ -103,7 +108,8 @@ void MarketMaker::requote(AgentContext& context) {
     if (phase_ != Phase::Continuous) {
         return;
     }
-    Quotes target = avellanedaStoikovQuotes(config_, fairPrice(), context.ledger().position());
+    const double fair = belief_ ? belief_->look(context) : fairPrice();
+    Quotes target = avellanedaStoikovQuotes(config_, fair, context.ledger().position());
     if (config_.postOnly) {
         if (target.bid && market_.bestAsk()) {
             target.bid = std::min(*target.bid, *market_.bestAsk() - 1);
@@ -148,9 +154,9 @@ void MarketMaker::maintain(AgentContext& context, std::optional<Quote>& quote, S
     } else if (!quote) {
         const TimeInForce timeInForce =
             config_.postOnly ? TimeInForce::PostOnly : TimeInForce::GoodTillCancel;
-        quote = Quote{
-            .clientOrderId = context.submitLimit(side, *price, config_.quoteSize, timeInForce),
-            .price = *price};
+        quote = Quote{.clientOrderId =
+                          context.submitLimit(side, *price, config_.quoteSize, timeInForce),
+                      .price = *price};
     } else if (quote->price != *price || live->leaves != config_.quoteSize) {
         context.modify(quote->clientOrderId, *price, config_.quoteSize);
         quote->price = *price;

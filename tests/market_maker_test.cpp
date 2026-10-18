@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include "crowdbook/agents/market_maker.hpp"
+
 #include "exchange_test_support.hpp"
 #include "fake_context.hpp"
 
@@ -82,10 +83,9 @@ TEST(MarketMakerTest, RequotesStraightAfterAFill) {
     // The whole bid fills: long 5 lots, r = 98, so a new bid at 97 and the ask moves to 99.
     context.fill(1, 5);
     maker.onFilled(context, {});
-    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(3, Side::Buy, 97, 5),
-                                                        ModifyOrder{.clientOrderId = 2,
-                                                                    .price = 99,
-                                                                    .quantity = 5}}));
+    EXPECT_EQ(context.takeSent(),
+              (std::vector<Request>{limitOrder(3, Side::Buy, 97, 5),
+                                    ModifyOrder{.clientOrderId = 2, .price = 99, .quantity = 5}}));
 }
 
 TEST(MarketMakerTest, TopsUpAPartlyFilledQuote) {
@@ -100,9 +100,8 @@ TEST(MarketMakerTest, TopsUpAPartlyFilledQuote) {
     // Two lots of the ask fill: short 2, r = 100.8, so bid 99 and ask 102, back to 5 lots.
     context.fill(2, 2);
     maker.onFilled(context, {});
-    EXPECT_EQ(context.takeSent(), (std::vector<Request>{ModifyOrder{.clientOrderId = 2,
-                                                                    .price = 102,
-                                                                    .quantity = 5}}));
+    EXPECT_EQ(context.takeSent(),
+              (std::vector<Request>{ModifyOrder{.clientOrderId = 2, .price = 102, .quantity = 5}}));
 }
 
 TEST(MarketMakerTest, CancelsTheQuoteThatWouldBreachItsLimit) {
@@ -119,9 +118,8 @@ TEST(MarketMakerTest, CancelsTheQuoteThatWouldBreachItsLimit) {
     // Long 5 = the limit: no new bid, and the ask moves down to sell (r = 98).
     context.fill(1, 5);
     maker.onFilled(context, {});
-    EXPECT_EQ(context.takeSent(), (std::vector<Request>{ModifyOrder{.clientOrderId = 2,
-                                                                    .price = 99,
-                                                                    .quantity = 5}}));
+    EXPECT_EQ(context.takeSent(),
+              (std::vector<Request>{ModifyOrder{.clientOrderId = 2, .price = 99, .quantity = 5}}));
 }
 
 TEST(MarketMakerTest, PostOnlyQuotesStayOffTheFarSideOfTheBook) {
@@ -195,6 +193,27 @@ TEST(MarketMakerTest, QuotesWithinTheExchangesHighestPrice) {
     maker.onStart(context);
     EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(1, Side::Buy, 98, 5),
                                                         limitOrder(2, Side::Sell, 99, 5)}));
+}
+
+// With a value belief it quotes around the value as it sees it, whatever trades print.
+TEST(MarketMakerTest, QuotesAroundTheValueItSees) {
+    MarketMakerConfig config = kConfig;
+    config.valueBelief = BeliefConfig{.noise = 0.0};
+    const auto value = std::make_shared<Fundamental>(
+        FundamentalConfig{.initial = 60.0, .volatility = 0.0}, Random{1, 0});
+    MarketMaker maker{config, kReference, value};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onTrade(context, {.price = 110, .quantity = 1});
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(1, Side::Buy, 59, 5),
+                                                        limitOrder(2, Side::Sell, 61, 5)}));
+}
+
+TEST(MarketMakerTest, NeedsAValueToQuoteOff) {
+    MarketMakerConfig config = kConfig;
+    config.valueBelief = BeliefConfig{};
+    EXPECT_THROW((MarketMaker{config, kReference}), std::invalid_argument);
 }
 
 TEST(MarketMakerTest, RejectsInvalidConfigs) {

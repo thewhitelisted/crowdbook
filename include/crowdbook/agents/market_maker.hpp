@@ -1,10 +1,13 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 
 #include "crowdbook/agent.hpp"
+#include "crowdbook/agents/belief.hpp"
 #include "crowdbook/agents/market_view.hpp"
+#include "crowdbook/fundamental.hpp"
 #include "crowdbook/types.hpp"
 
 namespace crowdbook {
@@ -24,6 +27,10 @@ struct MarketMakerConfig {
     // Quote with post-only orders, kept a tick off the far side of the book as last seen, so the
     // market maker only ever adds liquidity (and earns any maker rebate).
     bool postOnly = false;
+    // With a belief, the fair price is the value as the belief sees it, looked at on every
+    // requote, rather than the average of trades: a market maker who prices off what the asset is
+    // worth, as those of crypto prediction markets quote off an exchange's price.
+    std::optional<BeliefConfig> valueBelief{};
 };
 
 struct Quotes {
@@ -45,13 +52,16 @@ struct Quotes {
 // reservation price that leans against its inventory: when long it lowers both quotes, so it sells
 // more and buys less, and when short it raises them. The fair price is a running average of trade
 // prices (the mid before the first trade), not the mid itself, because the mid is often the market
-// maker's own quotes. It quotes on start, then requotes on a timer (whose first tick falls at a
-// random point in the first interval) and straight after each of its own fills, moving a live
-// quote with modify. A modify the exchange rejects is sent again at the next requote.
+// maker's own quotes; or, with a value belief, the value as it sees it at each requote. It quotes
+// on start, then requotes on a timer (whose first tick falls at a random point in the first
+// interval) and straight after each of its own fills, moving a live quote with modify. A modify the
+// exchange rejects is sent again at the next requote.
 class MarketMaker final : public Agent {
 public:
-    // Throws std::invalid_argument for a config the formulas cannot use.
-    MarketMaker(const MarketMakerConfig& config, Price referencePrice);
+    // Throws std::invalid_argument for a config the formulas cannot use, and for a value belief
+    // without a value or one Belief refuses.
+    MarketMaker(const MarketMakerConfig& config, Price referencePrice,
+                std::shared_ptr<Fundamental> fundamental = nullptr);
 
     void onStart(AgentContext& context) override;
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
@@ -63,6 +73,8 @@ public:
     void onTopOfBook(AgentContext& context, const TopOfBook& top) override;
     void onTrade(AgentContext& context, const Trade& trade) override;
 
+    // The running average of trades; a market maker with a value belief quotes around the value
+    // instead.
     [[nodiscard]] double fairPrice() const noexcept;
 
 private:
@@ -80,6 +92,7 @@ private:
     MarketMakerConfig config_;
     MarketView market_;
     std::optional<double> tradeAverage_;
+    std::optional<Belief> belief_;
     std::optional<Quote> bid_;
     std::optional<Quote> ask_;
 };
