@@ -173,7 +173,8 @@ held-out seeds the fit is within 2 tolerances on 35 of 40 statistics, a distance
 
 The same check on [game.toml](../examples/calibration/game.toml), ten settings at once: 300 games
 at known settings as the target, 100 generations on 30 common seeds, 32,790 games in all, about an
-hour on four cores (the twin spec's settings without the twins).
+hour on four cores ([game_spec.toml](../examples/calibration/game_spec.toml), before its template held
+orders in play).
 
 | setting | start | truth | fitted | 68% interval | covers the truth |
 |---|---:|---:|---:|---:|---|
