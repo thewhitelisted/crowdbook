@@ -272,7 +272,8 @@ void Simulation::setOrderDelay(const OrderDelay& delay) {
 
 void Simulation::process(const Arrival& arrival) {
     if (!arrival.held && orderDelay_.delay > 0 && now_ >= orderDelay_.from &&
-        now_ < orderDelay_.until && !std::holds_alternative<CancelOrder>(arrival.request)) {
+        now_ < orderDelay_.until &&
+        (orderDelay_.cancels || !std::holds_alternative<CancelOrder>(arrival.request))) {
         // Copied out first: scheduling may move the action being processed.
         Arrival held{.sender = arrival.sender, .request = arrival.request, .held = true};
         schedule(now_ + orderDelay_.delay).emplace<Arrival>(std::move(held));

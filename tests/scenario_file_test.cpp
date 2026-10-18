@@ -348,11 +348,14 @@ TEST(ScenarioFileTest, ReadsAnOrderDelay) {
 [exchange]
 order_delay = "5s"
 order_delay_from = "30m"
+order_delay_cancels = true
 [[agents]]
 type = "momentum"
 )");
-    EXPECT_EQ(scenario.orderDelay,
-              (OrderDelay{.from = 1800 * kSecond, .until = 7200 * kSecond, .delay = 5 * kSecond}));
+    EXPECT_EQ(scenario.orderDelay, (OrderDelay{.from = 1800 * kSecond,
+                                               .until = 7200 * kSecond,
+                                               .delay = 5 * kSecond,
+                                               .cancels = true}));
     EXPECT_EQ(parseScenario("[[agents]]\ntype = \"momentum\"\n").orderDelay, OrderDelay{});
     EXPECT_NE(parseError("[exchange]\norder_delay_from = \"2s\"\n[[agents]]\ntype = \"momentum\"\n")
                   .find("needs an 'order_delay'"),

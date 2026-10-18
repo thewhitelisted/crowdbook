@@ -420,7 +420,8 @@ TradingDay readTradingDay(const Reader& reader, const toml::table& table) {
 ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
     reader.allowOnly(table,
                      {"depth_levels", "maker_fee", "taker_fee", "auction_fee", "fee_curve",
-                      "order_delay", "order_delay_from", "order_delay_until"},
+                      "order_delay", "order_delay_from", "order_delay_until",
+                      "order_delay_cancels"},
                      "in [exchange]");
     ExchangeConfig config;
     if (const auto* node = table.get("depth_levels")) {
@@ -902,9 +903,17 @@ Scenario detail::readScenario(const toml::table& root, std::string_view source) 
             if (scenario.orderDelay.until < scenario.orderDelay.from) {
                 reader.fail(table, "'order_delay_until' must not come before 'order_delay_from'");
             }
-        } else if (const auto* stray = table.get("order_delay_from")
-                                           ? table.get("order_delay_from")
-                                           : table.get("order_delay_until")) {
+            if (const auto* entry = table.get("order_delay_cancels")) {
+                const auto* flag = entry->as_boolean();
+                if (flag == nullptr) {
+                    reader.fail(*entry, "'order_delay_cancels' must be true or false");
+                }
+                scenario.orderDelay.cancels = flag->get();
+            }
+        } else if (const auto* stray = table.get("order_delay_from") ? table.get("order_delay_from")
+                                       : table.get("order_delay_until")
+                                           ? table.get("order_delay_until")
+                                           : table.get("order_delay_cancels")) {
             reader.fail(*stray, "an order delay's stretch needs an 'order_delay'");
         }
         if (scenario.exchange.feeCurve == FeeCurve::Probability && !scenario.prediction) {
