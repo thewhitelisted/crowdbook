@@ -46,6 +46,24 @@ class VerdictTest(unittest.TestCase):
         _, unchecked = assess.verdict(report(True), None, 100, 400)
         self.assertFalse(unchecked)
 
+    def test_an_edge_check_that_judged_nothing_is_not_a_pass(self):
+        nothing = {"searched": {}, "judged": {}}
+        text, usable = assess.verdict(report(True), nothing, 100, 400)
+        self.assertFalse(usable)
+        self.assertIn("judged no strategy with an interval", text)
+        # One fresh market gives no interval: a profit there is not a pass either.
+        maker = sweep.Probe.of("maker", {"offset": 1.0})
+        one = {"searched": {}, "judged": {maker: {"mean": 25.0, "low": float("nan"),
+                                                  "high": float("nan")}}}
+        self.assertFalse(assess.verdict(report(True), one, 100, 1)[1])
+
+    def test_a_statistic_with_no_distance_is_left_out_of_the_worst(self):
+        data = report(True)
+        data["statistics"][0]["simulated"][-1]["distance"] = float("nan")
+        text, _ = assess.verdict(data, swept(False), 100, 400)
+        self.assertNotIn("nan", text.split("## Edges")[0])
+        self.assertIn("orders per minute", text)
+
 
 if __name__ == "__main__":
     unittest.main()
