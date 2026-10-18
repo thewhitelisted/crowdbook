@@ -335,9 +335,9 @@ On the fitted fifteen-minute question ([up_or_down.toml](../examples/scenarios/u
 
 That market was fitted to trades alone, with one market maker quoting around the average of trades,
 and a maker quoting 8 cents either side of the mid catches the noise traders' large orders as they
-sweep its thin book; the real questions' makers, on the chain, lost money as a whole. It is the
-false edge this check exists for: the fitted market should not be used to judge a maker until its
-book is fitted too.
+sweep its thin book. Unless the real market pays such a quote as much, which the validation
+report's standing quotes measure, it is the false edge this check exists for: the fitted market
+should not be used to judge a maker until its book is fitted too.
 
 ### A learner in the check
 
