@@ -1,5 +1,8 @@
 # What crowdbook-calibrate fits in game_twins.toml, twin by twin: each recorded game gets `seeds`
-# twins for every candidate and `held_out` for the verdict.
+# twins for every candidate and `held_out` for the verdict. The book's statistics barely see how
+# much is scored, when, or how the strength drifts before kickoff (docs/validation.md), so set
+# `scores`, `late_scoring` and `pregame_drift` from the recorded scores and reference price
+# where they can be: give each a narrow range around what the recording says.
 template = "game_twins.toml"
 condition = true
 seeds = 2

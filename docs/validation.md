@@ -169,6 +169,36 @@ held-out seeds the fit is within 2 tolerances on 35 of 40 statistics, a distance
   intervals just as confident. That is why the report states whether the fit reaches the target
   within chance: a fit that does not cannot be read for its settings.
 
+### Recovering a game's settings
+
+The same check on [game.toml](../examples/calibration/game.toml), ten settings at once: 300 games
+at known settings as the target, 100 generations on 30 common seeds, 32,790 games in all, about an
+hour on four cores (the twin spec's settings without the twins).
+
+| setting | start | truth | fitted | 68% interval | covers the truth |
+|---|---:|---:|---:|---:|---|
+| maker_intensity | 0.8 | 1.2 | 1.20 | 1.18 to 1.22 | yes |
+| maker_lag | 1 s | 2 s | 2.08 s | 1.96 to 2.2 s | yes |
+| sharp_lag | 1.5 s | 0.8 s | 1.0 s | 0.78 to 1.29 s | yes |
+| bettors | 60 | 100 | 101 | 98.9 to 103 | yes |
+| tilt | 0.3 | 0.2 | 0.206 | 0.197 to 0.215 | yes |
+| bias | 2 | 1 | 0.10 | −0.43 to 0.64 | no |
+| probability | 0.5 | 0.6 | 0.537 | 0.483 to 0.59 | no |
+| scores | 2.7 | 3 | 3.51 | 3.33 to 3.71 | no |
+| late_scoring | 1 | 1.5 | 1.10 | 0.97 to 1.25 | no |
+| pregame_drift | 0.15 | 0.25 | 0.072 | 0.057 to 0.090 | no |
+
+The fit reaches the target within chance, a held-out distance of 20.4 against 60.5, 38 of 44
+statistics within 2. **Who trades, and how, is found; the game itself is not.** The makers' width
+and lateness, the sharp traders' lateness, the bettors' number and their tilt are recovered; how
+much is scored and when, the pre-game drift, the opening probability and the bettors' lean to the
+home side are not, since the book's statistics, pooled over games, barely move with them. They are
+facts of the game, read better where they are recorded: the scores give the scoring rate and its
+pace through the game, a reference price gives the opening probability and the drift before
+kickoff. So a game is fitted as twins, each opening where its game opened and replaying its
+scores, with the scoring settings set from the recorded scores rather than fitted, and the fit
+left to the traders.
+
 ## Datasets
 
 `crowdbook-generate` ([generate.py](../analysis/src/crowdbook_analysis/generate.py)) makes many
