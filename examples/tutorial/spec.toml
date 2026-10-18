@@ -1,0 +1,21 @@
+# What the tutorial fits in market.toml, and where it may look (docs/tutorial.md).
+template = "market.toml"
+seeds = 20            # markets each candidate is judged on
+generations = 30
+held_out = 100        # markets the fit is judged on afterwards, on other seeds
+
+[parameters.maker_intensity]
+low = 0.1
+high = 2.0
+start = 0.4
+
+[parameters.noise_market_rate]
+low = 0.02
+high = 1.0
+start = 0.1
+
+[parameters.follower_lag]
+low = 0.5
+high = 30.0
+start = 3.0
+kind = "duration"
