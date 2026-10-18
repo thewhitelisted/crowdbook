@@ -535,8 +535,15 @@ AgentOptions readParticipant(const Reader& reader, const toml::table& table) {
 }
 
 LearningFeed readFeed(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"interval", "lag", "noise", "trigger"}, "in learning.feed");
+    reader.allowOnly(table, {"interval", "lag", "noise", "trigger", "of"}, "in learning.feed");
     LearningFeed feed;
+    if (const auto* node = table.get("of")) {
+        const std::string of = reader.text(*node, "of");
+        if (of != "underlying" && of != "value") {
+            reader.fail(*node, "the feed's 'of' is \"underlying\" or \"value\"");
+        }
+        feed.value = of == "value";
+    }
     if (const auto* node = table.get("interval")) {
         feed.interval = reader.duration(*node, "interval");
         if (feed.interval < kMinFeedInterval) {

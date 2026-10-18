@@ -8,7 +8,8 @@ its fills were worth a while later, and how that holds up as it trades bigger.
     result = evaluate(policy, scenario_text, seeds=range(1, 401), scales=(1, 2, 4))
 
 The policy answers each decision with orders, as `Pool.step_orders` takes them: the bid's price
-and size, the offer's price and size, and a quantity to take, negative to sell. Markets come from
+and size, the offer's price and size, a quantity to take, negative to sell, and optionally the
+take's limit price. Markets come from
 one scenario or from several, such as draws from a fit's uncertainty, one per seed in turn, so
 that a strategy is judged across what the fit allows rather than at its point alone. At each
 scale every size the policy asks for is multiplied by the scale, and the same seeds run again:
@@ -201,7 +202,7 @@ def evaluate(policy: Callable, scenarios: str | Sequence[str], seeds: Sequence[i
 
 def per_market(decide: Callable) -> Callable:
     """A policy from a function that decides for one market at a time: decide(state, events,
-    book, orders) gets that market's arrays and returns its five numbers."""
+    book, orders) gets that market's arrays and returns its five or six numbers."""
     def policy(observation, info):
         rows = []
         for market in range(len(observation["state"])):

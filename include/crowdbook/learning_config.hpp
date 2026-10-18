@@ -55,7 +55,9 @@ inline constexpr Duration kMinFeedInterval = kMillisecond;
 // A public feed of the market's underlying, which only the learning seat hears: every interval,
 // the underlying as it stood `lag` earlier, plus fresh normal noise. The underlying is the true
 // value of a market with a fundamental, in ticks, and in a prediction market the hidden quantity
-// whose end decides the question, whose change over the run has variance 1.
+// whose end decides the question, whose change over the run has variance 1, or for a game the
+// score, home less away. With `value`, the feed is the true value itself, in ticks, cents of the
+// payout in a prediction market: the price of a sharper market elsewhere, say.
 struct LearningFeed {
     // At least kMinFeedInterval, which bounds the publications a step can bring.
     Duration interval = kSecond;
@@ -65,6 +67,7 @@ struct LearningFeed {
     // decision by at least this much, in the underlying's units, so that the seat can act on a
     // move of the underlying as soon as it hears it; 0 for none.
     double trigger = 0.0;
+    bool value = false; // the true value rather than the underlying
 
     friend bool operator==(const LearningFeed&, const LearningFeed&) = default;
 };

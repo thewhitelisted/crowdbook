@@ -150,15 +150,17 @@ class Pool:
 
     def step_orders(self, orders):
         """Places each market's orders instead of an action and returns what step returns. A
-        row is the bid's price and size, the offer's price and size, and the quantity to take,
-        negative to sell: a side with a price or size of 0 has no quote, a quote already at its
+        row is the bid's price and size, the offer's price and size, the quantity to take,
+        negative to sell, and optionally the take's limit price, 0 or left out for the best price
+        on the other side: a side with a price or size of 0 has no quote, a quote already at its
         price keeps its place, and a take first cancels the quote on the side it takes from."""
         array = np.asarray(orders)
         if not np.issubdtype(array.dtype, np.integer):
             raise TypeError(f"orders must be whole numbers, not {array.dtype}")
         array = np.ascontiguousarray(array.astype(np.int64, copy=False))
-        if array.shape != (self.markets, 5):
-            raise ValueError(f"the orders must be a row of five numbers a market, not {array.shape}")
+        if array.ndim != 2 or array.shape[0] != self.markets or array.shape[1] not in (5, 6):
+            raise ValueError("the orders must be a row of five or six numbers a market, not "
+                             f"{array.shape}")
         self._pool.step_orders(array)
         return (dict(self.observation), self._buffers["rewards"], self._buffers["terminated"],
                 self._buffers["truncated"], dict(self.info))

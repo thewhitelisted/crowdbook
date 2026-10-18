@@ -830,6 +830,47 @@ TEST(LearningTest, TheFeedShowsTheUnderlyingLateWithFreshNoise) {
     EXPECT_NEAR(std::sqrt(squares / static_cast<double>(noisy.size())), 0.5, 0.15);
 }
 
+// A feed of the value publishes the true value, cents of the payout in a game's market, not the
+// score behind it.
+TEST(LearningTest, AFeedOfTheValuePublishesTheValue) {
+    const std::string text = R"(duration = "60s"
+[prediction]
+probability = 0.4
+[prediction.game]
+length = "50s"
+scores = 6
+[learning]
+feed = { interval = "1s", lag = "2s", of = "value" }
+[[agents]]
+type = "zero_intelligence"
+count = 10
+)";
+    Scenario scenario = parseScenario(text);
+    ASSERT_TRUE(scenario.learning->feed->value);
+    LearningMarket market{*scenario.learning, registry()};
+    Buffers buffers{market.shape()};
+    market.reset(scenario, buffers.view());
+    const std::shared_ptr<Fundamental> value = makeFundamental(parseScenario(text));
+    std::size_t seen = 0;
+    while (!market.finished()) {
+        for (const auto& row : buffers.rows()) {
+            if (row[0] == static_cast<std::int64_t>(LearningEvent::Feed)) {
+                const Timestamp time = row[1];
+                EXPECT_EQ(
+                    row[2],
+                    std::llround(value->valueAt(std::max<Timestamp>(time - 2 * kSecond, 0)) * 1e6))
+                    << "at " << time;
+                ++seen;
+            }
+        }
+        market.step(0, 0, buffers.view());
+    }
+    EXPECT_GT(seen, 30U);
+    std::string wrong = text;
+    wrong.replace(wrong.find("\"value\""), 7, "\"price\"");
+    EXPECT_THROW(static_cast<void>(parseScenario(wrong)), ScenarioError);
+}
+
 // A busy market's feed, every 500ms and 2s late, without noise and with the trigger given.
 std::string triggeredFeed(double trigger) {
     std::string text{kBusy};
