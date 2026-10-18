@@ -10,6 +10,9 @@ generations = 40
 held_out = 10
 # Games last over two hours: a sample of the book every second is enough for these statistics.
 sample_interval = 1.0
+# Recordings that start hours before kickoff fit faster, on the part where the book moves,
+# trimmed to the last hour before it and the game:
+# around = { label = "kickoff", before = 3600 }
 
 [parameters.maker_intensity]
 low = 0.05
