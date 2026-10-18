@@ -13,6 +13,22 @@ uv run --project analysis crowdbook-calibrate my_spec.toml --real RECORDED
 uv run --project analysis crowdbook-generate my_spec.toml --markets 10000 --out dataset
 ```
 
+Or all of it in one command, from a recording to a verdict:
+
+```bash
+uv run --project analysis crowdbook-assess my_spec.toml --real RECORDED --output assessed
+```
+
+[`crowdbook-assess`](../analysis/src/crowdbook_analysis/assess.py) fits the spec to the
+recording, runs [the no-false-edge check](#the-no-false-edge-check) on every fitted market (each
+recorded market's twin, for a twin fit), and writes `verdict.md` beside the fit's report:
+- **Usable or not:** a fit is usable for testing strategies only when it reaches the recording
+  within chance and no generic strategy makes money in it.
+- **Why not:** the statistics furthest from the recording, any strategy the fitted market pays,
+  and what a standing quote earns in the recording against the fit.
+
+It exits with 0 for a usable fit and 1 otherwise, so a script or a scheduled job can act on it.
+
 ## Tapes: one format for every market
 
 A tape is a directory of tables, CSV or Parquet, holding one market or many
