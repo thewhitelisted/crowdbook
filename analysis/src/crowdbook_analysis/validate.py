@@ -620,6 +620,79 @@ def report(real: Summary, simulated: list[Summary], config: Config = Config()) -
     return "\n".join(lines) + "\n", data
 
 
+def _ccdf(x: np.ndarray, points: int = 60) -> tuple[np.ndarray, np.ndarray]:
+    """The share of samples above each of `points` levels spaced in proportion."""
+    x = np.sort(x[np.isfinite(x) & (x > 0)])
+    if len(x) < 10:
+        return np.array([]), np.array([])
+    levels = np.geomspace(x[0], x[-1], points)
+    above = 1 - np.searchsorted(x, levels, side="right") / len(x)
+    keep = above > 0
+    return levels[keep], above[keep]
+
+
+def plot(real: Summary, simulated: list[Summary], config: Config, directory: Path) -> list[Path]:
+    """Charts of the report, real against each synthetic market: the spread's distribution, the
+    tails of order sizes and of one-step changes, how resting orders' earnings move with the
+    horizon, and, where there is a value, how fast the mid follows it. Returns the files."""
+    from crowdbook_analysis import style
+
+    summaries = [real] + simulated
+    made = []
+
+    def save(fig, ax, name: str) -> None:
+        path = directory / f"{name}.png"
+        style.finish(fig, ax, path)
+        made.append(path)
+
+    fig, ax = style.figure("Spread at the touch", "ticks", "share of samples")
+    for slot, s in enumerate(summaries[:4]):
+        spreads = np.round(_cat(s.pieces, "spread_grid"))
+        spreads = spreads[np.isfinite(spreads)]
+        values = np.arange(1, 9)
+        share = [np.mean(spreads == v) if len(spreads) else 0 for v in values]
+        style.stems(ax, values, share, slot, s.name,
+                    offset=(slot - 0.5 * (len(summaries) - 1)) * 0.12)
+    save(fig, ax, "spread")
+
+    for key, title, xlabel, name in (("sizes", "Order sizes: the tail", "order size", "sizes"),
+                                     ("returns_first", "One-step mid changes: the tail",
+                                      "size of change", "tails")):
+        fig, ax = style.figure(title, xlabel, "share larger")
+        for slot, s in enumerate(summaries[:4]):
+            x, y = _ccdf(np.abs(_cat(s.pieces, key)))
+            if len(x):
+                style.line(ax, x, y, slot, s.name, markers=False)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        save(fig, ax, name)
+
+    horizons = [0.0] + list(config.markouts)
+    keys = ["maker_at_trade"] + [f"maker_after_{h:g}" for h in config.markouts]
+    fig, ax = style.figure("What resting orders earn, by horizon", "seconds after the fill",
+                           "earned per unit (price units)")
+    for slot, s in enumerate(summaries[:4]):
+        values = [s.point.get(k, np.nan) for k in keys]
+        errors = [spread_of(s.draws[k], False) for k in keys]
+        style.line(ax, horizons, values, slot, s.name, error=errors)
+    ax.set_xscale("symlog", linthresh=1)
+    ax.set_xticks(horizons, [f"{h:g}" for h in horizons])
+    save(fig, ax, "markouts")
+
+    if any(np.isfinite(s.point.get(f"follow_{config.follow_lags[0]:g}", np.nan))
+           for s in summaries):
+        keys = [f"follow_{lag:g}" for lag in config.follow_lags]
+        fig, ax = style.figure(f"How the mid follows a {config.move:g} s move of the value",
+                               "seconds after the move", "share of the move made")
+        for slot, s in enumerate(summaries[:4]):
+            values = [s.point.get(k, np.nan) for k in keys]
+            if np.any(np.isfinite(values)):
+                errors = [spread_of(s.draws[k], False) for k in keys]
+                style.line(ax, list(config.follow_lags), values, slot, s.name, error=errors)
+        save(fig, ax, "follow")
+    return made
+
+
 def _seeds(text: str) -> range:
     first, _, last = text.partition(":")
     return range(int(first), int(last)) if last else range(1, int(first) + 1)
@@ -642,6 +715,7 @@ def main() -> None:
     parser.add_argument("--crowdbook", help="the crowdbook executable")
     parser.add_argument("--out", type=Path, help="write the Markdown here, not to standard output")
     parser.add_argument("--json", type=Path, help="also write the numbers as JSON")
+    parser.add_argument("--plots", type=Path, help="also draw the charts into this directory")
     args = parser.parse_args()
     if not args.sim and not args.scenario:
         parser.error("give at least one --sim or --scenario")
@@ -668,6 +742,8 @@ def main() -> None:
         print(text)
     if args.json:
         args.json.write_text(json.dumps(data, indent=1, default=float))
+    if args.plots:
+        plot(real, simulated[:3], config, args.plots)
 
 
 if __name__ == "__main__":

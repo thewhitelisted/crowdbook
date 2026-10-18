@@ -57,6 +57,10 @@ Kolmogorov–Smirnov distance between the pooled distributions of the spread, th
 order sizes and 1 s changes, beside the distance between two random halves of the real markets,
 which is what chance alone gives at that many markets.
 
+`--plots DIR` also draws the charts: the spread's distribution, the tails of order sizes and of
+one-step changes, what resting orders earn by horizon and, where there is a value, how fast the mid
+follows it, the real market against up to three synthetic ones. `--json FILE` writes every number.
+
 `--window START:END` measures only that part of each market, in seconds from its start, with the
 book as it stood at `START`: before kickoff and during play, say, or the part a recording covers.
 
