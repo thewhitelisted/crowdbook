@@ -151,6 +151,30 @@ class ConditionTest(unittest.TestCase):
         self.assertEqual((early.labels["kickoff"], early.labels["kickoff_recorded"]), (0.0, -30.0))
         self.assertEqual(late.labels["kickoff"], 60.0)
 
+    def test_a_phase_fits_the_part_of_each_twin_its_recorded_market_has(self):
+        from crowdbook_analysis import tape as tapes
+        from crowdbook_analysis import validate
+        from test_validate import market
+        template = TEMPLATE.replace('duration = "60s"', 'duration = "${duration}s"')
+        spec = spec_from('condition = true\nphase = "from kickoff"\n' + SPEC, template)
+        self.assertEqual(spec.phase, ("kickoff", True))
+        with self.assertRaisesRegex(ValueError, "phase is"):
+            spec_from('phase = "after kickoff"\n' + SPEC)
+        early, late = market("early", duration=100.0), market("late", duration=100.0)
+        early.labels = {"kickoff": 20.0, "value_path": [(0.0, 50.0)]}
+        late.labels = {"kickoff": 70.0}
+        evaluator = calibrate.Evaluator(None, spec, validate.Config(), [early, late])
+        # Twins of the two, a seed each, in the order the evaluator runs them; the second's own
+        # label wins over its recorded market's.
+        twins = [market("1"), market("2"), market("3")]
+        twins[2].labels = {"kickoff": 90.0}
+        for index, twin in enumerate(twins):
+            evaluator._label_twin(index, twin)
+        self.assertEqual([t.labels["kickoff"] for t in twins], [20.0, 70.0, 90.0])
+        self.assertNotIn("value_path", twins[0].labels)
+        cut = spec.cut(tapes.Tape(twins))
+        self.assertEqual([m.duration for m in cut.markets], [80.0, 30.0, 10.0])
+
     def test_writes_the_twin_of_every_recorded_market(self):
         from test_validate import market
         spec = spec_from("condition = true\n" + SPEC,

@@ -402,10 +402,11 @@ def simulate_runs(tool: Path, runs: list[Run], *, labels: dict | None = None,
 
 def simulate_markets(tool: Path, runs: list[Run], *, labels: dict | None = None,
                      workers: int | None = None, sample_interval: float = SAMPLE_INTERVAL,
-                     then: Callable[[Market], object] | None = None) -> list:
-    """Each run as a market, in the order of the runs, or what `then` makes of it. The workers
-    only run markets and read them; `then` runs here, on each market as it finishes, so that
-    measuring overlaps running the rest without the two contending. Runs may share seeds."""
+                     then: Callable[[int, Market], object] | None = None) -> list:
+    """Each run as a market, in the order of the runs, or what `then` makes of the run's index and
+    its market. The workers only run markets and read them; `then` runs here, on each market as it
+    finishes, so that measuring overlaps running the rest without the two contending. Runs may
+    share seeds."""
     with tempfile.TemporaryDirectory() as scratch, ThreadPoolExecutor(
             max_workers=workers or os.cpu_count()) as pool:
         def one(index: int, job: Run) -> Market:
@@ -416,6 +417,7 @@ def simulate_markets(tool: Path, runs: list[Run], *, labels: dict | None = None,
         futures = {pool.submit(one, index, job): index for index, job in enumerate(runs)}
         out: list = [None] * len(runs)
         for future in as_completed(futures):
+            index = futures[future]
             market = future.result()
-            out[futures[future]] = then(market) if then is not None else market
+            out[index] = then(index, market) if then is not None else market
         return out
