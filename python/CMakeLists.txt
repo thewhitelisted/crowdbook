@@ -1,7 +1,13 @@
 # The learning pool for Python: crowdbook::learning bound with nanobind, with the package around it
 # laid out in this build directory, which imports as it is (PYTHONPATH=build/<preset>/python).
-# Built when Python 3.12 or later is found with the files for building modules.
-find_package(Python 3.12 COMPONENTS Interpreter Development.Module)
+# Built when Python 3.12 or later is found with the files for building modules. A wheel's build
+# (pyproject.toml, through scikit-build-core) builds it for Python's stable ABI, so that one module
+# loads in 3.12 and every later version.
+find_package(Python 3.12 COMPONENTS Interpreter Development.Module ${SKBUILD_SABI_COMPONENT})
+if(NOT Python_FOUND AND SKBUILD)
+    message(FATAL_ERROR "A wheel needs Python 3.12 or later with its development files, for "
+                        "crowdbook_learn")
+endif()
 if(NOT Python_FOUND)
     message(STATUS "Python 3.12 or later with its development files not found: the Python module "
                    "for learning is skipped")
@@ -22,14 +28,26 @@ set_target_properties(crowdbook crowdbook_protocol crowdbook_scenario crowdbook_
     PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 set(package "${CMAKE_CURRENT_BINARY_DIR}/crowdbook_learn")
-nanobind_add_module(crowdbook_learn_core NB_STATIC NB_SUPPRESS_WARNINGS module.cpp)
+set(abi)
+if(SKBUILD_SABI_COMPONENT)
+    set(abi STABLE_ABI)
+endif()
+nanobind_add_module(crowdbook_learn_core NB_STATIC NB_SUPPRESS_WARNINGS ${abi} module.cpp)
 set_target_properties(crowdbook_learn_core PROPERTIES
     OUTPUT_NAME _core
     LIBRARY_OUTPUT_DIRECTORY "${package}")
 target_link_libraries(crowdbook_learn_core PRIVATE crowdbook::learning)
 crowdbook_set_warnings(crowdbook_learn_core)
-configure_file(crowdbook_learn/__init__.py "${package}/__init__.py" COPYONLY)
-configure_file(crowdbook_learn/evaluate.py "${package}/evaluate.py" COPYONLY)
+set(sources crowdbook_learn/__init__.py crowdbook_learn/evaluate.py)
+foreach(source IN LISTS sources)
+    configure_file(${source} "${CMAKE_CURRENT_BINARY_DIR}/${source}" COPYONLY)
+endforeach()
+
+# In a wheel, the package goes where Python finds it.
+if(SKBUILD)
+    install(TARGETS crowdbook_learn_core LIBRARY DESTINATION crowdbook_learn COMPONENT wheel)
+    install(FILES ${sources} DESTINATION crowdbook_learn COMPONENT wheel)
+endif()
 
 if(CROWDBOOK_BUILD_TESTS)
     # The tests need NumPy; Gymnasium's are skipped without it.

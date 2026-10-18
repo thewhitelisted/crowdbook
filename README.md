@@ -10,43 +10,36 @@ link. Spreads, depth, price impact and volatility are not assumed; they emerge f
 interact. Writing your own agent means writing one C++ class and naming it in a scenario file,
 or writing a program in any language that trades over the network.
 
-> **Status:** the order book, the exchange, the simulation kernel, seven built-in agents, scenario
-> files, the `crowdbook` command and the Python analysis package are done, and
-> [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself, in
-> real time, and replay the session exactly afterwards, and a server lets several people and bots
-> trade in one market over the network, with a Python client for writing bots, in challenges that
-> score them, and a report after each session shows who you traded with, what they knew and what the
-> market would have done without you. A market with memory shows volatility clustering for about an
-> hour, and brokers working large orders give order flow long memory and price impact whose shape
-> depends on how long the book remembers. The engine is also a library, with versioned formats, a
-> package to install and a container image. Markets can trade a whole day, with opening and closing
-> auctions and halts, and a market can be a prediction market on a yes-or-no question, whose prices
-> come out as probabilities. Nobody sees the true value exactly: traders see it late, each with
-> errors of its own, and some with a tilt, which gives prediction markets the favourite–longshot
-> bias of real ones. Simulated markets are now set against real ones: a scorecard of the same
-> statistics on Polymarket's Bitcoin questions, read from its public blockchain, and a market
-> fitted to them, every setting at once, with uncertainties, judged on seeds the fit never saw;
-> takers pay Polymarket's own fee. A learning agent can step markets from Python, many at once on
-> threads of their own, each through a seat of its own, with rewards from the scoring rules and the
-> market's settings drawn at random for each episode, and every episode replays exactly. Any
-> market, recorded or simulated, can be held against another statistic by statistic with intervals,
-> a scenario fitted to a recording is checked against settings it knows, and labelled synthetic
-> markets come by the thousand; a contract can be on a game, its probability jumping on scores,
-> with orders held while the game is in play. Next:
-> industry protocols, FIX and a binary encoding, so trading systems can use crowdbook as a test
-> exchange. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
-> approach and the roadmap.
+It fits itself to a recorded market, says whether the fit can be trusted for testing strategies,
+and then tests them: [docs/tutorial.md](docs/tutorial.md) goes from a recording to a verdict and a
+tested strategy in about fifteen minutes.
+
+> **Status:** the engine (order book, exchange, simulation kernel, built-in agents, scenario
+> files), trading in it by hand or over the network, session reports, the learning environment,
+> and fitting to recordings with the checks on a fit are done; [docs/results.md](docs/results.md)
+> reports the experiments, and [docs/design.md](docs/design.md#roadmap) has the roadmap.
+
+## Install
+
+Python 3.12 or later, on Linux or macOS, and CMake 3.25+ with a C++23 compiler to build from
+source:
+
+```bash
+git clone https://github.com/thewhitelisted/crowdbook && cd crowdbook
+python3 -m venv .venv && . .venv/bin/activate
+pip install . ./analysis
+```
+
+That installs the `crowdbook` command and the learning pool `crowdbook_learn` (the
+`crowdbook-engine` package), and the analysis commands, `crowdbook-assess`,
+`crowdbook-calibrate`, `crowdbook-validate` and the rest (`crowdbook-analysis`). A release's
+ready-built wheels need no compiler; [docs/quickstart.md](docs/quickstart.md#install) says how to
+install them, and [Building](#building) covers the C++ build with its tests.
 
 ## Quick start
 
-Requires CMake 3.25+, Ninja and a C++23 compiler (CI covers Apple clang and GCC 14).
-
 ```bash
-cmake --workflow --preset dev
-```
-
-```bash
-./build/dev/apps/crowdbook run examples/scenarios/market_maker.toml --log run.csv
+crowdbook run examples/scenarios/market_maker.toml --log run.csv
 ```
 
 ```
@@ -66,6 +59,19 @@ markets with informed traders, memory, or brokers working large orders, a tradin
 prediction market, one fitted to Polymarket's fifteen-minute Bitcoin questions and a contract on
 a game, whose probability jumps when either side scores;
 [docs/scenarios.md](docs/scenarios.md) describes the file format and every agent parameter.
+
+Where to go from here:
+
+| To | Read |
+|---|---|
+| Fit a recorded market, check the fit, and test a strategy in it | [docs/tutorial.md](docs/tutorial.md), then [docs/validation.md](docs/validation.md) |
+| Run, play and serve markets; write a bot or a learning agent | [docs/quickstart.md](docs/quickstart.md) |
+| Write a scenario | [docs/scenarios.md](docs/scenarios.md) |
+| Step markets from Python for learning | [python/README.md](python/README.md) |
+| Trade from Python over the network | [clients/python/README.md](clients/python/README.md), [docs/protocol.md](docs/protocol.md) |
+| Use the engine from C++ | [docs/library.md](docs/library.md) |
+| See what the simulated markets show | [docs/results.md](docs/results.md) |
+| Understand how it works and is tested | [docs/design.md](docs/design.md) |
 
 ## Results
 
@@ -129,11 +135,11 @@ describes the format both are read in, a report of the same statistics on each w
 distances, a calibration that fits any scenario to a recording and checks that it can find
 settings it knows, a check that the fitted market pays no generic strategy the recording does
 not, and a generator of many labelled markets for training and analysis. From a recording to a
-verdict on whether its fit can be trusted for testing strategies, in one command:
+verdict on whether its fit can be trusted for testing strategies, in one command, as
+[docs/tutorial.md](docs/tutorial.md) shows step by step:
 
 ```bash
-uv run --project analysis crowdbook-assess examples/calibration/reference_twins_spec.toml \
-    --real RECORDED_MARKETS --output assessed
+crowdbook-assess examples/tutorial/spec.toml --real RECORDED_MARKETS --output assessed
 ```
 
 ## Trade in it yourself
@@ -142,7 +148,7 @@ uv run --project analysis crowdbook-assess examples/calibration/reference_twins_
 one more trader:
 
 ```bash
-./build/release/apps/crowdbook play examples/scenarios/playable.toml --record session.toml
+crowdbook play examples/scenarios/playable.toml --record session.toml
 ```
 
 ```
@@ -176,7 +182,7 @@ With `--record`, the session can be replayed exactly. The replay produces the sa
 byte for byte, so a played session becomes data to analyse:
 
 ```bash
-./build/release/apps/crowdbook replay session.toml --log session.csv
+crowdbook replay session.toml --log session.csv
 ```
 
 ## Serve it to people and bots
@@ -186,14 +192,14 @@ one participant, with the scenario's account and latency, and anything that spea
 [protocol](docs/protocol.md), JSON with one message per line, can claim it:
 
 ```bash
-./build/release/apps/crowdbook serve examples/scenarios/playable.toml --seat alice --seat bob \
+crowdbook serve examples/scenarios/playable.toml --seat alice --seat bob \
     --record session.toml
 ```
 
 The clock starts once every seat is claimed. A person can trade from the terminal screen:
 
 ```bash
-./build/release/apps/crowdbook connect 127.0.0.1:7878 --seat alice
+crowdbook connect 127.0.0.1:7878 --seat alice
 ```
 
 and a program needs only a socket. In Python:
@@ -241,7 +247,7 @@ they traded, and what the market would have done without you, by replaying it wi
 orders.
 
 ```bash
-./build/release/apps/crowdbook report examples/sessions/served_demo.toml --json report.json
+crowdbook report examples/sessions/served_demo.toml --json report.json
 ```
 
 ```
@@ -260,7 +266,7 @@ report at the end with `--report`. And any session can be rewound to a moment an
 differently:
 
 ```bash
-./build/release/apps/crowdbook play session.toml --at 2m --record retry.toml
+crowdbook play session.toml --at 2m --record retry.toml
 ```
 
 ## Challenges
@@ -277,7 +283,7 @@ project, each a market with a task:
 | [prediction.toml](examples/challenges/prediction.toml) | Trade a yes-or-no question that resolves in ten minutes, without seeing the news | PnL at resolution, 100 or 0 a share |
 
 ```bash
-./build/release/apps/crowdbook play examples/challenges/large_order.toml
+crowdbook play examples/challenges/large_order.toml
 ```
 
 The engine computes the score from the exchange's events, so replaying a session's recording
