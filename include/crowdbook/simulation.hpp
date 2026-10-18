@@ -90,6 +90,10 @@ public:
     // Throws std::invalid_argument for a time in the past.
     void schedulePhase(Timestamp time, Phase phase);
 
+    // Clears the exchange's book at `time`, cancelling every resting order, as a scheduled action
+    // like any other. Throws std::invalid_argument for a time in the past.
+    void scheduleClear(Timestamp time);
+
     // Holds new orders and amendments that arrive in the delay's stretch of the run. Throws
     // std::invalid_argument for a negative delay or a stretch that ends before it starts.
     void setOrderDelay(const OrderDelay& delay);
@@ -174,7 +178,9 @@ private:
         Phase phase = Phase::Continuous;
         bool endsHalt = false;
     };
-    using Action = std::variant<Start, Wakeup, Arrival, Delivery, PhaseAction>;
+    // The exchange clearing its book.
+    struct Clear {};
+    using Action = std::variant<Start, Wakeup, Arrival, Delivery, PhaseAction, Clear>;
 
     // The exchange's public state from `time` until the next change.
     struct PublicState {
@@ -205,6 +211,7 @@ private:
     void process(const Arrival& arrival);
     void process(const Delivery& delivery);
     void process(const PhaseAction& action);
+    void process(const Clear& clear);
     // Logs, delivers and publishes the events in events_, and schedules the end of a halt that
     // one of them starts.
     void dispatch();

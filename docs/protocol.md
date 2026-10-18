@@ -179,7 +179,8 @@ negative for a rebate.
 ```
 
 `reason` is `requested`, `immediate-or-cancel` (the part of an immediate-or-cancel or market order
-that could not trade) or `self-trade`.
+that could not trade), `self-trade` or `cleared` (the exchange cleared its book, as when an event
+goes in play).
 
 ### trade
 

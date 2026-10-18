@@ -42,6 +42,39 @@ protected:
     Exchange exchange_;
 };
 
+// Clearing the book cancels every resting order, bids best first then offers, and publishes the
+// empty book.
+TEST_F(ExchangeTest, ClearingTheBookCancelsEveryRestingOrder) {
+    send(kAlice, limitOrder(1, Side::Buy, 98, 5));
+    send(kBob, limitOrder(1, Side::Buy, 99, 2));
+    send(kAlice, limitOrder(2, Side::Sell, 101, 3));
+    std::vector<Event> events;
+    exchange_.clearBook(events);
+    EXPECT_EQ(events, (std::vector<Event>{
+                          OrderCancelled{.agent = kBob,
+                                         .clientOrderId = 1,
+                                         .orderId = 2,
+                                         .quantity = 2,
+                                         .reason = CancelReason::Cleared},
+                          OrderCancelled{.agent = kAlice,
+                                         .clientOrderId = 1,
+                                         .orderId = 1,
+                                         .quantity = 5,
+                                         .reason = CancelReason::Cleared},
+                          OrderCancelled{.agent = kAlice,
+                                         .clientOrderId = 2,
+                                         .orderId = 3,
+                                         .quantity = 3,
+                                         .reason = CancelReason::Cleared},
+                          TopOfBook{},
+                      }));
+    EXPECT_EQ(exchange_.account(kAlice), Account{});
+    EXPECT_EQ(exchange_.liveOrderId(kAlice, 1), std::nullopt);
+    std::vector<Event> again;
+    exchange_.clearBook(again);
+    EXPECT_TRUE(again.empty());
+}
+
 TEST_F(ExchangeTest, AcceptsAndRestsALimitOrder) {
     EXPECT_EQ(send(kAlice, limitOrder(7, Side::Buy, 99, 5)),
               (std::vector<Event>{

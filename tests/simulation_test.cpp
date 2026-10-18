@@ -99,6 +99,24 @@ TEST(SimulationTest, TheOrderDelayHoldsOrdersButNotCancels) {
     EXPECT_THROW(simulation.setOrderDelay({.delay = -1}), std::invalid_argument);
 }
 
+// A scheduled clear cancels the resting orders at its time, and each owner hears why.
+TEST(SimulationTest, AScheduledClearEmptiesTheBook) {
+    Simulation simulation{1};
+    simulation.scheduleClear(500);
+    auto& alice = add<RecordingAgent>(simulation, {.latency = {.toExchange = 10}});
+    alice.startHook = [](AgentContext& context) { context.submitLimit(Side::Buy, 99, 5); };
+    simulation.runUntil(1'000);
+    EXPECT_EQ(simulation.exchange().book().orderCount(), 0U);
+    const auto cancelled = std::ranges::find_if(alice.received, [](const Received& received) {
+        return std::holds_alternative<OrderCancelled>(received.event);
+    });
+    ASSERT_NE(cancelled, alice.received.end());
+    EXPECT_EQ(cancelled->time, 500);
+    EXPECT_EQ(std::get<OrderCancelled>(cancelled->event).reason, CancelReason::Cleared);
+    EXPECT_EQ(simulation.ledger(1).openQuantity(Side::Buy), 0);
+    EXPECT_THROW(simulation.scheduleClear(100), std::invalid_argument);
+}
+
 TEST(SimulationTest, AnInterruptStopsOnceEverythingDueThenHasRun) {
     Simulation simulation{1};
     auto& alice = add<RecordingAgent>(simulation, {});

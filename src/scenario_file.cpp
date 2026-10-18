@@ -420,8 +420,8 @@ TradingDay readTradingDay(const Reader& reader, const toml::table& table) {
 ExchangeConfig readExchange(const Reader& reader, const toml::table& table) {
     reader.allowOnly(table,
                      {"depth_levels", "maker_fee", "taker_fee", "auction_fee", "fee_curve",
-                      "order_delay", "order_delay_from", "order_delay_until",
-                      "order_delay_cancels"},
+                      "order_delay", "order_delay_from", "order_delay_until", "order_delay_cancels",
+                      "clear_at"},
                      "in [exchange]");
     ExchangeConfig config;
     if (const auto* node = table.get("depth_levels")) {
@@ -922,6 +922,15 @@ Scenario detail::readScenario(const toml::table& root, std::string_view source) 
                                            ? table.get("order_delay_until")
                                            : table.get("order_delay_cancels")) {
             reader.fail(*stray, "an order delay's stretch needs an 'order_delay'");
+        }
+        if (const auto* times = table.get("clear_at")) {
+            const auto* list = times->as_array();
+            if (list == nullptr) {
+                reader.fail(*times, "'clear_at' must be a list of times, such as [\"30m\"]");
+            }
+            for (const toml::node& element : *list) {
+                scenario.clearAt.push_back(reader.duration(element, "clear_at"));
+            }
         }
         if (scenario.exchange.feeCurve == FeeCurve::Probability && !scenario.prediction) {
             reader.fail(*table.get("fee_curve"),

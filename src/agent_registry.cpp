@@ -82,6 +82,11 @@ std::unique_ptr<Agent> makeMarketMaker(const Parameters& parameters,
             .fairValueWeight = parameters.number("fair_value_weight", defaults.fairValueWeight),
             .postOnly = parameters.flag("post_only", defaults.postOnly),
             .valueBelief = belief,
+            .quietFrom = parameters.contains("quiet_from")
+                             ? std::optional<Timestamp>{parameters.duration("quiet_from", 0)}
+                             : std::nullopt,
+            .quietUntil = parameters.duration("quiet_until", defaults.quietUntil),
+            .quietInterval = parameters.duration("quiet_interval", defaults.quietInterval),
         },
         environment.referencePrice, environment.fundamental);
 }

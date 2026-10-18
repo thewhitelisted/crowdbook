@@ -349,6 +349,7 @@ TEST(ScenarioFileTest, ReadsAnOrderDelay) {
 order_delay = "5s"
 order_delay_from = "30m"
 order_delay_cancels = true
+clear_at = ["30m", "1h"]
 [[agents]]
 type = "momentum"
 )");
@@ -357,6 +358,7 @@ type = "momentum"
                                                .delay = 5 * kSecond,
                                                .cancels = true}));
     EXPECT_EQ(parseScenario("[[agents]]\ntype = \"momentum\"\n").orderDelay, OrderDelay{});
+    EXPECT_EQ(scenario.clearAt, (std::vector<Duration>{1800 * kSecond, 3600 * kSecond}));
     EXPECT_NE(parseError("[exchange]\norder_delay_from = \"2s\"\n[[agents]]\ntype = \"momentum\"\n")
                   .find("needs an 'order_delay'"),
               std::string::npos);

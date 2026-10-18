@@ -50,6 +50,11 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
     if (!(config.fairValueWeight > 0.0) || config.fairValueWeight > 1.0) {
         throw std::invalid_argument("market_maker fair_value_weight must be in (0, 1]");
     }
+    if (config.quietInterval < 0 ||
+        (config.quietFrom && (*config.quietFrom < 0 || config.quietUntil < *config.quietFrom))) {
+        throw std::invalid_argument("market_maker's quiet stretch must start at 0 or later, end "
+                                    "no sooner, and have an interval that is not negative");
+    }
     if (config.valueBelief) {
         belief_.emplace(*config.valueBelief, std::move(fundamental));
     }
@@ -107,6 +112,18 @@ void MarketMaker::onPhase(AgentContext& context, const PhaseChanged& phase) {
 void MarketMaker::requote(AgentContext& context) {
     if (phase_ != Phase::Continuous) {
         return;
+    }
+    const Timestamp now = context.now();
+    if (config_.quietFrom && now >= *config_.quietFrom && now < config_.quietUntil) {
+        if (config_.quietInterval == 0) {
+            maintain(context, bid_, Side::Buy, std::nullopt);
+            maintain(context, ask_, Side::Sell, std::nullopt);
+            return;
+        }
+        if (quotedAt_ && now - *quotedAt_ < config_.quietInterval) {
+            return;
+        }
+        quotedAt_ = now;
     }
     const double fair = belief_ ? belief_->look(context) : fairPrice();
     Quotes target = avellanedaStoikovQuotes(config_, fair, context.ledger().position());

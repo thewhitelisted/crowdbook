@@ -262,6 +262,19 @@ void Simulation::process(const PhaseAction& action) {
     dispatch();
 }
 
+void Simulation::scheduleClear(Timestamp time) {
+    if (time < now_) {
+        throw std::invalid_argument("a clear of the book cannot be scheduled in the past");
+    }
+    schedule(time).emplace<Clear>();
+}
+
+void Simulation::process(const Clear& /*clear*/) {
+    events_.clear();
+    exchange_.clearBook(events_);
+    dispatch();
+}
+
 void Simulation::setOrderDelay(const OrderDelay& delay) {
     if (delay.delay < 0 || delay.until < delay.from) {
         throw std::invalid_argument(
