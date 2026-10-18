@@ -34,6 +34,11 @@ pool.reset(seeds=range(64, 128), mask=terminated.copy())        # new episodes w
   prices can trade through it.
 - `session(i)` is market i's episode as a session file, which `crowdbook replay` and
   `crowdbook report` read.
+- `copy(source, targets)` makes each target market a copy of market `source` as it stands: the
+  same episode at the same decision, from which a copy goes on as the source does given the same
+  actions, and its own way given others, for strategies that search ahead by trying actions in
+  copies. A copy takes the source's decisions again from the start of its episode, so it costs
+  what the episode so far cost. It returns the observation and the info, as `reset` does.
 - `VectorEnv(path, num_envs, threads=0)` puts a pool behind Gymnasium's vector API, with automatic
   resets disabled: reset the episodes that ended with
   `reset(seed=..., options={"reset_mask": terminated})`. A whole-number seed also seeds the
