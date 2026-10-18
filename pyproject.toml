@@ -1,0 +1,71 @@
+# The engine as a Python wheel, crowdbook-engine: the `crowdbook` command and the learning pool,
+# crowdbook_learn, built by CMake through scikit-build-core.
+#
+#   pip install .                     # builds both from source: CMake 3.25+ and a C++23 compiler
+#   crowdbook run examples/scenarios/market_maker.toml
+#
+# The analysis package (analysis/, crowdbook-analysis) and the Python client for served markets
+# (clients/python, crowdbook) are wheels of their own. The version is the CMake project's.
+
+[build-system]
+requires = ["scikit-build-core>=0.11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "crowdbook-engine"
+dynamic = ["version"]
+description = "Agent-based limit order book simulator: the crowdbook command and the learning pool"
+readme = "python/README.md"
+license = "LicenseRef-PolyForm-Shield-1.0.0"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+requires-python = ">=3.12"
+dependencies = ["numpy>=2.0"]
+
+[project.optional-dependencies]
+gymnasium = ["gymnasium>=1.0"]
+
+[project.urls]
+Homepage = "https://github.com/thewhitelisted/crowdbook"
+Documentation = "https://github.com/thewhitelisted/crowdbook/blob/main/docs/quickstart.md"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.25"
+cmake.build-type = "Release"
+build-dir = "build/wheel/{wheel_tag}"
+# Only what the wheel holds: the command and the Python package, not the C++ libraries and headers
+# that `cmake --install` puts in a prefix.
+install.components = ["wheel"]
+# The module is built for the stable ABI, so one wheel serves Python 3.12 and every later version.
+wheel.py-api = "cp312"
+sdist.exclude = ["build/", "analysis/data/", ".github/"]
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "CMakeLists.txt"
+regex = 'project\(crowdbook\s+VERSION\s+(?P<value>[0-9.]+)'
+
+[tool.scikit-build.cmake.define]
+CROWDBOOK_BUILD_TESTS = "OFF"
+CROWDBOOK_BUILD_EXAMPLES = "OFF"
+CROWDBOOK_BUILD_BENCHMARKS = "OFF"
+CROWDBOOK_BUILD_APPS = "ON"
+CROWDBOOK_BUILD_SCENARIOS = "ON"
+CROWDBOOK_BUILD_PYTHON = "ON"
+
+# Wheels for Linux (manylinux, x86-64 and arm64) and macOS (arm64), built and tested by
+# .github/workflows/wheels.yml. One build, for Python 3.12's stable ABI, serves every later
+# Python too.
+[tool.cibuildwheel]
+build = "cp312-*"
+skip = "*-musllinux_*"
+test-requires = ["gymnasium>=1.0"]
+test-environment = { CROWDBOOK_SOURCE_DIR = "{project}", CROWDBOOK = "crowdbook" }
+test-command = [
+    "crowdbook --version",
+    "python -m unittest discover -s {project}/python/tests",
+]
+
+[tool.cibuildwheel.macos]
+# std::format and the rest of C++23's library need macOS 14's libc++.
+environment = { MACOSX_DEPLOYMENT_TARGET = "14.0" }

@@ -1,0 +1,151 @@
+name: wheels
+
+# The wheels an outsider installs: crowdbook-engine (the crowdbook command and the learning pool)
+# for Linux and macOS, crowdbook-analysis and the Python client, and the tutorial run from them
+# alone, as docs/tutorial.md has a newcomer run it. A tag v* also attaches them to a GitHub release.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: engine wheel / ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux x86-64
+            os: ubuntu-24.04
+          - name: linux arm64
+            os: ubuntu-24.04-arm
+          - name: macos arm64
+            os: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      # Builds in manylinux_2_28 on Linux, and tests each wheel there: the command, and the
+      # learning module's tests.
+      - name: Build and test
+        run: |
+          python -m pip install --disable-pip-version-check cibuildwheel==4.3.1
+          python -m cibuildwheel --output-dir wheelhouse
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: engine-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  python:
+    name: analysis, client and source
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        run: pipx install uv
+
+      - name: Build
+        run: |
+          uv build --out-dir dist analysis
+          uv build --out-dir dist clients/python
+          uv build --sdist --out-dir dist .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python
+          path: dist/*
+
+  # The tutorial from the wheels alone, in a fresh environment of a later Python than the wheels
+  # were built for: no compiler, no build directory. Its fit and checks are cut short; the
+  # tutorial's own numbers come from the full lengths.
+  tutorial:
+    name: tutorial / ${{ matrix.os }}
+    needs: [engine, python]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: engine-${{ matrix.os }}
+          path: dist
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: python
+          path: dist
+
+      - name: Install
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/venv/bin/pip" install --disable-pip-version-check dist/crowdbook_engine-*.whl \
+            dist/crowdbook_analysis-*.whl
+
+      - name: Run the tutorial
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          tutorial="$GITHUB_WORKSPACE/examples/tutorial"
+          crowdbook --version
+          crowdbook-generate "$tutorial/spec.toml" --markets 20 --seed 2026 \
+            --fixed maker_intensity=0.8,noise_market_rate=0.3,follower_lag=10 --out recording
+          status=0
+          crowdbook-assess "$tutorial/spec.toml" --real recording/shard-00000 --output assessed \
+            --generations 2 --seeds 4 --held-out 10 --sweep-seeds 10 --confirm 20 || status=$?
+          # 0 is usable and 1 not; anything else is a failure to run.
+          test "$status" -le 1
+          test -s assessed/verdict.md
+          crowdbook-draws "$tutorial/spec.toml" --report assessed/report.json --count 4 --out draws
+          python "$tutorial/strategy.py" assessed/scenario.toml draws \
+            --truth maker_intensity=0.8,noise_market_rate=0.3,follower_lag=10 --seeds 8 | tee strategy.md
+          test "$(grep -c '^| ' strategy.md)" -eq 4  # the header and three markets
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [engine, python, tutorial]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      # The notes are docs/releases/<tag>.md, written before the tag is pushed.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "crowdbook $GITHUB_REF_NAME" --notes-file "docs/releases/$GITHUB_REF_NAME.md"

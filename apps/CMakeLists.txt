@@ -21,6 +21,11 @@ set_target_properties(crowdbook_cli PROPERTIES OUTPUT_NAME crowdbook)
 target_link_libraries(crowdbook_cli PRIVATE crowdbook::gateway crowdbook_ladder)
 crowdbook_set_warnings(crowdbook_cli)
 
+# In a wheel (pyproject.toml), the command goes where pip puts commands, on the environment's path.
+if(SKBUILD)
+    install(TARGETS crowdbook_cli RUNTIME DESTINATION "${SKBUILD_SCRIPTS_DIR}" COMPONENT wheel)
+endif()
+
 if(CROWDBOOK_BUILD_TESTS)
     add_test(NAME cli.version COMMAND crowdbook_cli --version)
     set_tests_properties(cli.version PROPERTIES

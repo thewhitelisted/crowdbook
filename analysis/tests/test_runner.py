@@ -1,8 +1,11 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from crowdbook_analysis.runner import Run, agent_groups, pnl_at_value, run
+from crowdbook_analysis import runner
+from crowdbook_analysis.runner import Run, agent_groups, find_tool, pnl_at_value, run
 
 
 class AgentGroupsTest(unittest.TestCase):
@@ -21,6 +24,43 @@ class PnlAtValueTest(unittest.TestCase):
         team = {"cash": -950, "initial_cash": 0, "position": 10, "initial_position": 0}
         self.assertEqual(pnl_at_value(team, 100.0), 50.0)
         self.assertEqual(pnl_at_value(team | {"fees": 2.5}, 100.0), 47.5)
+
+
+class FindToolTest(unittest.TestCase):
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.scratch = Path(scratch.name)
+        self.installed = self.scratch / "bin" / "crowdbook"
+        self.installed.parent.mkdir()
+        self.installed.write_text("#!/bin/sh\n")
+        self.installed.chmod(0o755)
+        # No checkout build, and only the installed command on the path.
+        for patch in (mock.patch.object(runner, "DEFAULT_TOOL", self.scratch / "no-build"),
+                      mock.patch.dict(os.environ, {"PATH": str(self.installed.parent)})):
+            patch.start()
+            self.addCleanup(patch.stop)
+        os.environ.pop("CROWDBOOK", None)
+
+    def test_without_a_build_the_installed_command_is_used(self):
+        self.assertEqual(find_tool(None), self.installed)
+
+    def test_the_checkout_build_comes_before_the_installed_command(self):
+        build = self.scratch / "build-crowdbook"
+        build.write_text("")
+        with mock.patch.object(runner, "DEFAULT_TOOL", build):
+            self.assertEqual(find_tool(None), build)
+
+    def test_a_path_given_comes_first_and_is_not_replaced(self):
+        os.environ["CROWDBOOK"] = str(self.scratch / "missing")
+        with self.assertRaisesRegex(SystemExit, "pip install crowdbook-engine"):
+            find_tool(None)
+        self.assertEqual(find_tool(str(self.installed)), self.installed)
+
+    def test_nothing_found_says_how_to_get_it(self):
+        with mock.patch.dict(os.environ, {"PATH": str(self.scratch)}):
+            with self.assertRaisesRegex(SystemExit, "pip install crowdbook-engine"):
+                find_tool(None)
 
 
 class RunTest(unittest.TestCase):
