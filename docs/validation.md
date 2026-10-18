@@ -23,7 +23,8 @@ uv run --project analysis crowdbook-assess my_spec.toml --real RECORDED --output
 recording, runs [the no-false-edge check](#the-no-false-edge-check) on every fitted market (each
 recorded market's twin, for a twin fit), and writes `verdict.md` beside the fit's report:
 - **Usable or not:** a fit is usable for testing strategies only when it reaches the recording
-  within chance and no generic strategy makes money in it.
+  within chance and no strategy of the check, the generic probes or
+  [a learner trained in it](#a-learner-in-the-check), makes money in it.
 - **Why not:** the statistics furthest from the recording, any strategy the fitted market pays,
   and what a standing quote earns in the recording against the fit.
 
@@ -46,9 +47,12 @@ that markets priced in dollars and in cents compare.
 
 An optional `tape.toml` gives `tick`, the price increment (1 if absent), `returns`,
 `"difference"` (the default, for bounded prices such as probabilities) or `"log"`, and for a binary
-contract `payout`, what a winning unit pays. A recording is converted to a tape once, by whoever
-holds it; `tape.simulate` runs any scenario under many seeds into one, its book sampled every
-100 ms.
+contract `payout`, what a winning unit pays. `same_order`, in seconds, is for a venue that stamps
+each fill of one order apart: the prints on one side each less than that after the one before are
+then one aggressive order (`same_order = 0.001` for books whose fills come microseconds apart).
+Without it only prints at one time are one order, as the engine stamps them. A recording is
+converted to a tape once, by whoever holds it; `tape.simulate` runs any scenario under many seeds
+into one, its book sampled every 100 ms.
 
 ## The validation report
 
@@ -58,7 +62,7 @@ same statistics on a real tape and on one or more synthetic ones:
 | family | statistics |
 |---|---|
 | the book | the spread, time-weighted, its median and the share of time at one tick; size at the best quotes, within five levels, and within 3 and 10 ticks of the mid; how often a side is empty; how often the best prices change, seen once a grid step alike for a recording and a simulation |
-| trades | aggressive orders a minute (the prints one order makes at one time count once), prints per order, order sizes (median, the largest tenth against the median, the tail's Hill exponent), the gaps between orders (median, and how bursty), the share in the first and last tenth of the market, and lots traded a minute over the size at the touch, how fast the touch is filled |
+| trades | aggressive orders a minute (the prints one order makes at one time count once, or with the tape's `same_order` each within that of the one before), prints per order, order sizes (median, the largest tenth against the median, the tail's Hill exponent), the gaps between orders (median, and how bursty), the share in the first and last tenth of the market, and lots traded a minute over the size at the touch, how fast the touch is filled |
 | returns | the mid's changes over 1, 10 and 60 s: standard deviation, excess kurtosis, the tail exponent, variance ratios, successive changes' autocorrelation |
 | volatility clustering | the autocorrelation of the size of 1 s changes, 1 and 10 s apart |
 | order-flow memory | the autocorrelation of order signs 1, 10 and 50 orders apart; the bounce in trade prices and Roll's spread from it |
@@ -209,6 +213,11 @@ A recorded game that sat for eight hours before a two-hour game would otherwise 
 on its quiet hours, when in play is where its order delay, its makers' absence and its reaction to
 scores show.
 
+A statistic the recording measures in too few of its markets is left out of the target, and the
+fit says so: one that more than a tenth of the recording's resamples leave unmeasured, such as the
+size of aggressive orders where one recorded market alone had any. Its value would be that one
+market's, and its spread across resamples no measure of how far a twin may stray from it.
+
 Two checks guard the fit:
 
 - **Does it reach the target?** At the true settings every compared statistic is off by chance
@@ -329,6 +338,59 @@ and a maker quoting 8 cents either side of the mid catches the noise traders' la
 sweep its thin book; the real questions' makers, on the chain, lost money as a whole. It is the
 false edge this check exists for: the fitted market should not be used to judge a maker until its
 book is fitted too.
+
+### A learner in the check
+
+Each probe follows one rule. A fitted market can pay what no one rule takes, but a strategy
+trained there would find: a price that follows the value a few seconds late pays whoever reads,
+from the fast traders' orders and the mid's path together, where it is going. So beside the
+probes the sweep trains a small learner in the market itself
+([learner.py](../analysis/src/crowdbook_analysis/learner.py)) and judges it the same way:
+
+- **What it sees**, each decision, a second apart: the signed share of the volume that took over
+  2, 20 and 120 seconds; the mid against its own averages over the same; the touch's imbalance;
+  the spread; its position; the last trade against the mid. Anything a seat hearing the market
+  could compute, and never the true value: the scenario's `[participant]` and `[learning]` are
+  replaced by the probe's own seat, the probes' latency and limits, with no feed.
+- **What it does**: three linear scores of those numbers. While the first is past 1 it takes
+  toward its limit on that side, at the touch, as the probes' takers do, and holds what it has
+  between; the second and third rest a bid and an offer at the best prices when above 0. It acts
+  on its schedule only: at the decisions its own fills bring between, it keeps the quotes it still
+  has where they are, places none afresh and takes nothing.
+- **How it learns**: CMA-ES over the weights, from all of them 0, a strategy that never trades;
+  each candidate plays 16 markets a generation, the same for every candidate of a generation (a
+  seed runs the same one of several scenarios whoever plays it) and fresh each generation, for 20
+  generations. It is scored on what it made after fees to its last decision, valued at the true
+  value: what a calibrated value expects the same as a settlement, without the noise of a
+  contract's jump to 0 or 100. The search's mean at the end is judged on as many fresh markets as
+  each family's best, valued as the probes are, at the true value or settlement, and flagged the
+  same way; the report shows its weights, which say what the market pays.
+
+It trades through `crowdbook_learn`'s pool, the engine's Python module, found installed or in the
+Release build beside the engine (`-DCROWDBOOK_BUILD_PYTHON=ON`, on by default where Python is
+found). `--no-learner` leaves it out; `--learner-generations` and `--learner-markets` train it
+harder, and a stronger learner finds more: a check that passes says the market pays nothing this
+learner finds in this many markets, not nothing at all.
+
+It has a known answer ([test_learner_probe.py](../python/tests/test_learner_probe.py), smaller):
+a value that wanders, one maker quoting it, and three sharp traders who take when the book is two
+ticks off it. With the maker 10 seconds behind the value, 100 markets a probe and 400 fresh ones,
+27 seconds on four cores:
+
+| on fresh markets | made a market (tick-lots) | lots a market |
+|---|---:|---:|
+| learner, 20 generations of 16 markets | **+40.8 [+31.1, +50.5], flagged** | 43.8 |
+| flow, 5 s at 60% | **+32.0 [+23.1, +40.9], flagged** | 53.1 |
+| trend, 60 s against 600 s | −26.4 [−35.6, −17.3] | 12.9 |
+
+It takes on the flow of the last 2 and 20 seconds, as the best probe does, and on the spread and
+the last trade beside it. With the maker quoting the value as it is, it learns to stay out and
+makes nothing. In [the learning example](../examples/learning/market.toml), a market of a crowd
+with makers who quote the trades, the best probes make +80 a market and the learner +260 [+253,
++267]: it quotes the touch on both sides and leans against its position, which no probe does.
+
+On a twin fit's thirty-odd twins of one to four hours each, training and judging the learner on
+140 fresh markets takes about six minutes on four cores.
 
 ## Judging a strategy in a fitted market
 

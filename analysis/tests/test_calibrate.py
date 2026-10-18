@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from crowdbook_analysis import calibrate, generate
+from crowdbook_analysis import calibrate, generate, validate
 
 TEMPLATE = """\
 # ${not_a_setting} in a comment is left as it is
@@ -341,3 +341,26 @@ class CalibrateTest(unittest.TestCase):
         _, _, scenario = calibrate.calibrate(spec, evaluator, real, log=lambda line: None)
         self.assertIn("twin of the recorded market 0", scenario)
         self.assertIn('duration = "50s"', scenario)
+
+
+class TargetTest(unittest.TestCase):
+    def summary(self, draws: dict) -> validate.Summary:
+        return validate.Summary("s", 30, {k: float(np.nanmean(v)) for k, v in draws.items()},
+                                {k: np.asarray(v, dtype=float) for k, v in draws.items()}, [])
+
+    def test_leaves_out_what_too_few_recorded_markets_measure(self):
+        rng = np.random.default_rng(1)
+        spread = rng.normal(3.0, 0.1, 200)
+        # One market of thirty alone has an order: left out of a third of the resamples.
+        size = np.where(rng.random(200) < 0.35, np.nan, 589.0 + rng.normal(0, 1, 200))
+        real = self.summary({"spread_mean": spread, "order_size_median": size})
+        start = self.summary({"spread_mean": spread + 1,
+                              "order_size_median": 5.0 + rng.normal(0, 1, 200)})
+        target = calibrate.make_target(real, start, None, validate.Config())
+        self.assertEqual(target.keys, ["spread_mean"])
+        # Measured in nearly every resample, it is fitted.
+        size[np.isnan(size)] = 589.0
+        size[:10] = np.nan
+        real = self.summary({"spread_mean": spread, "order_size_median": size})
+        target = calibrate.make_target(real, start, None, validate.Config())
+        self.assertEqual(target.keys, ["spread_mean", "order_size_median"])

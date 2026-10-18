@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from crowdbook_analysis import sweep
+from crowdbook_analysis import learner, sweep
 
 
 class SweepTest(unittest.TestCase):
@@ -72,6 +72,44 @@ class SweepTest(unittest.TestCase):
             for missing in ("empty", "nowhere"):
                 with self.assertRaises(SystemExit):
                     sweep.scenario_files([Path(scratch) / missing])
+
+    def test_the_learner_is_judged_and_reported_beside_the_probes(self):
+        sys.path.insert(0, str(Path(__file__).parent))
+        try:
+            from test_learner import FakeLearn, FakePool  # a market that pays following flow
+        finally:
+            sys.path.pop(0)
+        FakePool.pays, FakePool.stop_at, FakePool.resting = 1.0, None, False
+        found, real = [], learner.learn_module
+        learner.learn_module = lambda: FakeLearn
+        try:
+            settings = learner.Settings(generations=6, markets=8, latency="9ms")
+            results = sweep.sweep(Path("unused"), 'seed = 1\n', [], 0, 32, latency="2ms",
+                                  size=5, max_position=10, learner=settings, log=found.append)
+        finally:
+            learner.learn_module = real
+        (probe, judged), = results["judged"].items()
+        self.assertEqual(probe.name, "learner (generations 6, markets 8)")
+        self.assertEqual(judged["markets"], 32)
+        self.assertEqual(results["learner"]["settings"].latency, "2ms")  # the sweep's seat
+        self.assertEqual(results["learner"]["settings"].size, 5)
+        self.assertEqual(len(results["learner"]["history"]), 6)
+        text, flagged = sweep.report("m", results, 0, 32)
+        self.assertTrue(flagged)
+        self.assertIn("## The learner", text)
+        self.assertIn("| flow 2s |", text)
+        self.assertTrue(any("on fresh markets" in line for line in found))
+
+    def test_learner_arguments(self):
+        import argparse
+        parser = argparse.ArgumentParser()
+        sweep.add_learner_arguments(parser)
+        self.assertIsNone(sweep.learner_settings(parser.parse_args(["--no-learner"])))
+        chosen = sweep.learner_settings(parser.parse_args(["--learner-generations", "3",
+                                                           "--learner-markets", "4"]))
+        self.assertEqual((chosen.generations, chosen.markets), (3, 4))
+        with self.assertRaises(SystemExit):
+            sweep.learner_settings(parser.parse_args(["--learner-markets", "0"]))
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ Any of the tables may be Parquet instead (`book.parquet` and so on). `read_tape`
 simulated markets and recorded ones can be measured by the same code (see `validate`).
 """
 
+import math
 import os
 import tempfile
 import tomllib
@@ -52,6 +53,10 @@ class Options:
     tick: float = 1.0
     returns: str = "difference"  # or "log"
     payout: float | None = None  # what a winning unit of a binary contract pays
+    # Seconds: prints on one side closer than this to the one before are the same aggressive
+    # order, for a venue that stamps each fill of one order apart; 0, prints at one time only, as
+    # the engine stamps them.
+    same_order: float = 0.0
 
 
 @dataclass
@@ -143,9 +148,12 @@ def read_tape(directory: Path | str) -> Tape:
         settings = tomllib.loads((directory / "tape.toml").read_text())
     options = Options(tick=float(settings.get("tick", 1.0)),
                       returns=settings.get("returns", "difference"),
-                      payout=settings.get("payout"))
+                      payout=settings.get("payout"),
+                      same_order=float(settings.get("same_order", 0.0)))
     if options.returns not in ("difference", "log"):
         raise ValueError(f"tape.toml: returns is 'difference' or 'log', not {options.returns!r}")
+    if not options.same_order >= 0.0 or not math.isfinite(options.same_order):
+        raise ValueError(f"tape.toml: same_order is seconds, 0 or more, not {options.same_order}")
     listed = _table(directory, "markets")
     book = _table(directory, "book").sort("market", "time", maintain_order=True)
     prints = _table(directory, "trades").sort("market", "time", maintain_order=True)
@@ -250,6 +258,8 @@ def write_tape(tape: Tape, directory: Path | str, *, parquet: bool = False) -> N
     lines = [f"tick = {tape.options.tick}", f'returns = "{tape.options.returns}"']
     if tape.options.payout is not None:
         lines.append(f"payout = {tape.options.payout}")
+    if tape.options.same_order:
+        lines.append(f"same_order = {tape.options.same_order}")
     (directory / "tape.toml").write_text("\n".join(lines) + "\n")
 
 
