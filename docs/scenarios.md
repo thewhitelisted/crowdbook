@@ -84,6 +84,7 @@ strength starts wherever gives it; `news_rate` and `news_share` are not used wit
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
+| `side` | string | `"home"` | What the contract pays 100 for: `"home"`, a win for the home side, `"away"`, a win for the away side, or `"draw"`; `probability` is its price at kickoff, and for a draw the home side is taken to be the stronger |
 | `start` | duration | `"0s"` | Kickoff, after the market opens |
 | `length` | duration | `"90m"` | Playing time, all periods together |
 | `periods` | integer | `1` | Periods of equal playing time, from 1 to 100 |
@@ -92,7 +93,7 @@ strength starts wherever gives it; `news_rate` and `news_share` are not used wit
 | `late_scoring` | number | `1` | How many times faster scoring events come at the end of the playing time than at its start, the rate changing in a straight line between; above 0, at most 100 |
 | `points` | list of integers | `[1]` | What a scoring event can be worth, from 1 to 100 |
 | `point_weights` | list of numbers | equal | How often each of `points`, in proportion |
-| `tie` | number | `0` | Cents a share pays if the game ends level, from 0 to 100 |
+| `tie` | number | `0` | Cents a share on a win pays if the game ends level, from 0 to 100 |
 | `pregame_drift` | number | `0` | The standard deviation of the strength's change from the opening to kickoff |
 | `in_play_drift` | number | `0` | The standard deviation of its change over the playing time |
 | `news` | number | `0` | Pieces of news expected before kickoff, at most 500 |

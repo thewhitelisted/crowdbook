@@ -141,9 +141,21 @@ GameConfig readGame(const Reader& reader, const toml::table& table) {
     reader.allowOnly(table,
                      {"start", "length", "periods", "break", "scores", "points", "point_weights",
                       "tie", "pregame_drift", "in_play_drift", "news", "news_size", "script",
-                      "late_scoring"},
+                      "late_scoring", "side"},
                      "in [prediction.game]");
     GameConfig game;
+    if (const auto* node = table.get("side")) {
+        const std::string side = reader.text(*node, "side");
+        if (side == "home") {
+            game.side = GameSide::Home;
+        } else if (side == "away") {
+            game.side = GameSide::Away;
+        } else if (side == "draw") {
+            game.side = GameSide::Draw;
+        } else {
+            reader.fail(*node, "'side' is \"home\", \"away\" or \"draw\"");
+        }
+    }
     for (const auto& [key, duration] :
          {std::pair{"start", &game.start}, std::pair{"length", &game.length},
           std::pair{"break", &game.breakLength}}) {

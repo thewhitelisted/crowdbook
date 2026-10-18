@@ -300,6 +300,7 @@ TEST(ScenarioFileTest, ReadsAGame) {
 [prediction]
 probability = 0.6
 [prediction.game]
+side = "away"
 start = "1h"
 length = "48m"
 periods = 4
@@ -319,7 +320,8 @@ type = "zero_intelligence"
 )");
     ASSERT_TRUE(scenario.prediction && scenario.prediction->game);
     EXPECT_EQ(*scenario.prediction->game,
-              (GameConfig{.start = 3600 * kSecond,
+              (GameConfig{.side = GameSide::Away,
+                          .start = 3600 * kSecond,
                           .length = 2880 * kSecond,
                           .periods = 4,
                           .breakLength = 300 * kSecond,
@@ -399,6 +401,8 @@ TEST(ScenarioFileTest, RejectsPredictionMarketsThatMakeNoSense) {
              std::pair{"[prediction.game]\nlength = \"0s\"",
                        "test.toml:1: a game's 'length' must be positive"},
              std::pair{"[prediction.game]\nhalves = 2", "test.toml:2: unknown key 'halves'"},
+             std::pair{"[prediction.game]\nside = \"left\"",
+                       "test.toml:2: 'side' is \"home\", \"away\" or \"draw\""},
              std::pair{"[prediction.game]\npoints = [2, 3]\npoint_weights = [1.0]",
                        "test.toml:3: 'point_weights' must be a list as long as 'points'"},
              std::pair{"[prediction.game]\nscript = [{ at = \"1m\", side = \"left\" }]",
