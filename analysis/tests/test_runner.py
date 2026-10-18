@@ -69,7 +69,7 @@ class FindToolTest(unittest.TestCase):
         self.assertEqual(find_tool(str(self.installed)), self.installed)
 
     def test_a_directory_given_stands_for_the_crowdbook_in_it(self):
-        # As build/release/apps/crowdbook is a directory holding the executable crowdbook.
+        # A directory such as build/release/apps, which holds the executable crowdbook.
         self.assertEqual(find_tool(str(self.installed.parent)), self.installed)
         with self.assertRaisesRegex(SystemExit, "not found at .*scripts/crowdbook"):
             find_tool(str(self.scripts))
