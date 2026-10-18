@@ -293,7 +293,9 @@ std::string priceField(const std::optional<Price>& price) {
 PriceSampler::PriceSampler(std::ostream& out, Duration interval,
                            std::shared_ptr<Fundamental> value)
     : IntervalSampler(interval), out_(out), value_(std::move(value)) {
-    out_ << (value_ ? "time,bid,ask,last_trade,value\n" : "time,bid,ask,last_trade\n");
+    out_ << (!value_            ? "time,bid,ask,last_trade\n"
+             : value_->isGame() ? "time,bid,ask,last_trade,value,lead\n"
+                                : "time,bid,ask,last_trade,value\n");
 }
 
 void PriceSampler::update(const Event& event) {
@@ -313,6 +315,9 @@ void PriceSampler::writeRow(Timestamp time) {
          << priceField(market_.lastTrade);
     if (value_) {
         out_ << ',' << std::format("{}", value_->valueAt(time));
+        if (value_->isGame()) {
+            out_ << ',' << std::format("{}", value_->walk());
+        }
     }
     out_ << '\n';
 }

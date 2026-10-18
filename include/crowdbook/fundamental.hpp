@@ -134,6 +134,8 @@ public:
     void remember(Duration window);
     // How many jumps the value has taken so far.
     [[nodiscard]] std::int64_t jumps() const noexcept { return jumps_; }
+    // Whether the value is a game's.
+    [[nodiscard]] bool isGame() const noexcept { return game_.has_value(); }
     // When a prediction market resolves; nullopt for any other value.
     [[nodiscard]] std::optional<Duration> resolution() const noexcept { return resolution_; }
     // The walk behind the value as of the latest read: the value itself, or for a prediction
