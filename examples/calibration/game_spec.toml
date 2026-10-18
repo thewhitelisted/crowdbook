@@ -17,6 +17,11 @@ low = 1.5
 high = 4.5
 start = 2.7
 
+[parameters.late_scoring]
+low = 0.5
+high = 3.0
+start = 1.0
+
 [parameters.pregame_drift]
 low = 0.02
 high = 0.5

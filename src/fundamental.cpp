@@ -74,6 +74,9 @@ void checkGame(const GameConfig& game, const PredictionConfig& config) {
                 "a score is worth from 1 to 100 points, each with a positive weight");
         }
     }
+    if (!(game.lateScoring > 0.0 && game.lateScoring <= 100.0)) {
+        throw std::invalid_argument("late scoring must be above 0 and at most 100");
+    }
     if (!(game.tie >= 0.0 && game.tie <= 100.0)) {
         throw std::invalid_argument("a tie pays from 0 to 100 cents");
     }
@@ -311,8 +314,9 @@ void Fundamental::moveGame(Timestamp from, Timestamp to) {
     if (!game.script.empty()) {
         return;
     }
-    const std::int64_t home = poisson(game.scores * part * homeShare);
-    const std::int64_t away = poisson(game.scores * part * (1.0 - homeShare));
+    const double expected = expectedScores(playedBy(from), playedBy(to));
+    const std::int64_t home = poisson(expected * homeShare);
+    const std::int64_t away = poisson(expected * (1.0 - homeShare));
     value_ += static_cast<double>(pointsOf(home) - pointsOf(away));
     jumps_ += home + away;
 }
@@ -351,14 +355,24 @@ void Fundamental::pointsToCome(double expectedEvents, std::vector<double>& pmf) 
     }
 }
 
+double Fundamental::expectedScores(Duration from, Duration to) const noexcept {
+    // The rate runs in a straight line through the playing time, from a at its start to
+    // a · late_scoring at its end, with a set so that the whole game expects `scores`.
+    const GameConfig& game = *game_;
+    const double u0 = static_cast<double>(from) / static_cast<double>(game.length);
+    const double u1 = static_cast<double>(to) / static_cast<double>(game.length);
+    const double start = 2.0 / (1.0 + game.lateScoring);
+    const double slope = start * (game.lateScoring - 1.0);
+    return game.scores * (start * (u1 - u0) + slope / 2.0 * (u1 * u1 - u0 * u0));
+}
+
 double Fundamental::gameProbability(Timestamp time, double lead, double strength) const {
     const GameConfig& game = *game_;
     const Duration left = game.length - playedBy(time);
     if (left <= 0) {
         return lead > 0.0 ? 100.0 : (lead == 0.0 ? game.tie : 0.0);
     }
-    const double events =
-        game.scores * static_cast<double>(left) / static_cast<double>(game.length);
+    const double events = expectedScores(game.length - left, game.length);
     const double homeShare = 1.0 / (1.0 + math::exp(-strength));
     pointsToCome(events * homeShare, homePoints_);
     pointsToCome(events * (1.0 - homeShare), awayPoints_);

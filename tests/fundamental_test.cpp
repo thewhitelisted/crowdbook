@@ -313,6 +313,27 @@ TEST(GameTest, SidesScoreAtTheExpectedRate) {
     EXPECT_NEAR(events / 500, 40.0, 1.0);
 }
 
+// With scoring three times as fast at the end as at the start, the last quarter of the game
+// expects (2.5 + 3) / 2 · 1/4 of the 2-unit average rate: 11/32 of the scores, against 5/32 in
+// the first quarter.
+TEST(GameTest, ScoringCanQuickenThroughTheGame) {
+    PredictionConfig config{.game = GameConfig{.length = 40 * kSecond, .scores = 20.0}};
+    config.game->lateScoring = 3.0;
+    double first = 0.0;
+    double last = 0.0;
+    for (std::uint64_t path = 0; path < 2'000; ++path) {
+        Fundamental value{config, 40 * kSecond, Random{path, 8}};
+        static_cast<void>(value.valueAt(10 * kSecond));
+        first += static_cast<double>(value.jumps());
+        static_cast<void>(value.valueAt(30 * kSecond));
+        const auto before = static_cast<double>(value.jumps());
+        static_cast<void>(value.valueAt(40 * kSecond));
+        last += static_cast<double>(value.jumps()) - before;
+    }
+    EXPECT_NEAR(first / 2'000, 20.0 * 5.0 / 32.0, 0.1);
+    EXPECT_NEAR(last / 2'000, 20.0 * 11.0 / 32.0, 0.15);
+}
+
 // The clock stops between periods: nothing scores and the value holds, and after the final
 // whistle it is the result.
 TEST(GameTest, TheClockStopsAtBreaksAndTheResultHoldsAfterTheEnd) {
@@ -427,6 +448,7 @@ TEST(GameTest, SettingsAreChecked) {
           with([](GameConfig& g) { g.pointWeights = {1.0, 2.0}; }),
           with([](GameConfig& g) { g.points = {0}; }), with([](GameConfig& g) { g.tie = 101.0; }),
           with([](GameConfig& g) { g.pregameDrift = -1.0; }),
+          with([](GameConfig& g) { g.lateScoring = 0.0; }),
           with([](GameConfig& g) { g.script = {{.at = 30 * kSecond}, {.at = 20 * kSecond}}; }),
           PredictionConfig{.newsRate = 0.1, .game = smallGame()},
           // With 0.1 scores expected, the home side wins at most about one time in ten.
