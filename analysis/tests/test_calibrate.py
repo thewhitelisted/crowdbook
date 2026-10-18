@@ -106,6 +106,10 @@ class ConditionTest(unittest.TestCase):
         long.labels = {"kickoff": 5432.1234}
         self.assertEqual(calibrate.market_texts(long)["duration"], "1036800")
         self.assertEqual(calibrate.market_texts(long)["kickoff"], "5432.1234")
+        recorded = market("recorded", duration=29051.723802382003)
+        recorded.labels = {"kickoff": 29043.62366123}
+        self.assertEqual(calibrate.market_texts(recorded)["duration"], "29051.723802")
+        self.assertEqual(calibrate.market_texts(recorded)["kickoff"], "29043.623661")
         self.assertEqual(texts["competition"], '"a league"')
         self.assertNotIn("missing", texts)
         script = tomllib.loads("script = " + texts["script"])["script"]
@@ -141,6 +145,11 @@ class ConditionTest(unittest.TestCase):
         [unsettled] = calibrate.with_openings(tapes.Tape([unsettled],
                                                          tapes.Options(payout=100.0)))
         self.assertEqual(unsettled.labels["outcome"], 70.0)
+        early, late = market("early", duration=60.0), market("late", duration=60.0)
+        early.labels, late.labels = {"kickoff": -30.0}, {"kickoff": 90.0}
+        calibrate.with_openings(tapes.Tape([early, late], tapes.Options(payout=100.0)))
+        self.assertEqual((early.labels["kickoff"], early.labels["kickoff_recorded"]), (0.0, -30.0))
+        self.assertEqual(late.labels["kickoff"], 60.0)
 
     def test_writes_the_twin_of_every_recorded_market(self):
         from test_validate import market
