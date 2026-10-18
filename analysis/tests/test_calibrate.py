@@ -66,6 +66,7 @@ class SpecTest(unittest.TestCase):
         self.assertIsNone(spec_from().window)
         self.assertEqual(spec_from("window = [600, 900]\n" + SPEC).window, (600.0, 900.0))
         self.assertEqual(spec_from("window = [600]\n" + SPEC).window, (600.0, None))
+        self.assertEqual(spec_from("sample_interval = 1.0\n" + SPEC).sample_interval, 1.0)
 
     def test_the_unit_box_maps_back_and_forth(self):
         spec = spec_from()

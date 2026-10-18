@@ -98,8 +98,9 @@ def main() -> None:
     parser.add_argument("--fixed", default="", help="settings to hold, name=value,...")
     parser.add_argument("--shard", type=int, default=SHARD, help="markets a shard")
     parser.add_argument("--csv", action="store_true", help="write CSV, not Parquet")
-    parser.add_argument("--sample-interval", type=float, default=tapes.SAMPLE_INTERVAL,
-                        help="seconds between samples of the book and the value")
+    parser.add_argument("--sample-interval", type=float,
+                        help="seconds between samples of the book and the value (default: the "
+                        "spec's sample_interval, else 0.1)")
     parser.add_argument("--crowdbook", help="the crowdbook executable")
     args = parser.parse_args()
     spec = read_spec(args.spec)
@@ -110,6 +111,8 @@ def main() -> None:
         if name not in names:
             parser.error(f"--fixed: {name} is not a setting of the spec")
         fixed[name] = float(value)
+    if args.sample_interval is None:
+        args.sample_interval = spec.sample_interval
     generate(spec, find_tool(args.crowdbook), args.markets, args.out, seed=args.seed,
              fixed=fixed, shard=args.shard, parquet=not args.csv,
              sample_interval=args.sample_interval)
