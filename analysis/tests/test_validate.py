@@ -148,6 +148,32 @@ class StatisticsTest(unittest.TestCase):
         self.assertAlmostEqual(found["order_size_median"], 3.0)
         self.assertAlmostEqual(found["order_gap_cv"], 0.0)
 
+    def test_prints_microseconds_apart_on_one_side_are_one_order(self):
+        # A venue that stamps each fill of one order apart: a buy of 3 in three prints 20 us
+        # apart, a sell 20 us later, and a buy 2 ms after that.
+        m = market(duration=60.0)
+        m.trade_time = np.array([10.0, 10.00002, 10.00004, 10.00006, 10.00206])
+        m.trade_price = np.array([101.0, 101.0, 102.0, 99.0, 101.0])
+        m.trade_size = np.array([1.0, 1.0, 1.0, 4.0, 2.0])
+        m.trade_sign = np.array([1.0, 1.0, 1.0, -1.0, 1.0])
+        times, sizes, signs, prices = validate._orders(m)
+        np.testing.assert_allclose(times, [10.0, 10.00006, 10.00206])
+        np.testing.assert_array_equal(sizes, [3.0, 4.0, 2.0])
+        np.testing.assert_array_equal(signs, [1.0, -1.0, 1.0])
+        self.assertAlmostEqual(prices[0], 304.0 / 3)
+        # On a tape stamped to the millisecond, prints a millisecond apart are two orders, however
+        # their seconds round.
+        m.trade_time = np.round(np.arange(100) * 0.001 + 1234.567, 3)
+        m.trade_price, m.trade_size = np.full(100, 101.0), np.ones(100)
+        m.trade_sign = np.ones(100)
+        self.assertEqual(len(validate._orders(m)[0]), 100)
+        m.trade_time = np.array([10.0, 10.00002, 10.00004, 10.00006, 10.00206])
+        m.trade_price = np.array([101.0, 101.0, 102.0, 99.0, 101.0])
+        m.trade_size = np.array([1.0, 1.0, 1.0, 4.0, 2.0])
+        m.trade_sign = np.array([1.0, 1.0, 1.0, -1.0, 1.0])
+        # Counted print by print, as before, they would be five orders.
+        self.assertEqual(len(validate._orders(m, same_order=0.0)[0]), 5)
+
     def test_what_resting_orders_earn(self):
         # Every print a buy at the ask, a tick above the mid, in a market that settles at 0.
         found = self.measure(market(spread=2.0, outcome=0.0))
