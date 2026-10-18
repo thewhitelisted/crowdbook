@@ -137,10 +137,65 @@ private:
     std::string_view source_;
 };
 
+GameConfig readGame(const Reader& reader, const toml::table& table) {
+    reader.allowOnly(table,
+                     {"start", "length", "periods", "break", "scores", "points", "point_weights",
+                      "tie", "pregame_drift", "in_play_drift", "news", "news_size"},
+                     "in [prediction.game]");
+    GameConfig game;
+    for (const auto& [key, duration] :
+         {std::pair{"start", &game.start}, std::pair{"length", &game.length},
+          std::pair{"break", &game.breakLength}}) {
+        if (const auto* node = table.get(key)) {
+            *duration = reader.duration(*node, key);
+        }
+    }
+    if (game.length <= 0) {
+        reader.fail(table, "a game's 'length' must be positive");
+    }
+    if (const auto* node = table.get("periods")) {
+        game.periods = static_cast<int>(reader.integer(*node, "periods", 1, 100));
+    }
+    for (const auto& [key, number] :
+         {std::pair{"scores", &game.scores}, std::pair{"tie", &game.tie},
+          std::pair{"pregame_drift", &game.pregameDrift},
+          std::pair{"in_play_drift", &game.inPlayDrift}, std::pair{"news", &game.news},
+          std::pair{"news_size", &game.newsSize}}) {
+        if (const auto* node = table.get(key)) {
+            *number = reader.number(*node, key);
+        }
+    }
+    if (const auto* node = table.get("points")) {
+        const auto* list = node->as_array();
+        if (list == nullptr || list->empty()) {
+            reader.fail(*node, "'points' must be a list of what a score can be worth");
+        }
+        game.points.clear();
+        for (const toml::node& element : *list) {
+            game.points.push_back(static_cast<int>(reader.integer(element, "points", 1, 100)));
+        }
+        game.pointWeights.assign(game.points.size(), 1.0);
+    }
+    if (const auto* node = table.get("point_weights")) {
+        const auto* list = node->as_array();
+        if (list == nullptr || list->size() != game.points.size()) {
+            reader.fail(*node, "'point_weights' must be a list as long as 'points'");
+        }
+        game.pointWeights.clear();
+        for (const toml::node& element : *list) {
+            game.pointWeights.push_back(reader.number(element, "point_weights"));
+        }
+    }
+    return game;
+}
+
 PredictionConfig readPrediction(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"probability", "news_rate", "news_share", "step"},
+    reader.allowOnly(table, {"probability", "news_rate", "news_share", "step", "game"},
                      "in [prediction]");
     PredictionConfig config;
+    if (const auto* node = table.get("game")) {
+        config.game = readGame(reader, reader.table(*node, "game"));
+    }
     if (const auto* node = table.get("probability")) {
         config.probability = reader.number(*node, "probability");
         if (!(config.probability > 0.0 && config.probability < 1.0)) {

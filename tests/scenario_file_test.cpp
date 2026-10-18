@@ -295,6 +295,46 @@ type = "zero_intelligence"
     EXPECT_FALSE(makeFundamental(parseScenario("[[agents]]\ntype = \"momentum\"\n")));
 }
 
+TEST(ScenarioFileTest, ReadsAGame) {
+    const Scenario scenario = parseScenario(R"(duration = "3h"
+[prediction]
+probability = 0.6
+[prediction.game]
+start = "1h"
+length = "48m"
+periods = 4
+break = "5m"
+scores = 85.0
+points = [1, 2, 3]
+point_weights = [0.2, 0.55, 0.25]
+tie = 50
+pregame_drift = 0.2
+in_play_drift = 0.1
+news = 3
+news_size = 0.15
+[[agents]]
+type = "zero_intelligence"
+)");
+    ASSERT_TRUE(scenario.prediction && scenario.prediction->game);
+    EXPECT_EQ(*scenario.prediction->game, (GameConfig{.start = 3600 * kSecond,
+                                                      .length = 2880 * kSecond,
+                                                      .periods = 4,
+                                                      .breakLength = 300 * kSecond,
+                                                      .scores = 85.0,
+                                                      .points = {1, 2, 3},
+                                                      .pointWeights = {0.2, 0.55, 0.25},
+                                                      .tie = 50.0,
+                                                      .pregameDrift = 0.2,
+                                                      .inPlayDrift = 0.1,
+                                                      .news = 3.0,
+                                                      .newsSize = 0.15}));
+    EXPECT_EQ(scenario.prediction->game->end(), 3600 * kSecond + 2880 * kSecond + 900 * kSecond);
+    EXPECT_NEAR(makeFundamental(scenario)->valueAt(0), 60.0, 1e-6);
+    const Scenario defaults =
+        parseScenario("duration = \"2h\"\n[prediction.game]\n[[agents]]\ntype = \"momentum\"\n");
+    EXPECT_EQ(*defaults.prediction->game, GameConfig{});
+}
+
 TEST(ScenarioFileTest, ReadsAProbabilityFeeCurveForAPredictionMarket) {
     const Scenario scenario = parseScenario(R"([prediction]
 [exchange]
@@ -329,6 +369,13 @@ TEST(ScenarioFileTest, RejectsPredictionMarketsThatMakeNoSense) {
              std::pair{"[fundamental]\n[prediction]", "test.toml:2: a prediction market's true"},
              std::pair{"duration = \"100s\"\n[prediction]\nnews_rate = 10.0\nnews_share = 0.5",
                        "prediction: at most 500 pieces of news"},
+             std::pair{"[prediction.game]\nlength = \"0s\"",
+                       "test.toml:1: a game's 'length' must be positive"},
+             std::pair{"[prediction.game]\nhalves = 2", "test.toml:2: unknown key 'halves'"},
+             std::pair{"[prediction.game]\npoints = [2, 3]\npoint_weights = [1.0]",
+                       "test.toml:3: 'point_weights' must be a list as long as 'points'"},
+             std::pair{"[prediction]\nnews_rate = 0.1\n[prediction.game]",
+                       "prediction: a game brings its own news"},
          }) {
         EXPECT_NE(parseError(std::string{text} + agents).find(expected), std::string::npos)
             << text << "\n" << parseError(std::string{text} + agents);

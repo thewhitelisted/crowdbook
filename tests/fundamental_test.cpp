@@ -250,5 +250,167 @@ TEST(PredictionTest, SettingsAreChecked) {
     EXPECT_THROW(static_cast<void>(value.valueAt(10 * kSecond)), std::invalid_argument);
 }
 
+GameConfig smallGame() { return {.start = 10 * kSecond, .length = 60 * kSecond, .scores = 3.0}; }
+
+// A game's market opens at the home side's chance asked for, whatever a score is worth and
+// whatever a tie pays.
+TEST(GameTest, StartsAtTheProbabilityAskedFor) {
+    for (const auto& [probability, game] :
+         {std::pair{0.5, smallGame()}, std::pair{0.2, smallGame()},
+          std::pair{0.7, GameConfig{.length = 60 * kSecond,
+                                    .scores = 90.0,
+                                    .points = {1, 2, 3},
+                                    .pointWeights = {0.2, 0.6, 0.2}}},
+          std::pair{0.5, GameConfig{.length = 60 * kSecond, .scores = 2.0, .tie = 50.0}}}) {
+        Fundamental value{PredictionConfig{.probability = probability, .game = game}, 100 * kSecond,
+                          Random{1, 0}};
+        EXPECT_NEAR(value.valueAt(0), 100.0 * probability, 1e-6);
+        EXPECT_EQ(value.walk(), 0.0);
+    }
+}
+
+// With no drift the value is the chance of what happens: of the moments it says 20 to 40, about
+// 30% resolve yes, and so on.
+TEST(GameTest, TheValueIsCalibrated) {
+    std::array<double, 5> valued{};
+    std::array<double, 5> resolved{};
+    std::array<double, 5> count{};
+    const PredictionConfig config{.probability = 0.6, .game = smallGame()};
+    for (int path = 0; path < kPaths; ++path) {
+        Fundamental value{config, 80 * kSecond, Random{static_cast<std::uint64_t>(path), 3}};
+        std::array<double, 4> said{};
+        for (std::size_t moment = 0; moment < said.size(); ++moment) {
+            said[moment] = value.valueAt(static_cast<Timestamp>(20 + 15 * moment) * kSecond);
+        }
+        const double outcome = value.valueAt(80 * kSecond);
+        for (const double at : said) {
+            const auto bin = std::min<std::size_t>(static_cast<std::size_t>(at / 20.0), 4);
+            valued[bin] += at;
+            resolved[bin] += outcome;
+            count[bin] += 1;
+        }
+    }
+    for (std::size_t bin = 0; bin < 5; ++bin) {
+        if (count[bin] > 200) {
+            EXPECT_NEAR(resolved[bin] / count[bin], valued[bin] / count[bin],
+                        4.0 * 50.0 / std::sqrt(count[bin]))
+                << "values from " << 20 * bin << " to " << 20 * (bin + 1);
+        }
+    }
+}
+
+// Scores come at the expected rate, worth what they are worth on average.
+TEST(GameTest, SidesScoreAtTheExpectedRate) {
+    const PredictionConfig config{
+        .game = GameConfig{
+            .length = 60 * kSecond, .scores = 40.0, .points = {2, 3}, .pointWeights = {3.0, 1.0}}};
+    double events = 0.0;
+    for (std::uint64_t path = 0; path < 500; ++path) {
+        Fundamental value{config, 60 * kSecond, Random{path, 5}};
+        static_cast<void>(value.valueAt(60 * kSecond));
+        events += static_cast<double>(value.jumps());
+    }
+    EXPECT_NEAR(events / 500, 40.0, 1.0);
+}
+
+// The clock stops between periods: nothing scores and the value holds, and after the final
+// whistle it is the result.
+TEST(GameTest, TheClockStopsAtBreaksAndTheResultHoldsAfterTheEnd) {
+    const PredictionConfig config{.game = GameConfig{.length = 40 * kSecond,
+                                                     .periods = 2,
+                                                     .breakLength = 30 * kSecond,
+                                                     .scores = 20.0,
+                                                     .tie = 50.0}};
+    for (std::uint64_t path = 0; path < 50; ++path) {
+        Fundamental value{config, 100 * kSecond, Random{path, 1}};
+        const double atBreak = value.valueAt(20 * kSecond);
+        const double lead = value.walk();
+        EXPECT_EQ(value.valueAt(49 * kSecond), atBreak);
+        EXPECT_EQ(value.walk(), lead);
+        const double afterGame = value.valueAt(75 * kSecond);
+        const double result = value.walk() > 0 ? 100.0 : (value.walk() == 0 ? 50.0 : 0.0);
+        EXPECT_EQ(afterGame, result);
+        EXPECT_EQ(value.valueAt(99 * kSecond), result);
+        EXPECT_EQ(value.valueAt(100 * kSecond), result);
+    }
+}
+
+// A market that closes before the final whistle stops at the probability then.
+TEST(GameTest, AMarketThatClosesEarlyStopsAtTheProbability) {
+    for (std::uint64_t path = 0; path < 20; ++path) {
+        const PredictionConfig config{.game = smallGame()};
+        Fundamental full{config, 80 * kSecond, Random{path, 6}};
+        Fundamental cut{config, 40 * kSecond, Random{path, 6}};
+        const double then = full.valueAt(40 * kSecond);
+        EXPECT_EQ(cut.valueAt(40 * kSecond), then);
+        EXPECT_EQ(cut.valueAt(41 * kSecond), then);
+    }
+}
+
+// A home score lifts the home side's chance, an away score lowers it.
+TEST(GameTest, ScoresMoveTheValueTheirWay) {
+    int checked = 0;
+    for (std::uint64_t path = 0; path < 200 && checked < 20; ++path) {
+        Fundamental value{PredictionConfig{.game = smallGame()}, 70 * kSecond, Random{path, 2}};
+        double lead = 0.0;
+        double before = value.valueAt(10 * kSecond);
+        for (Timestamp time = 11 * kSecond; time < 70 * kSecond; time += kSecond) {
+            const double now = value.valueAt(time);
+            if (value.walk() > lead) {
+                EXPECT_GT(now, before);
+                ++checked;
+            } else if (value.walk() < lead) {
+                EXPECT_LT(now, before);
+                ++checked;
+            }
+            lead = value.walk();
+            before = now;
+        }
+    }
+    EXPECT_GE(checked, 20);
+}
+
+// A trader who sees the game late sees what was, step for step.
+TEST(GameTest, ReadingLateGivesWhatWasThen) {
+    const PredictionConfig config{.game = GameConfig{.start = 20 * kSecond,
+                                                     .length = 60 * kSecond,
+                                                     .scores = 10.0,
+                                                     .pregameDrift = 0.5,
+                                                     .inPlayDrift = 0.3,
+                                                     .news = 3.0,
+                                                     .newsSize = 0.3}};
+    Fundamental onTime{config, 90 * kSecond, Random{4, 0}};
+    Fundamental late{config, 90 * kSecond, Random{4, 0}};
+    late.remember(10 * kSecond);
+    for (Timestamp time = 0; time < 90 * kSecond; time += kSecond) {
+        const double then = onTime.valueAt(time);
+        static_cast<void>(late.valueAt(time + 5 * kSecond));
+        EXPECT_EQ(late.valueAt(time), then) << "at " << time / kSecond << "s";
+    }
+}
+
+TEST(GameTest, SettingsAreChecked) {
+    const auto with = [](auto change) {
+        PredictionConfig config{.game = smallGame()};
+        change(*config.game);
+        return config;
+    };
+    for (const PredictionConfig& config :
+         {with([](GameConfig& g) { g.length = 0; }),
+          with([](GameConfig& g) { g.start = -kSecond; }),
+          with([](GameConfig& g) { g.periods = 0; }), with([](GameConfig& g) { g.scores = 0.0; }),
+          with([](GameConfig& g) { g.scores = 600.0; }), with([](GameConfig& g) { g.points = {}; }),
+          with([](GameConfig& g) { g.pointWeights = {1.0, 2.0}; }),
+          with([](GameConfig& g) { g.points = {0}; }), with([](GameConfig& g) { g.tie = 101.0; }),
+          with([](GameConfig& g) { g.pregameDrift = -1.0; }),
+          PredictionConfig{.newsRate = 0.1, .game = smallGame()},
+          // With 0.1 scores expected, the home side wins at most about one time in ten.
+          PredictionConfig{.probability = 0.5,
+                           .game = GameConfig{.length = 60 * kSecond, .scores = 0.1}}}) {
+        EXPECT_THROW(Fundamental(config, 80 * kSecond, Random{1, 0}), std::invalid_argument);
+        EXPECT_THROW(Fundamental::check(config, 80 * kSecond), std::invalid_argument);
+    }
+}
+
 } // namespace
 } // namespace crowdbook

@@ -19,7 +19,12 @@ struct BeliefConfig {
     double error = 0.0; // standard deviation of the trader's own lasting error
     // How long the lasting error lasts: its correlation with what it was this long ago is 1/e.
     Duration errorMemory = 60 * kSecond;
-    double bias = 0.0; // added to every look: the group's tilt
+    double bias = 0.0; // added to every look: the group's leaning, such as partisans for yes
+    // In a prediction market, how far the trader pulls probabilities toward even, in log-odds:
+    // it sees logistic((1 − tilt) · logit(p)) for a probability p. Above 0 it rates long shots
+    // too high and favourites too low, the favourite–longshot bias of bettors; below 0 the
+    // reverse. Below 1.
+    double tilt = 0.0;
     // How late, on average, the trader sees the value: each trader of a group is between no delay
     // and twice this, drawn once, so some hear the news first and some last.
     Duration lag = 0;
@@ -30,8 +35,9 @@ struct BeliefConfig {
 // One trader's view of the value, from its own random stream.
 class Belief {
 public:
-    // Throws std::invalid_argument without a value, for negative noise, error or lag, or an error
-    // memory that is not positive.
+    // Throws std::invalid_argument without a value, for negative noise, error or lag, an error
+    // memory that is not positive, or a tilt of 1 or more, or any tilt outside a prediction
+    // market.
     Belief(const BeliefConfig& config, std::shared_ptr<Fundamental> value);
 
     // The trader's estimate of the value now. It draws the fresh noise first, as traders always

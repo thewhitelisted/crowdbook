@@ -18,7 +18,7 @@ namespace {
 Duration parseDuration(std::string_view text) {
     const auto unitStart = text.find_first_not_of("0123456789.");
     if (unitStart == 0 || unitStart == std::string_view::npos) {
-        throwNotADuration(text, "it needs a number followed by ns, us, ms or s");
+        throwNotADuration(text, "it needs a number followed by ns, us, ms, s, m or h");
     }
     const std::string_view unit = text.substr(unitStart);
     Duration scale = 0;
@@ -30,8 +30,12 @@ Duration parseDuration(std::string_view text) {
         scale = kMillisecond;
     } else if (unit == "s") {
         scale = kSecond;
+    } else if (unit == "m") {
+        scale = 60 * kSecond;
+    } else if (unit == "h") {
+        scale = 3600 * kSecond;
     } else {
-        throwNotADuration(text, "the unit must be ns, us, ms or s");
+        throwNotADuration(text, "the unit must be ns, us, ms, s, m or h");
     }
 
     // Integer arithmetic only, so "1.5ms" is exactly 1'500'000 nanoseconds.

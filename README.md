@@ -57,9 +57,10 @@ noise                     20          0          -1575        -1575
 A market maker with a fast connection earns the spread from twenty zero-intelligence traders.
 `run.csv` holds every order, cancel, fill, trade and top-of-book change. The same seed always
 reproduces the same run, byte for byte, on any platform.
-[examples/scenarios](examples/scenarios) has thirteen scenarios, from this one to thousand-trader
+[examples/scenarios](examples/scenarios) has fourteen scenarios, from this one to thousand-trader
 markets with informed traders, memory, or brokers working large orders, a trading day, a
-prediction market and one fitted to Polymarket's fifteen-minute Bitcoin questions;
+prediction market, one fitted to Polymarket's fifteen-minute Bitcoin questions and a contract on
+a game, whose probability jumps when either side scores;
 [docs/scenarios.md](docs/scenarios.md) describes the file format and every agent parameter.
 
 ## Results

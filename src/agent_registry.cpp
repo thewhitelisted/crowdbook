@@ -31,6 +31,7 @@ BeliefConfig readBelief(const Parameters& parameters, const BeliefConfig& defaul
             .error = parameters.number("error", defaults.error),
             .errorMemory = parameters.duration("error_memory", defaults.errorMemory),
             .bias = parameters.number("bias", defaults.bias),
+            .tilt = parameters.number("tilt", defaults.tilt),
             .lag = parameters.duration("lag", defaults.lag)};
 }
 
