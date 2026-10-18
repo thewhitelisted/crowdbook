@@ -71,17 +71,19 @@ jobs:
           name: python
           path: dist/*
 
-  # The tutorial from the wheels alone, in a fresh environment of a later Python than the wheels
-  # were built for: no compiler, no build directory. Its fit and checks are cut short; the
-  # tutorial's own numbers come from the full lengths.
+  # The tutorial as a newcomer runs it, in a fresh environment of a later Python than the wheels
+  # were built for: from the wheels alone, with no compiler and no build directory, and from
+  # source, with `pip install . ./analysis` as the README says. Its fit and checks are cut short;
+  # the tutorial's own numbers come from the full lengths.
   tutorial:
-    name: tutorial / ${{ matrix.os }}
+    name: tutorial / ${{ matrix.install }} / ${{ matrix.os }}
     needs: [engine, python]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-15]
+        install: [wheels, source]
     steps:
       - uses: actions/checkout@v7
 
@@ -90,11 +92,13 @@ jobs:
           python-version: '3.14'
 
       - uses: actions/download-artifact@v8
+        if: matrix.install == 'wheels'
         with:
           name: engine-${{ matrix.os }}
           path: dist
 
       - uses: actions/download-artifact@v8
+        if: matrix.install == 'wheels'
         with:
           name: python
           path: dist
@@ -104,8 +108,13 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/venv"
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/venv/bin/pip" install --disable-pip-version-check dist/crowdbook_engine-*.whl \
-            dist/crowdbook_analysis-*.whl
+          pip="$RUNNER_TEMP/venv/bin/pip"
+          if [ "${{ matrix.install }}" = wheels ]; then
+            "$pip" install --disable-pip-version-check dist/crowdbook_engine-*.whl \
+              dist/crowdbook_analysis-*.whl
+          else
+            "$pip" install --disable-pip-version-check . ./analysis
+          fi
 
       - name: Run the tutorial
         shell: bash
