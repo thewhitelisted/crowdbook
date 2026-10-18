@@ -15,6 +15,7 @@ fit, the real side of a maker's flag. The command exits with 0 for a usable fit 
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -35,10 +36,14 @@ def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[
     rows = []
     for entry in data["statistics"]:
         fitted = entry["simulated"][-1]
-        if entry["key"] in compared and fitted.get("distance") is not None:
-            rows.append((abs(fitted["distance"]), entry, fitted))
+        distance = fitted.get("distance")
+        if entry["key"] in compared and distance is not None and math.isfinite(distance):
+            rows.append((abs(distance), entry, fitted))
     passing = sum(1 for _, _, fitted in rows if fitted.get("pass"))
-    flagged = [] if swept is None else [p for p, s in swept["judged"].items() if s["low"] > 0]
+    # A check that judged nothing, or no strategy with an interval, did not run.
+    judged = {} if swept is None else {p: s for p, s in swept["judged"].items()
+                                       if math.isfinite(s["low"])}
+    flagged = [p for p, s in judged.items() if s["low"] > 0]
     reasons = []
     if not fit["reached"]:
         reasons.append(f"the fit does not reach the recording within chance (held-out distance "
@@ -46,8 +51,8 @@ def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[
     if flagged:
         reasons.append("the fitted market pays a generic strategy: "
                        + ", ".join(p.name for p in flagged))
-    if swept is None:
-        reasons.append("the no-false-edge check was not run")
+    if not judged:
+        reasons.append("the no-false-edge check judged no strategy with an interval")
     usable = not reasons
     lines = ["# Verdict", "",
              ("**Usable for testing strategies**: the fit reaches the recording within chance "
@@ -68,8 +73,9 @@ def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[
                          f"{fitted['distance']:+.1f} |")
         lines.append("")
     lines += ["## Edges", ""]
-    if swept is None:
-        lines.append("Not checked.")
+    if not judged:
+        lines.append("Not checked: no strategy was judged on enough fresh markets for an "
+                     "interval.")
     else:
         lines.append(f"Each family's best of {search} markets, judged on {confirm} fresh ones; "
                      "tick-lots a market after fees, with 95% intervals.")
@@ -130,12 +136,17 @@ def main() -> None:
         raise SystemExit("the fit failed")
     data = json.loads((args.output / "report.json").read_text())
 
-    twins = args.output / "twins"
-    files = sorted(twins.glob("*.toml")) if twins.is_dir() else [args.output / "scenario.toml"]
+    # The fit's own markets: its twins, which the fit writes afresh, or its one scenario.
+    conditioned = calibrate.read_spec(args.spec).condition
+    files = (sorted((args.output / "twins").glob("*.toml")) if conditioned
+             else [args.output / "scenario.toml"])
     probes = sweep.default_probes()
     if args.families:
         wanted = set(args.families.split(","))
         probes = [p for p in probes if p.family in wanted]
+        if not probes:
+            known = sorted({p.family for p in sweep.default_probes()})
+            parser.error(f"no strategy family in {args.families}: they are {', '.join(known)}")
     swept = sweep.sweep(tool, [f.read_text() for f in files], probes, args.sweep_seeds,
                         args.confirm)
     text, _ = sweep.report(f"{len(files)} fitted markets", swept, args.sweep_seeds, args.confirm)

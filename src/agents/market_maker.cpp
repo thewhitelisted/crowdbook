@@ -12,6 +12,7 @@ namespace crowdbook {
 
 namespace {
 constexpr int kMaxLevels = 50;
+constexpr double kMaxGrowth = 1000.0;
 } // namespace
 
 Quotes avellanedaStoikovQuotes(const MarketMakerConfig& config, double fairPrice,
@@ -60,11 +61,12 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
                                     "no sooner, and have an interval that is not negative");
     }
     if (config.levels < 1 || config.levels > kMaxLevels || config.levelSpacing < 1 ||
-        !(config.levelGrowth > 0.0) || !std::isfinite(config.levelGrowth)) {
+        config.levelSpacing > kMaxPrice || !(config.levelGrowth > 0.0) ||
+        !(config.levelGrowth <= kMaxGrowth)) {
         throw std::invalid_argument(std::format(
-            "market_maker needs 1 to {} levels, a level_spacing of at least 1 tick and a "
-            "positive level_growth",
-            kMaxLevels));
+            "market_maker needs 1 to {} levels, a level_spacing from 1 tick to {} and a "
+            "level_growth above 0 and at most {}",
+            kMaxLevels, kMaxPrice, kMaxGrowth));
     }
     if (config.valueBelief) {
         belief_.emplace(*config.valueBelief, std::move(fundamental));
@@ -74,8 +76,12 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
 }
 
 Quantity MarketMaker::levelSize(int level) const noexcept {
-    const double size = static_cast<double>(config_.quoteSize) * std::pow(config_.levelGrowth, level);
-    return std::clamp<Quantity>(static_cast<Quantity>(std::llround(size)), 1, config_.maxInventory);
+    // Kept within 1 and max_inventory before rounding, so that a size too large for a whole
+    // number cannot wrap round.
+    const double size = std::clamp(static_cast<double>(config_.quoteSize) *
+                                       std::pow(config_.levelGrowth, level),
+                                   1.0, static_cast<double>(config_.maxInventory));
+    return static_cast<Quantity>(std::llround(size));
 }
 
 void MarketMaker::onStart(AgentContext& context) {

@@ -111,8 +111,9 @@ def _matrix(frame: pl.DataFrame, columns: list[str]) -> np.ndarray:
     if not columns:
         return np.full((len(frame), 1), np.nan)
     # One query for all the columns: a query a column costs more than the reading.
-    return frame.select([pl.col(c).cast(pl.Float64).fill_null(np.nan) for c in columns]) \
-        .to_numpy().astype(float, copy=False).reshape(len(frame), len(columns))
+    # A copy: one column alone comes back as a read-only view of the frame.
+    return np.array(frame.select([pl.col(c).cast(pl.Float64).fill_null(np.nan) for c in columns])
+                    .to_numpy(), dtype=float).reshape(len(frame), len(columns))
 
 
 def infer_signs(time: np.ndarray, price: np.ndarray, book_time: np.ndarray,
@@ -315,8 +316,9 @@ def phase(t: Tape, label: str, after: bool) -> Tape:
         at = m.labels.get(label)
         if at is None or not np.isfinite(float(at)):
             continue
-        part = window(Tape([m], t.options), float(at), None) if after else window(
-            Tape([m], t.options), 0.0, float(at))
+        at = min(max(float(at), 0.0), m.duration)  # a time before the start is the start
+        part = window(Tape([m], t.options), at, None) if after else window(
+            Tape([m], t.options), 0.0, at)
         cut += part.markets
     return Tape(cut, t.options)
 
@@ -437,8 +439,10 @@ def simulate_markets(tool: Path, runs: list[Run], *, labels: dict | None = None,
 
         futures = {pool.submit(one, index, job): index for index, job in enumerate(runs)}
         out: list = [None] * len(runs)
-        for future in as_completed(futures):
-            index = futures[future]
+        for future in as_completed(list(futures)):
+            # Let go of each market once measured: only what `then` makes of it is kept.
+            index = futures.pop(future)
             market = future.result()
+            del future
             out[index] = then(index, market) if then is not None else market
         return out

@@ -52,7 +52,7 @@ post_only = true                       # moves is requoted rarely
 quiet_from = "${kickoff}s"   # in play the makers stay away, or with a label quote that often
 quiet_interval = ${maker_in_play_interval:"0s"}
 latency = { to_exchange = "20ms", from_exchange = "20ms" }
-account = { max_position = 2000000, max_order_quantity = 100000 }
+account = { max_position = 2000000, max_order_quantity = 1000000 }   # a ladder's deepest level
 
 
 [[agents]]
