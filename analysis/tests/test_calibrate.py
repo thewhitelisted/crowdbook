@@ -122,6 +122,16 @@ class ConditionTest(unittest.TestCase):
         scenario = spec.scenario(spec.start(), market("m", duration=90.0))
         self.assertIn('duration = "90s"', scenario)
 
+    def test_a_placeholder_can_say_what_to_write_where_nothing_sets_it(self):
+        template = TEMPLATE + 'side = ${side:"home"}\n'
+        spec = spec_from(template=template)  # no condition needed: it has a default
+        self.assertIn('side = "home"', spec.scenario(spec.start()))
+        conditioned = spec_from("condition = true\n" + SPEC, template)
+        from test_validate import market
+        away = market("m")
+        away.labels = {"side": "away"}
+        self.assertIn('side = "away"', conditioned.scenario(conditioned.start(), away))
+
 
 class FitDrawsTest(unittest.TestCase):
     def test_draws_spread_about_the_fit_as_its_intervals_say(self):
