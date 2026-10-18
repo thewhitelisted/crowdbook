@@ -35,6 +35,9 @@ news_size = 0.15
 
 [exchange]
 depth_levels = 10
+maker_fee = ${maker_fee:0}           # ticks a lot, labels of the recording: the venue's fees, so that
+taker_fee = ${taker_fee:0}           # the edge check judges strategies after them
+fee_curve = ${fee_curve:"flat"}      # or "probability": each fee times 4p(1 - p) at price p
 order_delay = "${in_play_delay:5}s"   # in play, orders wait before they reach the book (a label);
 order_delay_from = "${kickoff}s"   # cancels do not
 clear_at = ["${kickoff}s"]          # the book is cleared at kickoff
