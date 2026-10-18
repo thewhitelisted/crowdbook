@@ -1,6 +1,7 @@
 #include "crowdbook/fundamental.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <limits>
@@ -76,6 +77,9 @@ void checkGame(const GameConfig& game, const PredictionConfig& config) {
     }
     if (!(game.lateScoring > 0.0 && game.lateScoring <= 100.0)) {
         throw std::invalid_argument("late scoring must be above 0 and at most 100");
+    }
+    if (!std::isfinite(game.line)) {
+        throw std::invalid_argument("a game's line must be a number");
     }
     if (!(game.tie >= 0.0 && game.tie <= 100.0)) {
         throw std::invalid_argument("a tie pays from 0 to 100 cents");
@@ -154,17 +158,28 @@ Fundamental::Fundamental(const PredictionConfig& config, Duration resolution, Ra
         // A home win's chance rises with the home side's strength and an away win's falls; a
         // draw's falls as either side grows stronger, so for a draw the home side is taken to be
         // the stronger, its strength not negative.
-        const double sign = game_->side == GameSide::Home ? 1.0 : -1.0;
-        const auto rising = [&](double strength) {
-            return sign * gameProbability(0, 0.0, strength);
+        // A total's price does not move with the strength, which only shares the scoring out: its
+        // price at kickoff sets how much is expected to be scored instead, in proportion to
+        // `scores`, a total over the line rising with it.
+        const GameSide side = game_->side;
+        const bool total = side == GameSide::Over || side == GameSide::Under;
+        const double sign =
+            side == GameSide::Home || side == GameSide::HomeSpread || side == GameSide::Over ? 1.0
+                                                                                             : -1.0;
+        const auto rising = [&](double setting) {
+            if (total) {
+                scoreScale_ = std::exp(setting);
+                return sign * gameProbability(0, 0.0, 0.0, 0.0);
+            }
+            return sign * gameProbability(0, 0.0, 0.0, setting);
         };
         const double target = sign * 100.0 * config.probability;
-        double low = game_->side == GameSide::Draw ? 0.0 : -30.0;
-        double high = 30.0;
+        double low = side == GameSide::Draw ? 0.0 : (total ? -8.0 : -30.0);
+        double high = total ? 5.0 : 30.0;
         if (rising(low) > target || rising(high) < target) {
             throw std::invalid_argument(std::format(
-                "no strength gives the contract a price of {} at kickoff with {} scores expected",
-                config.probability, game_->scores));
+                "no {} gives the contract a price of {} at kickoff with {} scores expected",
+                total ? "scoring" : "strength", config.probability, game_->scores));
         }
         for (int i = 0; i < 200; ++i) {
             const double middle = (low + high) / 2.0;
@@ -173,7 +188,11 @@ Fundamental::Fundamental(const PredictionConfig& config, Duration resolution, Ra
             }
             (rising(middle) < target ? low : high) = middle;
         }
-        strength_ = (low + high) / 2.0;
+        if (total) {
+            scoreScale_ = std::exp((low + high) / 2.0);
+        } else {
+            strength_ = (low + high) / 2.0;
+        }
         value_ = 0.0;
         return;
     }
@@ -220,7 +239,8 @@ void Fundamental::advanceTo(std::int64_t target) {
         if (remembered_ > 0) {
             history_.pushBack({.walk = value_,
                                .value = valuedStep_ == step_ ? probability_ : kNotWorkedOut,
-                               .strength = strength_});
+                               .strength = strength_,
+                               .points = points_});
             if (std::cmp_greater(history_.size(), remembered_)) {
                 history_.popFront();
             }
@@ -289,6 +309,7 @@ void Fundamental::moveGame(Timestamp from, Timestamp to) {
          ++nextScripted_) {
         const ScriptedScore& score = game.script[nextScripted_];
         value_ += score.home ? score.points : -score.points;
+        points_ += score.points;
         ++jumps_;
     }
     const Duration played = playedBy(to) - playedBy(from);
@@ -323,7 +344,10 @@ void Fundamental::moveGame(Timestamp from, Timestamp to) {
     const double expected = expectedScores(playedBy(from), playedBy(to));
     const std::int64_t home = poisson(expected * homeShare);
     const std::int64_t away = poisson(expected * (1.0 - homeShare));
-    value_ += static_cast<double>(pointsOf(home) - pointsOf(away));
+    const std::int64_t homePoints = pointsOf(home);
+    const std::int64_t awayPoints = pointsOf(away);
+    value_ += static_cast<double>(homePoints - awayPoints);
+    points_ += static_cast<double>(homePoints + awayPoints);
     jumps_ += home + away;
 }
 
@@ -369,59 +393,98 @@ double Fundamental::expectedScores(Duration from, Duration to) const noexcept {
     const double u1 = static_cast<double>(to) / static_cast<double>(game.length);
     const double start = 2.0 / (1.0 + game.lateScoring);
     const double slope = start * (game.lateScoring - 1.0);
-    return game.scores * (start * (u1 - u0) + slope / 2.0 * (u1 * u1 - u0 * u0));
+    return scoreScale_ * game.scores * (start * (u1 - u0) + slope / 2.0 * (u1 * u1 - u0 * u0));
 }
 
-double Fundamental::gameProbability(Timestamp time, double lead, double strength) const {
+double Fundamental::gameProbability(Timestamp time, double lead, double points,
+                                    double strength) const {
     const GameConfig& game = *game_;
-    // What the contract pays on each result.
-    const auto pays = [&](double win, double tie, double loss) {
+    // What the contract pays on each result, its chances of being above, on and below the mark
+    // it is about: the lead against 0 or the line, or the total against the line.
+    const auto pays = [&](double above, double on, double below) {
         switch (game.side) {
         case GameSide::Home:
-            return 100.0 * win + game.tie * tie;
+        case GameSide::Over:
+        case GameSide::HomeSpread:
+            return 100.0 * above + game.tie * on;
         case GameSide::Away:
-            return 100.0 * loss + game.tie * tie;
+        case GameSide::Under:
+        case GameSide::AwaySpread:
+            return 100.0 * below + game.tie * on;
         case GameSide::Draw:
-            return 100.0 * tie;
+            return 100.0 * on;
         }
         return 0.0;
     };
+    const bool total = game.side == GameSide::Over || game.side == GameSide::Under;
+    const bool spread = game.side == GameSide::HomeSpread || game.side == GameSide::AwaySpread;
+    const double mark = total || spread ? game.line : 0.0;
+    const double now = total ? points : lead;
     const Duration left = game.length - playedBy(time);
     if (left <= 0) {
-        return pays(lead > 0.0 ? 1.0 : 0.0, lead == 0.0 ? 1.0 : 0.0, lead < 0.0 ? 1.0 : 0.0);
+        return pays(now > mark ? 1.0 : 0.0, now == mark ? 1.0 : 0.0, now < mark ? 1.0 : 0.0);
     }
     const double events = expectedScores(game.length - left, game.length);
+    if (total) {
+        // Both sides' points together are one compound Poisson count, at both rates together,
+        // which ends above the line when more than `needed` points are still to come. The
+        // distribution is cut off far out, so it is divided by its mass.
+        pointsToCome(events, homePoints_);
+        const double needed = mark - now;
+        double mass = 0.0;
+        double above = 0.0;
+        double on = 0.0;
+        for (std::size_t k = 0; k < homePoints_.size(); ++k) {
+            const auto count = static_cast<double>(k);
+            mass += homePoints_[k];
+            above += count > needed ? homePoints_[k] : 0.0;
+            on += count == needed ? homePoints_[k] : 0.0;
+        }
+        above /= mass;
+        on /= mass;
+        return pays(above, on, std::max(1.0 - above - on, 0.0));
+    }
     const double homeShare = 1.0 / (1.0 + math::exp(-strength));
     pointsToCome(events * homeShare, homePoints_);
     pointsToCome(events * (1.0 - homeShare), awayPoints_);
-    // The home side's distribution becomes its tail: tail[k], the chance of k points or more, so
-    // that it ends ahead with more than the away side's points less its lead, and level with
-    // exactly that. Both distributions are cut off far out, so each is divided by its mass.
+    // The home side's lead ends above the mark when its points to come exceed the away side's
+    // plus the mark less the lead now: summed over the away side's, through the home side's
+    // tail, tail[k] the chance of k points or more.
     std::vector<double>& tail = homePoints_;
     tail.push_back(0.0);
     for (std::size_t k = tail.size() - 1; k-- > 0;) {
         tail[k] += tail[k + 1];
     }
     const double homeMass = tail[0];
-    const auto ahead = static_cast<std::int64_t>(std::llround(lead));
-    double win = 0.0;
-    double tie = 0.0;
+    const auto atLeast = [&](double count) {
+        if (count <= 0.0) {
+            return homeMass;
+        }
+        const auto index = static_cast<std::size_t>(count);
+        return index < tail.size() ? tail[index] : 0.0;
+    };
+    double above = 0.0;
+    double on = 0.0;
     double awayMass = 0.0;
     for (std::size_t a = 0; a < awayPoints_.size(); ++a) {
         awayMass += awayPoints_[a];
-        const std::int64_t level = static_cast<std::int64_t>(a) - ahead;
-        if (level < 0) {
-            win += awayPoints_[a] * homeMass;
-        } else if (std::cmp_less(level + 1, tail.size())) {
-            const auto k = static_cast<std::size_t>(level);
-            win += awayPoints_[a] * tail[k + 1];
-            tie += awayPoints_[a] * (tail[k] - tail[k + 1]);
+        // The home side's points to come must exceed this, or equal it for the lead to end on
+        // the mark.
+        const double needed = static_cast<double>(a) + mark - now;
+        if (needed < 0.0) {
+            above += awayPoints_[a] * homeMass;
+            continue;
+        }
+        const double fewest = std::floor(needed) + 1.0; // the fewest points that exceed it
+        above += awayPoints_[a] * atLeast(fewest);
+        if (needed == std::floor(needed)) {
+            on += awayPoints_[a] * (atLeast(needed) - atLeast(needed + 1.0));
         }
     }
     const double mass = awayMass * homeMass;
-    win /= mass;
-    tie /= mass;
-    return pays(win, tie, std::max(1.0 - win - tie, 0.0));
+    above /= mass;
+    on /= mass;
+    return pays(above, on, std::max(1.0 - above - on, 0.0));
 }
 
 void Fundamental::remember(Duration window) {
@@ -480,7 +543,7 @@ double Fundamental::valueAt(Timestamp time) {
                 }
                 resolvedWalk_ = value_;
                 // A market that closes before the final whistle stops at its value then.
-                outcome_ = gameProbability(*resolution_, value_, strength_);
+                outcome_ = gameProbability(*resolution_, value_, points_, strength_);
                 return *outcome_;
             }
             if (rest > 0) {
@@ -507,7 +570,8 @@ double Fundamental::valueAt(Timestamp time) {
             return then.walk;
         }
         if (std::isnan(then.value)) {
-            then.value = game_ ? gameProbability(target * config_.step, then.walk, then.strength)
+            then.value = game_ ? gameProbability(target * config_.step, then.walk, then.points,
+                                                 then.strength)
                                : probabilityAt(target, then.walk);
         }
         return then.value;
@@ -518,7 +582,7 @@ double Fundamental::valueAt(Timestamp time) {
     }
     // The probability changes only when the walk moves: work it out once a step.
     if (valuedStep_ != step_) {
-        probability_ = game_ ? gameProbability(step_ * config_.step, value_, strength_)
+        probability_ = game_ ? gameProbability(step_ * config_.step, value_, points_, strength_)
                              : probabilityAt(step_, value_);
         valuedStep_ = step_;
     }

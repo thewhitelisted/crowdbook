@@ -42,13 +42,18 @@ struct ScriptedScore {
     friend bool operator==(const ScriptedScore&, const ScriptedScore&) = default;
 };
 
-// Which result of a game a contract on it pays for.
-enum class GameSide : std::uint8_t { Home, Away, Draw };
+// Which result of a game a contract on it pays for: a side's win or a draw; the points of both
+// sides together over or under a line; or the home side's lead over or under a line, the home
+// side or the away side covering a spread.
+enum class GameSide : std::uint8_t { Home, Away, Draw, Over, Under, HomeSpread, AwaySpread };
 
 struct GameConfig {
     // The result the contract pays 100 for: a win for the home side, for the away side, or a
-    // draw; a contract on a win pays `tie` on a draw.
+    // draw; the total over or under `line`; or the home side's lead over `line` (HomeSpread) or
+    // under it (AwaySpread). A contract on a win pays `tie` on a draw, and one on a line pays
+    // `tie` where the result is exactly on it.
     GameSide side = GameSide::Home;
+    double line = 0.0;                // points, for totals and spreads
     Duration start = 0;               // kickoff, after the market opens
     Duration length = 5400 * kSecond; // playing time, all periods together
     int periods = 1;                  // of equal length, with a break between each two
@@ -160,7 +165,8 @@ private:
     // side's points to come.
     void moveGame(Timestamp from, Timestamp to);
     [[nodiscard]] Duration playedBy(Timestamp time) const noexcept;
-    [[nodiscard]] double gameProbability(Timestamp time, double lead, double strength) const;
+    [[nodiscard]] double gameProbability(Timestamp time, double lead, double points,
+                                         double strength) const;
     void pointsToCome(double expectedEvents, std::vector<double>& pmf) const;
     // Scoring events expected between two playing times.
     [[nodiscard]] double expectedScores(Duration from, Duration to) const noexcept;
@@ -187,6 +193,8 @@ private:
     // distributions of points to come.
     std::optional<GameConfig> game_{};
     double strength_ = 0.0;
+    double points_ = 0.0;          // scored so far, both sides together
+    double scoreScale_ = 1.0;      // the expected scoring, as a share of `scores`, for a total
     std::size_t nextScripted_ = 0; // the first scripted score not yet played
     mutable std::vector<double> homePoints_;
     mutable std::vector<double> awayPoints_;
@@ -197,6 +205,7 @@ private:
         double walk = 0.0;
         double value = 0.0;
         double strength = 0.0; // a game's
+        double points = 0.0;
     };
     // The steps before the current one, as far back as readers may look, oldest first.
     std::int64_t remembered_ = 0; // how many steps to keep
