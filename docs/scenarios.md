@@ -418,8 +418,11 @@ asset is worth. That needs a `[fundamental]` or `[prediction]` section.
 | `post_only` | `false` | Quote with post-only orders, a tick off the far side of the book it last saw, so it only ever adds liquidity |
 | `quote_value` | `false` | Quote around the true value as it sees it, rather than the average of trades |
 | `noise`, `error`, `error_memory`, `bias`, `tilt`, `lag` | `1.0`, `0`, `"60s"`, `0`, `0`, `"0s"` | With `quote_value`, how it sees the value, as [below](#how-traders-see-the-true-value); without it, not allowed |
-| `quiet_from`, `quiet_until` | duration | none, the end | A quiet stretch of the run, as makers who stay away from an event in play: from `quiet_from` until `quiet_until` |
-| `quiet_interval` | duration | `"0s"` | In the quiet stretch: with `"0s"` it pulls its quotes and stays out; otherwise it requotes only this often, leaving its quotes where they are between |
+| `quiet_from`, `quiet_until` | none, the end | A quiet stretch of the run, as makers who stay away from an event in play: from `quiet_from` until `quiet_until` |
+| `quiet_interval` | `"0s"` | In the quiet stretch: with `"0s"` it pulls its quotes and stays out; otherwise it requotes only this often, leaving its quotes where they are between |
+| `levels` | `1` | A ladder of this many quotes a side instead of one, up to 50: the first where the one quote would be, each further one behind it |
+| `level_spacing` | `1` | Ticks between one level of the ladder and the next |
+| `level_growth` | `1.0` | Each level's size over the size of the level nearer the touch: above 1, the book is deeper further out, as real books often are. A level is quoted only while filling it and every level nearer would keep the position within `max_inventory` |
 
 Keep γ·σ²·τ, the skew per lot of inventory, small. When other traders anchor on the market maker's
 quotes, a large skew drags the whole market against its own inventory.

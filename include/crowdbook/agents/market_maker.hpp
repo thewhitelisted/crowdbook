@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "crowdbook/agent.hpp"
 #include "crowdbook/agents/belief.hpp"
@@ -37,6 +38,12 @@ struct MarketMakerConfig {
     std::optional<Timestamp> quietFrom{};
     Timestamp quietUntil = kLatestTime;
     Duration quietInterval = 0;
+    // A ladder of quotes a side instead of one: `levels` of them, each `levelSpacing` ticks
+    // behind the one before, the first where the one quote would be, and each `levelGrowth` times
+    // the size of the one before, so that the book is deeper further out, as real books are.
+    int levels = 1;
+    Price levelSpacing = 1;
+    double levelGrowth = 1.0;
 };
 
 struct Quotes {
@@ -54,7 +61,8 @@ struct Quotes {
 [[nodiscard]] Quotes avellanedaStoikovQuotes(const MarketMakerConfig& config, double fairPrice,
                                              Quantity inventory);
 
-// A market maker after Avellaneda and Stoikov (2008). It keeps one bid and one ask around a
+// A market maker after Avellaneda and Stoikov (2008). It keeps one bid and one ask, or a ladder of
+// them, around a
 // reservation price that leans against its inventory: when long it lowers both quotes, so it sells
 // more and buys less, and when short it raises them. The fair price is a running average of trade
 // prices (the mid before the first trade), not the mid itself, because the mid is often the market
@@ -93,15 +101,18 @@ private:
 
     void requote(AgentContext& context);
     void maintain(AgentContext& context, std::optional<Quote>& quote, Side side,
-                  std::optional<Price> price) const;
+                  std::optional<Price> price, Quantity size) const;
+    // Lots quoted at each level of the ladder, the touch first.
+    [[nodiscard]] Quantity levelSize(int level) const noexcept;
 
     MarketMakerConfig config_;
     MarketView market_;
     std::optional<double> tradeAverage_;
     std::optional<Belief> belief_;
     std::optional<Timestamp> quotedAt_; // its last requote in a quiet stretch
-    std::optional<Quote> bid_;
-    std::optional<Quote> ask_;
+    // Its quotes a side, a level each, the touch first.
+    std::vector<std::optional<Quote>> bids_;
+    std::vector<std::optional<Quote>> asks_;
 };
 
 } // namespace crowdbook
