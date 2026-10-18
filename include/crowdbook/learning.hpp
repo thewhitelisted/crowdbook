@@ -180,9 +180,12 @@ public:
     // from which the two go on alike given the same actions and apart given others. The copy is
     // made by resetting with the source's scenario and seed and taking its decisions again, so
     // it costs what the episode so far cost, and this market's sink hears the episode again from
-    // its start. Writes the observation and returns the report of the source's latest decision.
-    // Throws std::invalid_argument for a source of another shape, or this market itself, or
-    // buffers of the wrong sizes, and std::logic_error for a source without an episode.
+    // its start. The copy keeps the source episode's timing, feed and valuation, whatever this
+    // market's shape says of them. Writes the observation and returns the report of the source's
+    // latest decision. Throws std::invalid_argument for a source of other actions, sizes or
+    // capacity, or this market itself, or buffers of the wrong sizes, and std::logic_error for a
+    // source without an episode; a source whose episode failed fails its copy at the same
+    // decision, which leaves this market part of the way through it, to be reset.
     LearningStep copyFrom(const LearningMarket& source, const LearningObservation& out);
 
     [[nodiscard]] bool started() const noexcept;

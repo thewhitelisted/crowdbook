@@ -113,7 +113,8 @@ public:
     // The wall-clock time at which the session finishes unless it is stopped first: when the
     // market reaches its end (sessionEnd), at the speed it runs at now, so that a caller driving
     // the gateway can step to it rather than past it. A call to advance at that time finishes it.
-    // Nullopt before the clock starts, while it is paused, and once the session is over.
+    // Nullopt before the clock starts, while it is paused short of the end, and once the session
+    // is over.
     [[nodiscard]] std::optional<std::int64_t> finishesAt() const;
     // The market's time now.
     [[nodiscard]] Timestamp now() const;
