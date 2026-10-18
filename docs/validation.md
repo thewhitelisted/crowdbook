@@ -266,7 +266,8 @@ box with its 68% interval's half width, doubled, as its spread; doubled because 
 found about half as wide as they should be. The policy answers each decision with explicit orders
 (`Pool.step_orders`: a bid, an offer, a quantity to take), so a strategy written for a real venue,
 which names its prices, runs unchanged. The report: what it made a market, with its interval,
-across the draws; its lots, as a maker and a taker; what it made a lot; the markouts of its fills a
+across the draws; its lots, as a maker and a taker; what it made a lot; its quotes' place in the queue, the share
+of its quoted lots that filled and how long they waited; the markouts of its fills a
 second, ten and a minute on, its adverse selection; and all of these at larger sizes on the same
 seeds, its capacity. Set beside a paper trader's numbers on the real market, they say whether the
 fitted market predicts it.

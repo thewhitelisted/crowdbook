@@ -42,8 +42,10 @@ pool.reset(seeds=range(64, 128), mask=terminated.copy())        # new episodes w
 scales=(1, 2, 4))` steps a policy that answers each decision with `step_orders`' rows, across one
 scenario or several (draws from a fit's uncertainty, from `crowdbook-draws`, or a recording's
 twins), and reports what it made a market with a 95% interval, the lots it traded and its share
-as a maker, what it made a lot, and the size-weighted markouts of its fills 1, 10 and 60 seconds
-on: its adverse selection. Each scale multiplies its sizes and runs the same seeds again, so that
+as a maker, what it made a lot, its quotes' place in the queue (the lots ahead of each when it
+reached the book, approximated by the size at its price the seat last saw), the share of the lots
+it quoted that filled and how long a filled quote waited, and the size-weighted markouts of its
+fills 1, 10 and 60 seconds on: its adverse selection. Each scale multiplies its sizes and runs the same seeds again, so that
 what it makes a lot as it grows shows the market's capacity for it. `per_market(decide)` turns a
 function of one market's arrays into a policy.
 
