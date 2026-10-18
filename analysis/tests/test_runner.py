@@ -35,8 +35,12 @@ class FindToolTest(unittest.TestCase):
         self.installed.parent.mkdir()
         self.installed.write_text("#!/bin/sh\n")
         self.installed.chmod(0o755)
-        # No checkout build, and only the installed command on the path.
+        # No checkout build, no command beside the package, and only the installed one on the path.
+        self.scripts = self.scratch / "scripts"
+        self.scripts.mkdir()
         for patch in (mock.patch.object(runner, "DEFAULT_TOOL", self.scratch / "no-build"),
+                      mock.patch.object(runner.sysconfig, "get_path",
+                                        lambda name: str(self.scripts)),
                       mock.patch.dict(os.environ, {"PATH": str(self.installed.parent)})):
             patch.start()
             self.addCleanup(patch.stop)
@@ -44,6 +48,13 @@ class FindToolTest(unittest.TestCase):
 
     def test_without_a_build_the_installed_command_is_used(self):
         self.assertEqual(find_tool(None), self.installed)
+
+    def test_the_command_beside_the_package_is_found_off_the_path(self):
+        # As when a venv's command runs without the venv activated.
+        beside = self.scripts / "crowdbook"
+        beside.write_text("")
+        with mock.patch.dict(os.environ, {"PATH": str(self.scratch)}):
+            self.assertEqual(find_tool(None), beside)
 
     def test_the_checkout_build_comes_before_the_installed_command(self):
         build = self.scratch / "build-crowdbook"

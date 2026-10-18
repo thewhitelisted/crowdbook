@@ -11,7 +11,7 @@ crowdbook runs on Linux and macOS. It comes as three Python packages:
 | package | holds | licence |
 |---|---|---|
 | `crowdbook-engine` | the `crowdbook` command, and `crowdbook_learn`, markets stepped from Python | [PolyForm Shield 1.0.0](../LICENSE) |
-| `crowdbook-analysis` | fitting and checking markets: `crowdbook-assess`, `crowdbook-calibrate`, `crowdbook-validate`, `crowdbook-sweep`, `crowdbook-draws`, `crowdbook-generate`, and the experiments behind [results.md](results.md) | PolyForm Shield 1.0.0 |
+| `crowdbook-analysis` | fitting and checking markets: `crowdbook-assess`, `crowdbook-calibrate`, `crowdbook-validate`, `crowdbook-sweep`, `crowdbook-draws`, `crowdbook-generate`; the experiments behind [results.md](results.md) run from a checkout, with `uv run --project analysis` | PolyForm Shield 1.0.0 |
 | `crowdbook` | the client for trading in a served market from Python, standard library only | [MIT](../clients/python/LICENSE) |
 
 The examples and the tutorial's files are in the repository, so start from a clone and a virtual
@@ -26,7 +26,7 @@ python3 -m venv .venv && . .venv/bin/activate
 (x86-64 and arm64) and macOS (Apple silicon). For release `vX.Y.Z`:
 
 ```bash
-pip install crowdbook-engine crowdbook-analysis \
+pip install crowdbook-engine==X.Y.Z crowdbook-analysis==X.Y.Z \
     --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/vX.Y.Z
 ```
 

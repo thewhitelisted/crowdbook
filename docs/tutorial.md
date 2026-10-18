@@ -132,7 +132,7 @@ nothing tested in that fit can be trusted until the fit is corrected.
 
 [examples/tutorial/strategy.py](../examples/tutorial/strategy.py) is a strategy of a dozen lines: a
 maker that joins the best bid and the best offer with two lots, and stops adding to its position
-past ten lots. It trades through a seat in the market, as an outside trader, with a millisecond's
+past ten lots: it quotes a side only while a fill there would keep it within ten. It trades through a seat in the market, as an outside trader, with a millisecond's
 latency, and it pays the fees.
 
 A fit is a point and an uncertainty, so test the strategy across both: draw 20 markets from the
@@ -148,10 +148,10 @@ Each row runs the strategy on 200 markets, about twenty seconds:
 
 | market | made a market (tick-lots) | 95% interval | lots | per lot | markout 10 s |
 |---|---:|---|---:|---:|---:|
-| the fit | −879.7 | [−907.6, −851.8] | 1,512 | −0.582 | +0.382 |
-| 20 draws from the fit | −884.7 | [−912.8, −856.6] | 1,505 | −0.588 | +0.369 |
+| assessed/scenario.toml | -875.4 | [-901.0, -849.8] | 1,486 | -0.589 | +0.375 |
+| 20 scenarios in draws | -875.4 | [-899.8, -851.0] | 1,481 | -0.591 | +0.366 |
 
-It loses about 0.58 ticks a lot. Its fills are worth +0.38 ticks ten seconds on, before fees: it
+It loses about 0.59 ticks a lot. Its fills are worth +0.37 ticks ten seconds on, before fees: it
 earns part of the spread and is not picked off, but the fee of a tick a lot takes more than all
 of it. The markout is what tells you whether a change could save it: here the fee, not adverse
 selection, is the problem, so quoting wider might, and trading faster would not.
@@ -176,9 +176,9 @@ python examples/tutorial/strategy.py --truth maker_intensity=0.8,noise_market_ra
 
 | market | made a market (tick-lots) | 95% interval | lots | per lot | markout 10 s |
 |---|---:|---|---:|---:|---:|
-| the truth | −854.8 | [−882.7, −827.0] | 1,538 | −0.556 | +0.403 |
+| the truth | -855.0 | [-880.5, -829.6] | 1,515 | -0.565 | +0.400 |
 
-The fit predicted −880 a market where the truth gives −855, their intervals overlapping, and
+The fit predicted −875 a market where the truth gives −855, their intervals overlapping, and
 the same fills, the same markouts and the same verdict: don't run it. With a real recording
 there is no truth to look up. The test that takes its place is paper trading: run the strategy
 on the live market without sending orders, and set its fills beside the fitted market's.

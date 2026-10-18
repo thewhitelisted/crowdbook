@@ -4,6 +4,10 @@
 # (pyproject.toml, through scikit-build-core) builds it for Python's stable ABI, so that one module
 # loads in 3.12 and every later version.
 find_package(Python 3.12 COMPONENTS Interpreter Development.Module ${SKBUILD_SABI_COMPONENT})
+if(NOT Python_FOUND AND SKBUILD)
+    message(FATAL_ERROR "A wheel needs Python 3.12 or later with its development files, for "
+                        "crowdbook_learn")
+endif()
 if(NOT Python_FOUND)
     message(STATUS "Python 3.12 or later with its development files not found: the Python module "
                    "for learning is skipped")

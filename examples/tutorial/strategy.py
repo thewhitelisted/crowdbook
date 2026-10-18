@@ -28,15 +28,21 @@ _ASK = STATE_NAMES.index("ask_price")
 
 def join_the_touch(observation, info):
     """Every market's orders at once: a bid at the best bid and an offer at the best offer, each
-    of SIZE lots, leaving out the side that would take the position past LIMIT."""
+    of SIZE lots, leaving out the side whose fill would take the position past LIMIT."""
     state = observation["state"]
     position = state[:, _POSITION]
     orders = np.zeros((len(state), 5), dtype=np.int64)
     orders[:, 0] = state[:, _BID]
-    orders[:, 1] = np.where(position < LIMIT, SIZE, 0)
+    orders[:, 1] = np.where(position + SIZE <= LIMIT, SIZE, 0)
     orders[:, 2] = state[:, _ASK]
-    orders[:, 3] = np.where(position > -LIMIT, SIZE, 0)
+    orders[:, 3] = np.where(position - SIZE >= -LIMIT, SIZE, 0)
     return orders
+
+
+def _name(path: Path) -> str:
+    if path.is_dir():
+        return f"{len(list(path.glob('*.toml')))} scenarios in {path}"
+    return str(path)
 
 
 def main() -> None:
@@ -47,10 +53,10 @@ def main() -> None:
                         "name=value,...")
     parser.add_argument("--seeds", type=int, default=200, help="markets each row is judged on")
     args = parser.parse_args()
-    rows = [(str(path), path) for path in args.scenarios]
+    rows = [(_name(path), path) for path in args.scenarios]
     if args.truth:
         spec = read_spec(SPEC)
-        rows.append((f"truth ({args.truth})", spec.scenario(parse_truth(args.truth, spec))))
+        rows.append(("the truth", spec.scenario(parse_truth(args.truth, spec))))
     if not rows:
         parser.error("give scenarios, --truth, or both")
     # Seeds far from those the fit and the check used.
@@ -59,8 +65,8 @@ def main() -> None:
     print("|---|---:|---|---:|---:|---:|")
     for name, scenarios in rows:
         s = evaluate(join_the_touch, scenarios, seeds)[1]["summary"]
-        print(f"| {name} | {s['made']:+.1f} | [{s['made_low']:+.1f}, {s['made_high']:+.1f}] "
-              f"| {s['lots']:.1f} | {s['made_per_lot']:+.3f} | {s['markouts']['10s']:+.3f} |")
+        print(f"| {name} | {s['made']:+,.1f} | [{s['made_low']:+,.1f}, {s['made_high']:+,.1f}] "
+              f"| {s['lots']:,.0f} | {s['made_per_lot']:+.3f} | {s['markouts']['10s']:+.3f} |")
 
 
 if __name__ == "__main__":
