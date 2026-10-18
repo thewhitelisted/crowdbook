@@ -82,7 +82,7 @@ and `${outcome}` from a tape's `value` table and outcomes for a twin of a record
 [prediction]
 probability = ${opening_probability}
 path = ${value_path}
-outcome = ${outcome:50}
+outcome = ${outcome}
 ```
 
 ### `[prediction.game]` (optional)
@@ -122,7 +122,13 @@ alone.
 
 The strength is in log-odds of who scores: at strength s the home side scores a share
 1 ÷ (1 + e^(−s)) of the scoring events, so 0 is an even game and ±1 makes one side score 73% of
-them. A run that ends before the game does, after its periods and breaks, stops with the game
+them. For a total, which does not see who scores, the strength scales how much is scored
+instead, by e^s, starting at 0: the drift and the news move what a total is expected to make, each
+move giving up half its variance so that e^s keeps its mean. Either way the value is the average
+of the price over where the strength may still go, with the variance it has left, so that it
+stays a fair price however much it drifts. `line` goes only with a total or a spread. A total so
+high that the chance of no score underflows (over 600 scoring events to come) takes its points to
+come as normal. A run that ends before the game does, after its periods and breaks, stops with the game
 unfinished, its value the probability then. With a `script` the score follows it, at the times
 given even outside the clock, as in time added on, while the strength still drifts and the value
 still prices what is to come from the expected scoring: one market can be made to replay a game

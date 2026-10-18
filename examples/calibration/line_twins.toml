@@ -18,10 +18,11 @@ step = "1s"
 side = ${side:"over"}         # "over"/"under" a total, "home_spread"/"away_spread": a label
 line = ${line}            # the line, a label of the recording
 start = "${kickoff}s"     # kickoff, after the market opens
-length = "90m"           # playing time
-periods = 2
-break = "15m"
-scores = 2.5             # scaled to the opening price: a total's price sets its scoring
+length = ${length:"90m"}        # playing time, a label for other sports
+periods = ${periods:2}
+break = ${break:"15m"}
+scores = ${scores:2.5}    # scoring events a game, a label: a total's opening price scales it,
+                          # but a spread needs it, ~200 for basketball with points [1, 2, 3]
 late_scoring = ${late_scoring}
 points = ${points:[1]}   # what a score is worth, a label for games scored otherwise
 tie = 0                  # cents a share pays exactly on a whole-number line

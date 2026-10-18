@@ -184,6 +184,11 @@ private:
     [[nodiscard]] Duration playedBy(Timestamp time) const noexcept;
     [[nodiscard]] double gameProbability(Timestamp time, double lead, double points,
                                          double strength) const;
+    // The same with the strength held where it is for the rest of the game, and the variance
+    // the strength still has to move by after `time`, from drift and news.
+    [[nodiscard]] double probabilityAtStrength(Timestamp time, double lead, double points,
+                                               double strength) const;
+    [[nodiscard]] double strengthVarianceLeft(Timestamp time) const noexcept;
     void pointsToCome(double expectedEvents, std::vector<double>& pmf) const;
     // Scoring events expected between two playing times.
     [[nodiscard]] double expectedScores(Duration from, Duration to) const noexcept;

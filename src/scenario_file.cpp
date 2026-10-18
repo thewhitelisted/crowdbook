@@ -279,6 +279,9 @@ PredictionConfig readPrediction(const Reader& reader, const toml::table& table) 
             reader.fail(*node, "'path' must be a list of [seconds, cents] pairs, such as "
                                "[[0, 52], [30.5, 54]]");
         }
+        if (list->empty()) {
+            reader.fail(*node, "'path' is empty: the market has no recorded value to follow");
+        }
         for (const toml::node& element : *list) {
             const auto* pair = element.as_array();
             if (pair == nullptr || pair->size() != 2) {
@@ -287,6 +290,9 @@ PredictionConfig readPrediction(const Reader& reader, const toml::table& table) 
             const double seconds = reader.number(*pair->get(0), "path");
             if (!(seconds >= 0.0)) {
                 reader.fail(element, "a point of 'path' must not come before the start");
+            }
+            if (seconds >= 1e9) {
+                reader.fail(element, "a point of 'path' must come within 1000000000s");
             }
             const ValuePoint point{
                 .at = static_cast<Duration>(std::llround(seconds * static_cast<double>(kSecond))),
