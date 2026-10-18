@@ -28,8 +28,10 @@ tolerances from resampling real and simulated markets, a joint search by CMA-ES 
 a verdict on seeds the search never used, and the sandwich formula for the settings' intervals.
 With `condition = true`, each market of the target gets synthetic twins of its own: the template
 may use `${duration}`, its length in seconds, any of its labels by name (such as `${kickoff}`),
-for a binary contract `${opening_probability}`, where it opened, and for a game `${script}`, its
-scores replayed (see `[prediction.game]`); `seeds` and
+for a binary contract `${opening_probability}`, where it opened, `${value_path}`, its reference
+value as a `[prediction]` path, and `${outcome}`, what it settled at (`${outcome:50}` gives a
+default for a market that has none), and for a game `${script}`, its scores replayed (see
+`[prediction.game]`); `seeds` and
 `held_out` then count the twins of each market. Markets alike in what is known about them are
 compared with each other, and the luck of a game's result is taken out of the comparison.
 
@@ -61,6 +63,7 @@ PLACEHOLDER = re.compile(r"\$\{(\w+)(?::([^}]*))?\}")
 FIT_SEED = 1
 HELD_OUT_SEED = 100_001
 JACOBIAN_SEED = 200_001
+REFIT_SEED = 1_000_001
 TRUTH_SEED = 900_001
 BOOTSTRAP = 100
 
@@ -152,14 +155,34 @@ class Spec:
 DRAW_HIGHEST = 0.26
 
 
+def value_path(m: tapes.Market, payout: float) -> list[tuple[float, float]]:
+    """A market's recorded reference value as a prediction market's `path`: (seconds, cents)
+    pairs, from its start on, where the value changed."""
+    if m.value is None or m.value_time is None:
+        return []
+    path: list[tuple[float, float]] = []
+    for time, value in zip(m.value_time, m.value, strict=True):
+        if not np.isfinite(value) or not np.isfinite(time):
+            continue
+        cents = round(float(np.clip(value * 100.0 / payout, 0.0, 100.0)), 4)
+        if not path or cents != path[-1][1]:
+            path.append((round(max(float(time), 0.0), 6), cents))
+    return path
+
+
 def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[tapes.Market]:
     """A binary contract's markets, each labelled `opening_probability`: its first reference
     value, else its first mid, as a share of the payout, kept from `low` to `high`, so that its
     twins open where it did. A game whose draw pays nothing cannot start its home side at much
-    more than 90%, so a heavier favourite is started there."""
+    more than 90%, so a heavier favourite is started there. Each is labelled too with
+    `value_path`, its reference value as (seconds, cents) pairs, and `outcome`, what it settled
+    at in cents, where the tape has them."""
     if not t.options.payout:
         return t.markets
     for m in t.markets:
+        m.labels["value_path"] = value_path(m, t.options.payout)
+        if m.outcome is not None and np.isfinite(m.outcome):
+            m.labels["outcome"] = float(np.clip(m.outcome * 100.0 / t.options.payout, 0, 100))
         first = np.nan
         if m.value is not None and len(m.value):
             first = m.value[np.isfinite(m.value)][0] if np.isfinite(m.value).any() else np.nan
@@ -188,6 +211,10 @@ def market_texts(market: tapes.Market) -> dict[str, str]:
     texts = {"duration": _plain(market.duration)}
     for name, value in market.labels.items():
         if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, list):
+            texts[name] = "[" + ", ".join(
+                "[" + ", ".join(_plain(x) for x in row) + "]" for row in value) + "]"
             continue
         if isinstance(value, (int, float)):
             if np.isfinite(value):
@@ -321,12 +348,13 @@ def make_target(real: validate.Summary, start: validate.Summary, wanted: list[st
 
 
 def search(evaluator: Evaluator, target: Target, seeds, generations: int,
-           log=print) -> tuple[dict[str, float], float]:
+           log=print, *, start: dict[str, float] | None = None, sigma: float = 0.15,
+           seed: int = 1) -> tuple[dict[str, float], float]:
     spec = evaluator.spec
-    start = spec.start()
+    start = spec.start() if start is None else start
     best, best_score = start, target.distance(evaluator.point(start, seeds))
     log(f"start: {best_score:.1f}")
-    cma = Cma(spec.to_unit(start), sigma=0.15, seed=1)
+    cma = Cma(spec.to_unit(start), sigma=sigma, seed=seed)
     for generation in range(generations):
         points = cma.ask()
         scores = []
@@ -492,8 +520,11 @@ def parse_truth(text: str, spec: Spec) -> dict[str, float]:
 
 
 def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
-              truth: dict[str, float] | None = None, log=print) -> tuple[str, dict, str]:
-    """The whole fit: returns the report as Markdown, as a dictionary, and the fitted scenario."""
+              truth: dict[str, float] | None = None, log=print, refits: int = 0,
+              refit_generations: int = 15) -> tuple[str, dict, str]:
+    """The whole fit: returns the report as Markdown, as a dictionary, and the fitted scenario.
+    With `refits` of 2 or more, the search runs again that many times from the fit, on fresh
+    seeds, and the spread of where it lands is added to the intervals."""
     config = evaluator.config
     fit_seeds = range(FIT_SEED, FIT_SEED + spec.seeds)
     held_out = range(HELD_OUT_SEED, HELD_OUT_SEED + spec.held_out)
@@ -513,7 +544,19 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     bread = np.linalg.pinv(jacobian.T @ weight @ jacobian)
     meat = jacobian.T @ weight @ covariance_of([real, fitted_fit_seeds], target) @ weight \
         @ jacobian
-    rows = intervals(spec, fitted, bread @ meat @ bread, jacobian)
+    covariance = bread @ meat @ bread
+    # The search's own noise: where it lands depends on the seeds it scores candidates on, which
+    # the sandwich formula does not count. Searches again from the fit on fresh seeds measure it.
+    refitted = []
+    for refit in range(refits):
+        seeds = range(REFIT_SEED + refit * 100_000, REFIT_SEED + refit * 100_000 + spec.seeds)
+        again, _ = search(evaluator, target, seeds, refit_generations,
+                          lambda line, r=refit: log(f"refit {r + 1}: {line}"),
+                          start=fitted, sigma=0.05, seed=2 + refit)
+        refitted.append(spec.to_unit(again))
+    if len(refitted) >= 2:
+        covariance = covariance + np.cov(np.array(refitted), rowvar=False)
+    rows = intervals(spec, fitted, covariance, jacobian)
     judged = [evaluator.summary("start", spec.start(), held_out, seed=4),
               evaluator.summary("fitted", fitted, held_out, seed=5)]
     text, data = validate.report(real, judged, config)
@@ -535,8 +578,14 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
              f"{score:.1f} on those seeds. Judged below on {spec.held_out} seeds the search "
              f"never used. {evaluator.runs} markets run in all.", "",
              verdict, "", "## Settings", "", settings_table(rows, truth), "",
-             "68% intervals from the sandwich formula of simulated moments: they count sampling "
-             "error and the simulation's noise, not the ways the model differs from the market.",
+             ("68% intervals from the sandwich formula of simulated moments, with the spread of "
+              f"{refits} searches again on fresh seeds added: they count sampling error, the "
+              "simulation's noise and the search's own"
+              if refits >= 2 else
+              "68% intervals from the sandwich formula of simulated moments: they count sampling "
+              "error and the simulation's noise, not the search's own, which leaves them about "
+              "half as wide as they should be (docs/validation.md; --refits counts it)")
+             + ", and none of the ways the model differs from the market.",
              "", "## Held-out seeds", "", text.split("\n", 2)[2]]
     data["calibration"] = {"settings": rows, "distance_fit_seeds": score,
                            "distance_held_out": held_distance, "reached": reached,
@@ -562,6 +611,10 @@ def main() -> None:
     parser.add_argument("--seeds", type=int)
     parser.add_argument("--held-out", type=int)
     parser.add_argument("--bootstrap", type=int, default=BOOTSTRAP)
+    parser.add_argument("--refits", type=int, default=0,
+                        help="search again this many times from the fit on fresh seeds, and add "
+                        "the spread of where it lands to the intervals (2 or more; 0 for none)")
+    parser.add_argument("--refit-generations", type=int, default=15)
     parser.add_argument("--crowdbook", help="the crowdbook executable")
     parser.add_argument("--output", type=Path, default=Path("calibrated"),
                         help="directory for the fitted scenario and the report")
@@ -586,7 +639,9 @@ def main() -> None:
     else:
         real = validate.summarize(args.real.name, spec.cut(recorded), config, seed=1)
     text, data, scenario = calibrate(spec, evaluator, real, truth=truth,
-                                     log=lambda line: print(line, flush=True))
+                                     log=lambda line: print(line, flush=True),
+                                     refits=args.refits,
+                                     refit_generations=args.refit_generations)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "scenario.toml").write_text(scenario)
     fitted = {row["name"]: row["fitted"] for row in data["calibration"]["settings"]}

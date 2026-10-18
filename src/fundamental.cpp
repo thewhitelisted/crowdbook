@@ -1,6 +1,7 @@
 #include "crowdbook/fundamental.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <array>
 #include <cmath>
 #include <format>
@@ -119,6 +120,24 @@ FundamentalConfig walkOf(const PredictionConfig& config, Duration resolution) {
     if (config.step <= 0 || resolution <= 0) {
         throw std::invalid_argument("the step and the time to resolution must be positive");
     }
+    if (!config.path.empty() || config.outcome) {
+        if (config.game || config.newsRate != 0.0 || config.newsShare != 0.0) {
+            throw std::invalid_argument(
+                "a recorded value path takes no game and no news rate or share");
+        }
+        Duration last = 0;
+        for (const ValuePoint& point : config.path) {
+            if (point.at < last || !(point.value >= 0.0 && point.value <= 100.0)) {
+                throw std::invalid_argument("a value path's points must come in order, at times "
+                                            "that are not negative, with values from 0 to 100");
+            }
+            last = point.at;
+        }
+        if (config.outcome && !(*config.outcome >= 0.0 && *config.outcome <= 100.0)) {
+            throw std::invalid_argument("a value path's outcome is from 0 to 100");
+        }
+        return {.initial = 0.0, .meanReversion = 0.0, .volatility = 0.0, .step = config.step};
+    }
     if (const auto& game = config.game) {
         checkGame(*game, config);
         return {.initial = 0.0, .meanReversion = 0.0, .volatility = 0.0, .step = config.step};
@@ -151,6 +170,14 @@ void Fundamental::check(const PredictionConfig& config, Duration resolution) {
 Fundamental::Fundamental(const PredictionConfig& config, Duration resolution, Random random)
     : Fundamental(walkOf(config, resolution), random) {
     resolution_ = resolution;
+    if (!config.path.empty() || config.outcome) {
+        recorded_ = true;
+        path_ = config.path;
+        pathStart_ = 100.0 * config.probability;
+        pathOutcome_ = config.outcome.value_or(path_.empty() ? pathStart_ : path_.back().value);
+        value_ = pathStart_;
+        return;
+    }
     if (config.game) {
         // Start the strength where the home side's chance at kickoff is the one asked for. It
         // rises with the strength, so bisection finds it.
@@ -525,7 +552,17 @@ double Fundamental::probabilityOfYes(double x, double seconds) const noexcept {
     return 100.0 * sum;
 }
 
+double Fundamental::pathValue(Timestamp time) const noexcept {
+    const auto after = std::ranges::upper_bound(path_, time, {}, &ValuePoint::at);
+    return after == path_.begin() ? pathStart_ : std::prev(after)->value;
+}
+
 double Fundamental::valueAt(Timestamp time) {
+    if (recorded_) {
+        // A recorded path is a function of time alone: read at any time, in any order.
+        value_ = resolution_ && time >= *resolution_ ? pathOutcome_ : pathValue(time);
+        return value_;
+    }
     if (resolution_ && time >= *resolution_) {
         if (!outcome_) {
             // Every whole step up to resolution, then whatever is left of the last one, which

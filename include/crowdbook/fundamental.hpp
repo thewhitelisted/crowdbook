@@ -83,6 +83,15 @@ struct GameConfig {
     friend bool operator==(const GameConfig&, const GameConfig&) = default;
 };
 
+// A point of a recorded value path: from `at` on, until the next point, the value is `value`, in
+// cents of the payout.
+struct ValuePoint {
+    Duration at = 0;
+    double value = 0.0;
+
+    friend bool operator==(const ValuePoint&, const ValuePoint&) = default;
+};
+
 // A prediction market's question, decided at the end of the run by whether a hidden quantity ends
 // above zero. The quantity wanders, and news moves it in jumps; its change over the whole run has
 // variance 1. The true value is the probability of yes, in cents.
@@ -97,6 +106,12 @@ struct PredictionConfig {
     // `probability` is its chance at kickoff. It takes no news rate or share of its own; `step` is
     // how often the game moves.
     std::optional<GameConfig> game{};
+    // A recorded value instead of either: the price of a sharper market elsewhere, say, so that a
+    // market can be made to see the moves a recorded one saw. The value is `probability` until
+    // the first point, each point's from its time until the next, and `outcome` at resolution,
+    // or the last point's where there is none. It takes no news rate, share or game.
+    std::vector<ValuePoint> path{};
+    std::optional<double> outcome{};
 
     friend bool operator==(const PredictionConfig&, const PredictionConfig&) = default;
 };
@@ -160,6 +175,8 @@ private:
     // The probability, in cents, that the hidden quantity ends above zero from `x` with `seconds`
     // to go.
     [[nodiscard]] double probabilityOfYes(double x, double seconds) const noexcept;
+    // A recorded path's value at `time`.
+    [[nodiscard]] double pathValue(Timestamp time) const noexcept;
     // A game: moved on from one time to another, the playing time by a time, the probability
     // the home side wins with `lead` points and `strength` at `time`, and the distribution of one
     // side's points to come.
@@ -192,6 +209,11 @@ private:
     // For a game: its settings, the sides' relative strength now, and work space for the
     // distributions of points to come.
     std::optional<GameConfig> game_{};
+    // For a recorded path: its points, its value before the first, and its outcome.
+    bool recorded_ = false;
+    std::vector<ValuePoint> path_{};
+    double pathStart_ = 0.0;
+    double pathOutcome_ = 0.0;
     double strength_ = 0.0;
     double points_ = 0.0;          // scored so far, both sides together
     double scoreScale_ = 1.0;      // the expected scoring, as a share of `scores`, for a total

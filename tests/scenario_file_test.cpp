@@ -295,6 +295,40 @@ type = "zero_intelligence"
     EXPECT_FALSE(makeFundamental(parseScenario("[[agents]]\ntype = \"momentum\"\n")));
 }
 
+TEST(ScenarioFileTest, ReadsARecordedValuePath) {
+    const Scenario scenario = parseScenario(R"(duration = "120s"
+[prediction]
+probability = 0.52
+path = [[0, 52], [30.5, 54.25], [90, 71]]
+outcome = 100
+[[agents]]
+type = "zero_intelligence"
+)");
+    ASSERT_TRUE(scenario.prediction);
+    EXPECT_EQ(scenario.prediction->path,
+              (std::vector<ValuePoint>{{.at = 0, .value = 52.0},
+                                       {.at = 30'500 * kMillisecond, .value = 54.25},
+                                       {.at = 90 * kSecond, .value = 71.0}}));
+    EXPECT_EQ(scenario.prediction->outcome, 100.0);
+    const auto value = makeFundamental(scenario);
+    ASSERT_TRUE(value);
+    EXPECT_NEAR(value->valueAt(31 * kSecond), 54.25, 1e-12);
+    EXPECT_NEAR(value->valueAt(120 * kSecond), 100.0, 1e-12);
+
+    const std::string agent = "[[agents]]\ntype = \"momentum\"\n";
+    for (const auto& [text, message] : std::vector<std::pair<std::string, std::string>>{
+             {"[prediction]\npath = 3\n" + agent, "'path' must be a list"},
+             {"[prediction]\npath = [[1, 2, 3]]\n" + agent, "a pair: [seconds, cents]"},
+             {"[prediction]\npath = [[-1, 50]]\n" + agent, "must not come before the start"},
+             {"[prediction]\npath = [[1, 150]]\n" + agent, "from 0 to 100 cents"},
+             {"[prediction]\npath = [[2, 50], [1, 50]]\n" + agent, "in order of time"},
+             {"[prediction]\noutcome = 101\n" + agent, "'outcome' must be from 0 to 100"},
+             {"[prediction]\nnews_rate = 0.1\npath = [[1, 50]]\n" + agent,
+              "takes no game and no news"}}) {
+        EXPECT_NE(parseError(text).find(message), std::string::npos) << parseError(text);
+    }
+}
+
 TEST(ScenarioFileTest, ReadsAGame) {
     const Scenario scenario = parseScenario(R"(duration = "3h"
 [prediction]
