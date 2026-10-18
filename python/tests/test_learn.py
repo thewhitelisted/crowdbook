@@ -193,6 +193,8 @@ class PoolTest(unittest.TestCase):
             pool.copy(0, [0])
         with self.assertRaises(IndexError):
             pool.copy(0, [3])
+        with self.assertRaises(IndexError):
+            pool.copy(0, [-1])
 
     def test_stepping_releases_the_interpreters_lock(self):
         # The pool steps in another thread while this one counts. With the lock released for

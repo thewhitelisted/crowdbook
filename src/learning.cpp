@@ -1236,7 +1236,11 @@ LearningStep LearningMarket::copyFrom(const LearningMarket& source,
     // answers again from its start is a copy, made of nothing but what the engine already
     // guarantees.
     const Episode& from = *source.episode_;
-    LearningStep report = reset(from.scenario, out, from.text);
+    // The episode's own timing and valuation, which a scenario without a [learning] section took
+    // from the source's shape, not this market's.
+    Scenario scenario = from.scenario;
+    scenario.learning = from.config;
+    LearningStep report = reset(std::move(scenario), out, from.text);
     for (const auto& answer : from.answers) {
         report = std::visit(
             detail::Overloaded{

@@ -172,6 +172,8 @@ class Pool:
         in copies. A copy takes the source's decisions again from the start of its episode, so it
         costs what the episode so far cost. Returns the observation and the info, as reset does."""
         chosen = [int(target) for target in np.atleast_1d(targets)]
+        if int(source) < 0 or any(target < 0 for target in chosen):
+            raise IndexError(f"markets are numbered from 0: {source} and {chosen}")
         self._pool.copy(int(source), chosen)
         return dict(self.observation), dict(self.info)
 

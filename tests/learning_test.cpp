@@ -713,7 +713,9 @@ TEST(LearningTest, ACopyGoesOnAsTheOriginalDoes) {
     EXPECT_TRUE(sameObservation(copied, original.buffers));
     EXPECT_EQ(copy.now(), original.market.now());
 
-    // A second copy, taken somewhere else, changes nothing in the original or the first copy.
+    // A second copy, taken somewhere else, changes nothing in the original.
+    const std::string before = sessionText(original.market.session());
+    const std::vector<std::int64_t> stateBefore = original.buffers.state;
     LearningMarket other{original.market.shape(), registry()};
     Buffers otherBuffers{other.shape()};
     other.copyFrom(original.market, otherBuffers.view());
@@ -721,6 +723,9 @@ TEST(LearningTest, ACopyGoesOnAsTheOriginalDoes) {
     for (std::size_t step = 0; step < 10 && !other.finished(); ++step) {
         decide(other, otherBuffers, elsewhere, step);
     }
+    EXPECT_EQ(sessionText(original.market.session()), before);
+    EXPECT_EQ(original.buffers.state, stateBefore);
+    EXPECT_EQ(original.market.now(), copy.now());
 
     // The original and the first copy, given the same answers, go on alike to the end.
     RandomPolicy forOriginal{7};
@@ -733,14 +738,47 @@ TEST(LearningTest, ACopyGoesOnAsTheOriginalDoes) {
     }
     EXPECT_TRUE(copy.finished());
     EXPECT_EQ(sessionText(copy.session()), sessionText(original.market.session()));
-    // And other, which answered otherwise, went another way.
-    EXPECT_NE(sessionText(other.session()), sessionText(original.market.session()));
 
-    // A finished episode copies as finished.
+    // A finished episode copies as finished, with the same last report and session.
     LearningMarket ended{original.market.shape(), registry()};
     Buffers endedBuffers{ended.shape()};
-    EXPECT_TRUE(ended.copyFrom(original.market, endedBuffers.view()).terminated);
+    const LearningStep endedReport = ended.copyFrom(original.market, endedBuffers.view());
+    EXPECT_TRUE(endedReport.terminated);
     EXPECT_TRUE(ended.finished());
+    EXPECT_TRUE(sameObservation(endedBuffers, original.buffers));
+    EXPECT_EQ(sessionText(ended.session()), sessionText(original.market.session()));
+}
+
+// A scenario without a [learning] section takes its timing from the market's shape, so a copy
+// into a market whose shape times decisions otherwise must still take the source's.
+TEST(LearningTest, ACopyKeepsTheSourcesTimingWhateverItsOwnShapeSays) {
+    Scenario scenario = parseScenario(kBusy);
+    const LearningConfig sourceShape = *scenario.learning;
+    scenario.learning.reset();
+    LearningMarket source{sourceShape, registry()};
+    Buffers sourceBuffers{source.shape()};
+    source.reset(scenario, sourceBuffers.view(), std::string{kBusy});
+    RandomPolicy policy{5};
+    for (std::size_t step = 0; step < 5; ++step) {
+        decide(source, sourceBuffers, policy, step);
+    }
+    LearningConfig slower = sourceShape;
+    slower.interval = 3 * kSecond;
+    slower.warmup = 2 * kSecond;
+    LearningMarket copy{slower, registry()};
+    Buffers copied{copy.shape()};
+    copy.copyFrom(source, copied.view());
+    EXPECT_EQ(copy.now(), source.now());
+    EXPECT_TRUE(sameObservation(copied, sourceBuffers));
+    // And it goes on deciding at the source's interval.
+    RandomPolicy forSource{8};
+    RandomPolicy forCopy{8};
+    for (std::size_t step = 5; step < 10; ++step) {
+        ASSERT_TRUE(sameReport(decide(source, sourceBuffers, forSource, step),
+                               decide(copy, copied, forCopy, step)))
+            << "at step " << step;
+    }
+    EXPECT_EQ(copy.now(), source.now());
 }
 
 TEST(LearningTest, ACopyNeedsAnEpisodeOfTheSameShape) {
