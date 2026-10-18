@@ -305,6 +305,13 @@ class Target:
         return float(np.sum(np.where(np.isfinite(gaps), gaps**2, 1e6)))
 
 
+# At most this many markets run at once across candidates, which bounds the memory of their
+# measurements; one candidate's markets always run together.
+BATCH_RUNS = 256
+# A market's samples that only the report's distributions and charts read, not its statistics.
+UNMEASURED = ("spread_grid", "touch_grid", "returns_first")
+
+
 class Evaluator:
     """Simulates settings and measures them, counting every market run."""
 
@@ -316,25 +323,61 @@ class Evaluator:
         if spec.condition and not self.targets:
             raise ValueError("a conditioned spec needs the target's markets")
 
-    def tape(self, values: dict[str, float], seeds) -> tapes.Tape:
-        labels = {k: float(v) for k, v in values.items()}
+    def _runs(self, values: dict[str, float], seeds) -> list[Run]:
         if not self.spec.condition:
-            self.runs += len(seeds)
-            return self.spec.cut(tapes.simulate(self.tool, self.spec.scenario(values), seeds,
-                                                labels=labels,
-                                                sample_interval=self.spec.sample_interval))
+            scenario = self.spec.scenario(values)
+            return [Run(scenario, seed) for seed in seeds]
         # Twins: each seed once for each target market, its seed apart from every other's.
         scenarios = [self.spec.scenario(values, m) for m in self.targets]
-        runs = [Run(scenario, seed * 1_000_003 + index)
+        return [Run(scenario, seed * 1_000_003 + index)
                 for seed in seeds for index, scenario in enumerate(scenarios)]
+
+    def tape(self, values: dict[str, float], seeds) -> tapes.Tape:
+        labels = {k: float(v) for k, v in values.items()}
+        runs = self._runs(values, seeds)
         self.runs += len(runs)
         return self.spec.cut(tapes.simulate_runs(self.tool, runs, labels=labels,
                                                  sample_interval=self.spec.sample_interval))
 
     def point(self, values: dict[str, float], seeds) -> dict[str, float]:
-        t = self.tape(values, seeds)
-        ps = validate.pieces(t, self.config)
-        return validate.measure(ps, self.config)
+        return self.points([values], seeds)[0]
+
+    def points(self, candidates: list[dict[str, float]], seeds) -> list[dict[str, float]]:
+        """The statistics of each candidate's markets on these seeds. Candidates' markets run
+        together, up to `BATCH_RUNS` at a time, each measured as it finishes, so that no core
+        waits for one candidate's slowest market or for the measuring."""
+        batches = [self._runs(values, seeds) for values in candidates]
+        out: list[dict[str, float]] = []
+        group: list[list[Run]] = []
+        for batch in batches + [None]:
+            if group and (batch is None or sum(map(len, group)) + len(batch) > BATCH_RUNS):
+                out += self._measure_together(group)
+                group = []
+            if batch is not None:
+                group.append(batch)
+        return out
+
+    def _measure_together(self, batches: list[list[Run]]) -> list[dict[str, float]]:
+        runs = [run for batch in batches for run in batch]
+        self.runs += len(runs)
+        options = tapes.options_for(runs[0].scenario)
+
+        def measured(market: tapes.Market) -> list[dict]:
+            cut = self.spec.cut(tapes.Tape([market], options)).markets
+            pieces = [validate.market_pieces(m, options, self.config) for m in cut]
+            for p in pieces:  # samples kept only for the report's distributions and charts
+                for key in UNMEASURED:
+                    p.pop(key, None)
+            return pieces
+
+        pieces = tapes.simulate_markets(self.tool, runs, then=measured,
+                                        sample_interval=self.spec.sample_interval)
+        out, at = [], 0
+        for batch in batches:
+            ps = [p for found in pieces[at:at + len(batch)] for p in found]
+            at += len(batch)
+            out.append(validate.measure(ps, self.config))
+        return out
 
     def summary(self, name: str, values: dict[str, float], seeds, seed: int) -> validate.Summary:
         return validate.summarize(name, self.tape(values, seeds), self.config, seed)
@@ -375,11 +418,12 @@ def search(evaluator: Evaluator, target: Target, seeds, generations: int,
     cma = Cma(spec.to_unit(start), sigma=sigma, seed=seed)
     for generation in range(generations):
         points = cma.ask()
+        candidates = [spec.from_unit(point) for point in points]
         scores = []
-        for point in points:
-            values = spec.from_unit(point)
+        for point, values, measured in zip(points, candidates,
+                                           evaluator.points(candidates, seeds), strict=True):
             outside = float(np.sum((point - np.clip(point, 0.0, 1.0)) ** 2))
-            score = target.distance(evaluator.point(values, seeds))
+            score = target.distance(measured)
             scores.append(score + 1e4 * outside)
             if score < best_score:
                 best, best_score = values, score
@@ -397,7 +441,7 @@ def derivatives(evaluator: Evaluator, target: Target, values: dict[str, float],
     little more than their noise, and a noisy derivative makes the intervals too narrow."""
     spec = evaluator.spec
     center = spec.to_unit(values)
-    columns = []
+    steps = []  # (high, low) in the unit box, or None for a setting that cannot move
     for index, p in enumerate(spec.parameters):
         high, low = center.copy(), center.copy()
         high[index] = min(center[index] + 0.05, 1.0)
@@ -406,11 +450,17 @@ def derivatives(evaluator: Evaluator, target: Target, values: dict[str, float],
             above = max(p.from_unit(high[index]), min(values[p.name] + 1, p.high))
             below = min(p.from_unit(low[index]), max(values[p.name] - 1, p.low))
             high[index], low[index] = p.to_unit(above), p.to_unit(below)
-        if high[index] == low[index]:
+        steps.append(None if high[index] == low[index] else (high, low))
+    # Every step's markets as one batch.
+    moved = [point for step in steps if step is not None for point in step]
+    measured = iter(evaluator.points([spec.from_unit(point) for point in moved], seeds))
+    columns = []
+    for index, step in enumerate(steps):
+        if step is None:
             columns.append(np.zeros(len(target.keys)))
             continue
-        above = target.scaled(evaluator.point(spec.from_unit(high), seeds))
-        below = target.scaled(evaluator.point(spec.from_unit(low), seeds))
+        high, low = step
+        above, below = target.scaled(next(measured)), target.scaled(next(measured))
         columns.append((above - below) / (high[index] - low[index]))
     return np.nan_to_num(np.column_stack(columns))
 

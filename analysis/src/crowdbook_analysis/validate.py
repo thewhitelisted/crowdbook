@@ -222,6 +222,33 @@ def hill(x: np.ndarray, share: float) -> float:
     return 1 / mean if mean > 0 else np.nan
 
 
+def hill_counts(values: np.ndarray, counts: np.ndarray, share: float) -> float:
+    """`hill` of samples given as distinct values and how many times each comes: the same
+    estimate, without the samples. Values need not be distinct or sorted."""
+    ok = np.isfinite(values) & (values > 0) & (counts > 0)
+    values, inverse = np.unique(values[ok], return_inverse=True)
+    counts = np.bincount(inverse, weights=counts[ok]) if len(values) else np.array([])
+    k = int(counts.sum() * share)
+    if k < 5:
+        return np.nan
+    # From the largest down: the k largest samples, and the one below them as the threshold.
+    above = np.cumsum(counts[::-1])[::-1]  # samples at or above each value
+    threshold = values[np.flatnonzero(above >= k + 1)[-1]]
+    if threshold <= 0:
+        return np.nan
+    beyond = above - counts  # samples above each value
+    taken = np.clip(k - beyond, 0, counts)  # how many of each value are among the k largest
+    mean = float(taken @ np.log(values / threshold)) / k
+    return 1 / mean if mean > 0 else np.nan
+
+
+def _collapse(values: np.ndarray, weights: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Samples as their distinct values and the weight of each: what weighted means and
+    quantiles need, far smaller where samples repeat, as spreads and sizes do."""
+    distinct, inverse = np.unique(values, return_inverse=True)
+    return distinct, np.bincount(inverse, weights=weights, minlength=len(distinct))
+
+
 def _weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
     if len(values) == 0 or weights.sum() <= 0:
         return np.nan
@@ -328,10 +355,10 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     held = np.clip(held, 0.0, None)
     spread = m.ask_price[:, 0] - m.bid_price[:, 0]
     both = np.isfinite(spread)
-    p["spread"], p["spread_weight"] = spread[both], held[both]
+    p["spread"], p["spread_weight"] = _collapse(spread[both], held[both])
     p["one_sided"] = np.array([held[~both].sum(), held.sum()])
     touch = (m.bid_size[:, 0] + m.ask_size[:, 0]) / 2
-    p["touch"], p["touch_weight"] = touch[both], held[both]
+    p["touch"], p["touch_weight"] = _collapse(touch[both], held[both])
     levels = min(config.levels, m.bid_size.shape[1])
     depth = (np.nansum(m.bid_size[:, :levels], axis=1)
              + np.nansum(m.ask_size[:, :levels], axis=1)) / 2
@@ -368,6 +395,8 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
         p[f"returns_{h}"] = _moments(r)
         if h == config.horizons[0]:
             p["returns_first"] = r[np.isfinite(r)]
+            p["returns_first_abs"] = _collapse(np.abs(p["returns_first"]),
+                                               np.ones(len(p["returns_first"])))
     p["return_autocorrelation"] = _autocorrelation_sums(one, (1,))
     p["clustering"] = _autocorrelation_sums(np.abs(one), config.clustering_lags)
     p["spread_grid"] = (sample_last(m.book_time, spread, grid) if len(m.book_time)
@@ -523,7 +552,11 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
         out[f"return_sd_{h}"], out[f"return_kurtosis_{h}"] = sd, kurtosis
         variances[h] = sd * sd
     first = config.horizons[0]
-    out[f"return_hill_{first}"] = hill(np.abs(_cat(ps, "returns_first")), config.tail)
+    collapsed = [p["returns_first_abs"] for p in ps if "returns_first_abs" in p]
+    out[f"return_hill_{first}"] = (
+        hill_counts(np.concatenate([v for v, _ in collapsed]),
+                    np.concatenate([c for _, c in collapsed]), config.tail)
+        if collapsed else np.nan)
     for h in config.horizons[1:]:
         out[f"variance_ratio_{h}"] = (variances[h] / (h / first * variances[first])
                                       if variances[first] > 0 else np.nan)
