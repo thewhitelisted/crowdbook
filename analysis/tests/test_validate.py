@@ -34,6 +34,7 @@ class TapeTest(unittest.TestCase):
                               market("b", spread=4.0)],
                              tape.Options(tick=1.0, returns="difference", payout=100.0))
         original.markets[0].labels = {"noise_rate": 0.5}
+        original.markets[0].scores = np.array([[10.0, 1.0, 0.0], [20.0, 1.0, 1.0]])
         for parquet in (False, True):
             with tempfile.TemporaryDirectory() as scratch:
                 tape.write_tape(original, scratch, parquet=parquet)
@@ -44,6 +45,8 @@ class TapeTest(unittest.TestCase):
             self.assertEqual(first.outcome, 100.0)
             self.assertEqual(first.labels["noise_rate"], 0.5)
             np.testing.assert_allclose(first.value, 60.0)
+            np.testing.assert_allclose(first.scores, [[10, 1, 0], [20, 1, 1]])
+            self.assertIsNone(second.scores)
             self.assertIsNone(second.value)
             np.testing.assert_allclose(second.ask_price, original.markets[1].ask_price)
             np.testing.assert_allclose(second.trade_sign, original.markets[1].trade_sign)

@@ -26,6 +26,7 @@ that markets priced in dollars and in cents compare.
 | `book` | `market`, `time`, `bid_price_1`, `bid_size_1`, `ask_price_1`, `ask_size_1`, ... to any depth | required: snapshots, each holding until the next, at any times; a missing level is empty |
 | `trades` | `market`, `time`, `price`, `size`, `side` | required: one row per print; `side` is the side that took liquidity, `buy` or `sell`, inferred from the last quote when empty |
 | `value` | `market`, `time`, `value` | optional: a reference value to set the price against |
+| `scores` | `market`, `time`, `home`, `away` | optional, for games: the score after each change, which a calibration's twins can replay |
 
 An optional `tape.toml` gives `tick`, the price increment (1 if absent), `returns`,
 `"difference"` (the default, for bounded prices such as probabilities) or `"log"`, and for a binary
@@ -114,6 +115,21 @@ made general: the method of simulated moments, tolerances from resampling the ta
 starting market, CMA-ES over every setting at once on common seeds, a verdict on held-out seeds,
 and 68% intervals from the sandwich formula. It writes the fitted scenario, the report of the start
 and the fit against the target, and the settings with their intervals, as Markdown and JSON.
+
+### Twins
+
+With `condition = true` a spec fits markets that differ from one another, such as games, each
+against synthetic twins of its own: the template may use `${duration}`, a market's length in
+seconds, any of its labels by name (such as `${kickoff}`), for a binary contract
+`${opening_probability}`, where it opened (its first reference value, else its first mid, kept
+from 5 to 90%), and for a game `${script}`, its scores replayed at the times they came
+([`script`](scenarios.md#predictiongame-optional)). `seeds` and `held_out` then count the twins of
+each market. Markets are compared with markets alike in what is known about them, and the luck of
+each game's result is taken out of the comparison.
+[game_twins.toml](../examples/calibration/game_twins.toml) and
+[game_twins_spec.toml](../examples/calibration/game_twins_spec.toml) fit a contract on the home
+side's win to recorded games this way; a contract on the away side is the same with the scores'
+columns swapped.
 
 Two checks guard the fit:
 

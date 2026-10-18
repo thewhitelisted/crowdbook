@@ -13,6 +13,7 @@ A spec names a scenario template and the settings to fit:
     held_out = 200                  # markets the fit is judged on afterwards, on other seeds
     window = [0, 1800]              # optional: compare only this part of each market, in seconds
     sample_interval = 0.1           # optional: seconds between samples of the simulated book
+    condition = true                # optional: twins of each target market (see below)
 
     [parameters.noise_rate]
     low = 0.001
@@ -25,6 +26,13 @@ A spec names a scenario template and the settings to fit:
 The method is that of `fit`, made general: the method of simulated moments (McFadden, 1989), with
 tolerances from resampling real and simulated markets, a joint search by CMA-ES on common seeds,
 a verdict on seeds the search never used, and the sandwich formula for the settings' intervals.
+With `condition = true`, each market of the target gets synthetic twins of its own: the template
+may use `${duration}`, its length in seconds, any of its labels by name (such as `${kickoff}`),
+for a binary contract `${opening_probability}`, where it opened, and for a game `${script}`, its
+scores replayed (see `[prediction.game]`); `seeds` and
+`held_out` then count the twins of each market. Markets alike in what is known about them are
+compared with each other, and the luck of a game's result is taken out of the comparison.
+
 `--truth` fits markets the engine made itself at known settings instead of a recording: a fit
 that cannot find settings it knows the answer to should not be trusted with ones it does not.
 
@@ -45,7 +53,7 @@ import numpy as np
 from crowdbook_analysis import tape as tapes
 from crowdbook_analysis import validate
 from crowdbook_analysis.fit import Cma
-from crowdbook_analysis.runner import find_tool
+from crowdbook_analysis.runner import Run, find_tool
 
 # A setting's place in a template; comment lines are left as they are.
 PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
@@ -107,12 +115,17 @@ class Spec:
     # The part of each market compared, from and to seconds (to its end where None), or all of it.
     window: tuple[float, float | None] | None = None
     sample_interval: float = tapes.SAMPLE_INTERVAL  # seconds between samples of the book
+    # Each target market gets synthetic twins of its own, made from the template with its
+    # duration, labels and scores; `seeds` and `held_out` then count twins of each.
+    condition: bool = False
 
     def cut(self, t: tapes.Tape) -> tapes.Tape:
         return t if self.window is None else tapes.window(t, *self.window)
 
-    def scenario(self, values: dict[str, float]) -> str:
+    def scenario(self, values: dict[str, float], market: tapes.Market | None = None) -> str:
         texts = {p.name: p.text(values[p.name]) for p in self.parameters}
+        if market is not None:
+            texts = market_texts(market) | texts
 
         def fill(match: re.Match) -> str:
             if match.group(1) not in texts:
@@ -133,6 +146,52 @@ class Spec:
         return {p.name: p.from_unit(u) for p, u in zip(self.parameters, point, strict=True)}
 
 
+def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[tapes.Market]:
+    """A binary contract's markets, each labelled `opening_probability`: its first reference
+    value, else its first mid, as a share of the payout, kept from `low` to `high`, so that its
+    twins open where it did. A game whose draw pays nothing cannot start its home side at much
+    more than 90%, so a heavier favourite is started there."""
+    if not t.options.payout:
+        return t.markets
+    for m in t.markets:
+        first = np.nan
+        if m.value is not None and len(m.value):
+            first = m.value[np.isfinite(m.value)][0] if np.isfinite(m.value).any() else np.nan
+        if not np.isfinite(first):
+            mids = (m.bid_price[:, 0] + m.ask_price[:, 0]) / 2
+            mids = mids[np.isfinite(mids)]
+            first = mids[0] if len(mids) else np.nan
+        if np.isfinite(first):
+            m.labels["opening_probability"] = float(np.clip(first / t.options.payout, low, high))
+    return t.markets
+
+
+def market_texts(market: tapes.Market) -> dict[str, str]:
+    """What a target market fills into a template for its twins: `${duration}` in seconds, each
+    label by its name, numbers as they are and text in quotes, and `${script}`, its scores as a
+    game's script, every change of the score from the market's start on."""
+    texts = {"duration": f"{market.duration:.6g}"}
+    for name, value in market.labels.items():
+        if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, (int, float)):
+            if np.isfinite(value):
+                texts[name] = f"{value:.10g}"
+        else:
+            texts[name] = json.dumps(str(value))
+    entries = []
+    if market.scores is not None:
+        home = away = 0.0
+        for time, now_home, now_away in market.scores:
+            at = f'"{max(time, 0.0):.3f}s"'
+            for side, gained in (("home", now_home - home), ("away", now_away - away)):
+                if gained >= 1:
+                    entries.append(f'{{ at = {at}, side = "{side}", points = {int(gained)} }}')
+            home, away = max(home, now_home), max(away, now_away)
+    texts["script"] = "[" + ", ".join(entries) + "]"
+    return texts
+
+
 def read_spec(path: Path) -> Spec:
     spec = tomllib.loads(path.read_text())
     template = (path.parent / spec["template"]).read_text()
@@ -151,6 +210,10 @@ def read_spec(path: Path) -> Spec:
         raise ValueError("the spec sets no [parameters]")
     used = {name for line in template.splitlines() if not line.lstrip().startswith("#")
             for name in PLACEHOLDER.findall(line)}
+    unknown = used - {p.name for p in parameters}
+    if unknown and not spec.get("condition", False):
+        raise ValueError(f"the template uses {', '.join(sorted(unknown))}, which the spec does "
+                         "not set; a target market's own values need condition = true")
     unused = {p.name for p in parameters} - used
     if unused:
         raise ValueError(f"the template never uses {', '.join(sorted(unused))}")
@@ -162,7 +225,8 @@ def read_spec(path: Path) -> Spec:
         window = (float(bounds[0]), float(bounds[1]) if len(bounds) == 2 else None)
     return Spec(template, parameters, spec.get("statistics"), int(spec.get("seeds", 60)),
                 int(spec.get("generations", 30)), int(spec.get("held_out", 200)), window,
-                float(spec.get("sample_interval", tapes.SAMPLE_INTERVAL)))
+                float(spec.get("sample_interval", tapes.SAMPLE_INTERVAL)),
+                bool(spec.get("condition", False)))
 
 
 class Target:
@@ -186,14 +250,28 @@ class Target:
 class Evaluator:
     """Simulates settings and measures them, counting every market run."""
 
-    def __init__(self, tool: Path, spec: Spec, config: validate.Config):
+    def __init__(self, tool: Path, spec: Spec, config: validate.Config,
+                 targets: list[tapes.Market] | None = None):
+        """With `targets`, the markets a conditioned spec makes twins of."""
         self.tool, self.spec, self.config, self.runs = tool, spec, config, 0
+        self.targets = targets or []
+        if spec.condition and not self.targets:
+            raise ValueError("a conditioned spec needs the target's markets")
 
     def tape(self, values: dict[str, float], seeds) -> tapes.Tape:
-        self.runs += len(seeds)
-        return self.spec.cut(tapes.simulate(self.tool, self.spec.scenario(values), seeds,
-                                            labels={k: float(v) for k, v in values.items()},
-                                            sample_interval=self.spec.sample_interval))
+        labels = {k: float(v) for k, v in values.items()}
+        if not self.spec.condition:
+            self.runs += len(seeds)
+            return self.spec.cut(tapes.simulate(self.tool, self.spec.scenario(values), seeds,
+                                                labels=labels,
+                                                sample_interval=self.spec.sample_interval))
+        # Twins: each seed once for each target market, its seed apart from every other's.
+        scenarios = [self.spec.scenario(values, m) for m in self.targets]
+        runs = [Run(scenario, seed * 1_000_003 + index)
+                for seed in seeds for index, scenario in enumerate(scenarios)]
+        self.runs += len(runs)
+        return self.spec.cut(tapes.simulate_runs(self.tool, runs, labels=labels,
+                                                 sample_interval=self.spec.sample_interval))
 
     def point(self, values: dict[str, float], seeds) -> dict[str, float]:
         t = self.tape(values, seeds)
@@ -356,8 +434,12 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     log(f"{real.markets} target markets; {len(target.keys)} statistics compared")
     fitted, score = search(evaluator, target, fit_seeds, spec.generations, log)
     log(f"fitted, distance {score:.1f} on the fit's seeds: {fitted}")
+    # About 100 markets for each difference, or the fit's own number if more: with twins, that
+    # many all told.
+    per_seed = max(len(evaluator.targets), 1) if spec.condition else 1
     jacobian = derivatives(evaluator, target, fitted,
-                           range(JACOBIAN_SEED, JACOBIAN_SEED + max(spec.seeds, 100)))
+                           range(JACOBIAN_SEED, JACOBIAN_SEED + max(spec.seeds,
+                                                                    math.ceil(100 / per_seed))))
     fitted_fit_seeds = evaluator.summary("fitted", fitted, fit_seeds, seed=3)
     weight = np.diag(1 / target.tolerance**2)
     bread = np.linalg.pinv(jacobian.T @ weight @ jacobian)
@@ -392,7 +474,13 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
                            "distance_held_out": held_distance, "reached": reached,
                            "compared": target.keys,
                            "runs": evaluator.runs, "truth": truth}
-    return "\n".join(lines), data, spec.scenario(fitted)
+    if spec.condition:
+        first = evaluator.targets[0]
+        scenario = (f"# The fitted settings, in the twin of the recorded market {first.name}.\n"
+                    + spec.scenario(fitted, first))
+    else:
+        scenario = spec.scenario(fitted)
+    return "\n".join(lines), data, scenario
 
 
 def main() -> None:
@@ -417,19 +505,25 @@ def main() -> None:
         if getattr(args, name) is not None:
             setattr(spec, name, getattr(args, name))
     config = validate.Config(bootstrap=args.bootstrap)
-    evaluator = Evaluator(find_tool(args.crowdbook), spec, config)
+    recorded = tapes.read_tape(args.real) if args.real else None
+    if spec.condition and recorded is None:
+        parser.error("a conditioned spec is fitted to a recording: give --real")
+    evaluator = Evaluator(find_tool(args.crowdbook), spec, config,
+                          with_openings(recorded) if spec.condition else None)
     truth = None
     if args.truth:
         truth = parse_truth(args.truth, spec)
         seeds = range(TRUTH_SEED, TRUTH_SEED + args.truth_markets)
         real = validate.summarize("truth", evaluator.tape(truth, seeds), config, seed=1)
     else:
-        real = validate.summarize(args.real.name, spec.cut(tapes.read_tape(args.real)), config,
-                                  seed=1)
+        real = validate.summarize(args.real.name, spec.cut(recorded), config, seed=1)
     text, data, scenario = calibrate(spec, evaluator, real, truth=truth,
                                      log=lambda line: print(line, flush=True))
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "scenario.toml").write_text(scenario)
+    fitted = {row["name"]: row["fitted"] for row in data["calibration"]["settings"]}
+    (args.output / "settings.toml").write_text(
+        "".join(f"{name} = {value!r}\n" for name, value in fitted.items()))
     (args.output / "report.md").write_text(text)
     (args.output / "report.json").write_text(json.dumps(data, indent=1, default=float))
     print(text)
