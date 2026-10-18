@@ -18,8 +18,7 @@ own bot, and that tells you the truth afterwards. One engine serves four uses:
 - **Testing strategies and systems.** A backtest on recorded data cannot react to your orders;
   this market does, with price impact, queue position and informed traders who pick off stale
   quotes. Strategies and execution algorithms connect through the same gateway as everyone else,
-  and later trading systems connect through industry-standard protocols, so the engine also works
-  as a test exchange with realistic order flow behind it.
+  so the engine also works as a test exchange with realistic order flow behind it.
 - **Toolkit.** Anyone can add an agent: a C++ class against a small API for the built-in crowd, or
   any program that speaks the gateway's protocol, with a Python client provided. Every run is
   reproducible from its seed and its recorded inputs.
@@ -35,7 +34,7 @@ Python client under MIT: the simulator, its agents, the analysis, the terminal t
 gateway with its protocol, and the Python client.
 A trading screen in the browser, multiplayer markets hosted online, and tournaments with
 leaderboards are planned as part of a hosted product built on the engine, and are not built here;
-the roadmap marks them.
+the [milestones](#milestones) mark them.
 
 ## Architecture
 
@@ -346,7 +345,7 @@ byte for byte. [protocol.md](protocol.md) specifies the messages.
   every seat is claimed.
 - **Messages and their encoding are separate.** The protocol is a set of message types, and the
   encoding turns them into bytes. The first encoding is JSON, one message per line: any language
-  can speak it, and a person can read it. A binary encoding and FIX come later (M20) as other
+  can speak it, and a person can read it. A binary encoding and FIX could come later as other
   encodings of the same messages. Every number on the wire is an integer, as in the engine.
 - **Order ids:** a client names its orders with its own ids, as with FIX's ClOrdID, so it can
   cancel an order it has only just sent. The gateway gives each new order a fresh client order id
@@ -1081,6 +1080,47 @@ Choices for later milestones may change once they are implemented; changes are r
 | Analysis | Python (polars, matplotlib) in its own uv project, driving the command line | The C++ build keeps no analysis dependencies, and the analysis uses only what any user gets |
 | Long runs | Prices sampled at fixed times, or a log filtered by row kind | The full log of the thousand-trader market comes to about 12 GB per simulated day |
 
+## Roadmap
+
+The engine's job now is to be trusted with two kinds of work: testing a trading strategy in a
+market fitted to a real one, and judging AI trading agents in markets whose every property is
+known. Both need the same two things from it: proof that a fitted market behaves like the real
+one where a strategy would notice, and an engine anyone can install and use without its authors.
+So the order is:
+
+1. **Proving a real fit** (M27 to M29). The tools to fit and check a market exist (M25); what is
+   missing is a fit to a real recording that reaches it within chance, a fitted market a learner
+   cannot find a false edge in, and fills in the fitted market that match a paper trader's on the
+   real one. Until then, a strategy's result in a fitted market says what the model says, not
+   what the market would.
+2. **An environment for AI trading agents** (M30): what an outside program, a learner or a
+   language model, needs to trade a set of markets through the gateway and be scored fairly:
+   turns it takes at its own pace without the market noticing, runs that replay exactly from its
+   messages, seats the same for every agent, and a market's state copied so that a reference
+   strategy can search ahead.
+3. **The engine as a product** (M26): wheels that install without a compiler, a tutorial from a
+   recording to a tested strategy, versioned releases with notes.
+4. **Market design on a proven fit** (M21): experiments on tick sizes, fees, speed bumps and order
+   delays, once a fit to a real market makes their answers worth having.
+
+Off the roadmap, since nothing above needs them: FIX and a binary encoding (M20), multiple
+instruments, futures and options (M22 to M24), and the hosted product (M15). The gateway keeps
+messages apart from their encoding, so M20 stays an addition rather than a rewrite should a user
+need it.
+
+### Timeline (draft)
+
+Weeks from Monday 19 October 2026, each item where it is planned to finish if nothing it waits on
+slips. Marked **owner** where a decision of the project's owner comes first.
+
+| Week of | Engine |
+|---|---|
+| 19 Oct | M26: wheels, quickstart and tutorial merged. M27: a fit to a real recording attempted, and what keeps it from chance named. M28: the learner-based check built |
+| 26 Oct | M29: simulated fills against a paper trader's, as soon as one has run long enough. M30: the turn-based gateway and copying a market's state, as the agent environment asks |
+| 2 Nov | M26: release notes, then **owner**: tag v0.13.0 and publish the wheels |
+| 9 Nov | Whatever M27 to M30 found missing in the engine: agents, statistics, speed |
+| 16 Nov to 18 Dec | M21 on a proven fit, if M27 to M29 hold; otherwise more of M27 |
+
 ## Milestones
 
 | # | Deliverable | Verified by | Status |
@@ -1101,22 +1141,29 @@ Choices for later milestones may change once they are implemented; changes are r
 | M12 | Scoring and challenges: a scoring section in scenarios (PnL, risk-adjusted PnL, slippage against a benchmark, inventory and loss limits), computed by the engine; challenges with briefings (make markets within a risk limit, work a large order, trade the news, find the informed flow) | A score recomputed from the session's replay equals the live one; the example bots play every challenge in CI | Done |
 | M13 | Session reports, truth and counterfactuals: a JSON report after each session (fills, PnL over time, score, who you traded with and what they knew); the session replayed without your orders; rewind to any moment and trade again | A replay without the participant's orders matches the same seed run without a participant, byte for byte | Done |
 | M14 | Engine as a library: a stable API to create, step, feed and inspect a market; version numbers on the protocol, scenario files and session files, with old session files still replaying; a container image; markets per core at real-time speed measured | Session files from earlier versions replay in CI; a capacity benchmark | Done |
-| M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Planned (hosted product) |
+| M15 | Hosted product, built on the engine: trading screen in the browser (price ladder with click-to-trade, chart, trade tape, position and PnL, the session report), multiplayer markets hosted online, tournaments and leaderboards | A full session played by hand in the browser, with its report | Off the roadmap (hosted product) |
 | M16 | Trading day: session schedule, opening and closing auctions, halts, intraday activity pattern, VWAP execution against the day's volume curve; challenges that use them | Auction prices match a naive reference; intraday curves of volume, volatility and spread | Done |
 | M17 | Prediction markets: a market type on a yes-or-no question, priced 1 to 99, whose true value is the probability of yes and which resolves to 0 or 100; news that moves it; scenarios and a challenge | Prices of informed markets are calibrated probabilities across many runs; volatility rises toward resolution; the value's process checked against its closed form | Done |
 | M18 | Calibration: the same statistics on real data, Polymarket's trades on its public blockchain first, and parameters fitted to match them | A realism scorecard in results.md, real against simulated | Done |
 | M18b | Calibration follow-ups: fees as Polymarket charges them, with a fee that depends on the price; execution agents whose child orders vary in timing and size, as real brokers' do; a fit that searches the settings together rather than one at a time, judged on seeds it did not fit, with tolerances from the real statistics' sampling error and uncertainties for the settings, and the scorecard checked over ranges of settings rather than only at the fitted point | The scorecard and the fitted market with fees; the fit's settings with uncertainties | Done |
 | M19 | Learning environment: reset and step a market from Python as fast as it can run, many seeds at once, rewards from the scoring rules, and a scenario's settings drawn at random from ranges for each episode | A learning agent's runs reproduce from their seeds; throughput benchmark | Done |
-| M20 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Next |
-| M21 | Market-design lab: experiments on tick size, fees, speed bumps and circuit breakers | Results in results.md, each with its ablations and uncertainties | Planned |
-| M22 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Planned |
-| M23 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Planned |
-| M24 | Options research and challenges: whether a volatility smile emerges from supply and demand, dealers' hedging feeding back into the stock, pinning at expiry; an options market-making challenge | Results in results.md; the challenge playable through the gateway | Planned |
-| Later | One stock on several exchanges, ETFs and their constituents, rule-based agents | | |
+| M20 | Industry protocols: a binary order-entry and market-data encoding of the gateway's messages, and FIX order entry, so trading systems can use crowdbook as a test exchange | A standard FIX client trades through it; both encodings give the same event log as JSON for the same session | Off the roadmap |
+| M21 | Market-design lab: experiments on tick size, fees, speed bumps, order delays and circuit breakers, on a market fitted to a real one | Results in results.md, each with its ablations and uncertainties, on a fit that passed M27 to M29 | Later, after M29 |
+| M22 | Multiple instruments and futures: an instrument on every order, event, position and log row; futures settled in cash at expiry; arbitrageurs linking future and stock | Cash, shares and contracts conserved across instruments; the future converges to the stock at expiry | Off the roadmap |
+| M23 | Options: a chain of calls and puts settled in cash, pricing and Greeks, option market makers hedging in the stock, risk limits by delta and vega | Prices and Greeks match closed forms and finite differences; conservation across the chain | Off the roadmap |
+| M24 | Options research and challenges: whether a volatility smile emerges from supply and demand, dealers' hedging feeding back into the stock, pinning at expiry; an options market-making challenge | Results in results.md; the challenge playable through the gateway | Off the roadmap |
+| M25 | Fitting any recording, and the checks on a fit: one format, tapes, for recorded and simulated markets; a validation report of about 50 statistics with intervals and distances; a calibration of any scenario template by simulated moments, with uncertainties; twins for markets that differ, such as games; the no-false-edge check; a strategy harness across the fit's uncertainty; `crowdbook-assess` from a recording to a verdict; labelled datasets | Known settings recovered from the engine's own markets; the verdict's checks in [validation.md](validation.md) | Done |
+| M26 | The engine as a product: wheels for Linux and macOS (`crowdbook-engine`, `crowdbook-analysis`), a quickstart, a tutorial from a recording to a tested strategy, versioned releases with notes | CI builds the wheels and runs the tutorial from them alone, in a fresh environment | In progress: the release waits on the owner |
+| M27 | A real fit proven: a market fitted to a public recording, reaching it within chance on held-out markets | The held-out distance below chance's 95th percentile; the fitted settings recovered on the engine's own markets at the same settings | Next |
+| M28 | A learner-based artifact check: a learning agent trained in the fitted market finds no edge the recording lacks, beyond the generic strategies of the no-false-edge check | The learner, trained in a market with an edge planted, finds it; trained in the fit, it makes nothing the recording would not pay | Next |
+| M29 | Simulated fills against paper fills: a strategy's fill rates, queue position, waits and markouts in the fitted market set beside a paper trader's on the real market | Each within its interval of the paper trader's, or the difference named and fixed | Next: needs a paper trader's fills |
+| M30 | An environment for AI trading agents: a market driven turn by turn through the gateway, so that an agent's thinking time changes nothing and the same messages replay the same run; a market's state copied mid-run, for references that search ahead; seats alike for every agent | An agent process trades turn by turn and its run replays byte for byte; a copied market continues exactly as the original | Next |
+| Later | One stock on several exchanges, ETFs and their constituents, rule-based agents | | Off the roadmap |
 
 The order puts outside participants, scores and reports before more realism: every use above
 needs people and programs from outside to trade and get a result, and the realism work that
-follows (M16, M18) is then measured on the markets people actually use.
+follows (M16, M18) is then measured on the markets people actually use. From M25 on, the order
+is the [roadmap](#roadmap)'s: proof that a fitted market can be trusted comes before anything new.
 
 ## Code conventions
 
