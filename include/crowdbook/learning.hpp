@@ -176,6 +176,17 @@ public:
     // observation. Throws std::invalid_argument for negative sizes or prices or buffers of the
     // wrong sizes, and std::logic_error once the episode is over.
     LearningStep stepOrders(const LearningOrders& orders, const LearningObservation& out);
+    // Makes this market a copy of `source` as it stands: the same episode, at the same decision,
+    // from which the two go on alike given the same actions and apart given others. The copy is
+    // made by resetting with the source's scenario and seed and taking its decisions again, so
+    // it costs what the episode so far cost, and this market's sink hears the episode again from
+    // its start. The copy keeps the source episode's timing, feed and valuation, whatever this
+    // market's shape says of them. Writes the observation and returns the report of the source's
+    // latest decision. Throws std::invalid_argument for a source of other actions, sizes or
+    // capacity, or this market itself, or buffers of the wrong sizes, and std::logic_error for a
+    // source without an episode; a source whose episode failed fails its copy at the same
+    // decision, which leaves this market part of the way through it, to be reset.
+    LearningStep copyFrom(const LearningMarket& source, const LearningObservation& out);
 
     [[nodiscard]] bool started() const noexcept;
     [[nodiscard]] bool finished() const noexcept;
@@ -232,6 +243,12 @@ public:
     // kOrderFields or one fewer, the bid's price and size, the offer's price and size, the
     // quantity to take and, with kOrderFields, the take's price.
     void stepOrders(std::span<const std::int64_t> orders, std::size_t fields = kOrderFields);
+    // Makes each market in `targets` a copy of market `source` as LearningMarket::copyFrom does,
+    // with its buffers, settings and seeds, on the pool's threads: for strategies that search
+    // ahead from the middle of an episode, trying actions in copies. Markets not named keep their
+    // state. Throws std::out_of_range for markets that do not exist, std::invalid_argument for a
+    // source among the targets, and as copyFrom does.
+    void copy(std::size_t source, std::span<const std::size_t> targets);
 
     [[nodiscard]] std::size_t markets() const noexcept;
     [[nodiscard]] std::size_t threads() const noexcept;

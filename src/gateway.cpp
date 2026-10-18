@@ -906,6 +906,14 @@ bool Gateway::finished() const noexcept {
     return state_->finished;
 }
 
+std::optional<std::int64_t> Gateway::finishesAt() const {
+    const State& s = *state_;
+    if (s.finished || !s.pacer) {
+        return std::nullopt;
+    }
+    return s.pacer->wallAt(sessionEnd(s.scenario));
+}
+
 Timestamp Gateway::now() const {
     return state_->market.run.simulation().now();
 }

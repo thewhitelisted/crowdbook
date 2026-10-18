@@ -98,6 +98,10 @@ void stepOrders(LearningPool& pool, const Actions& orders) {
     pool.stepOrders({orders.data(), orders.shape(0) * fields}, fields);
 }
 
+void copy(LearningPool& pool, std::size_t source, const std::vector<std::size_t>& targets) {
+    pool.copy(source, targets);
+}
+
 std::string session(const LearningPool& pool, std::size_t market) {
     std::ostringstream out;
     crowdbook::writeSession(out, pool.session(market));
@@ -162,6 +166,9 @@ NB_MODULE(_core, module) {
              "Places each market's orders instead of an action, a row of the bid's price and "
              "size, the offer's price and size, and the quantity to take (negative to sell), and "
              "runs every market to its next decision.")
+        .def("copy", &copy, "source"_a, "targets"_a, nb::call_guard<nb::gil_scoped_release>(),
+             "Makes each target market a copy of market `source` as it stands, from which it "
+             "goes on alike given the same actions.")
         .def("buffers", &buffers, "The pool's buffers as read-only NumPy arrays over its memory.")
         .def("session", &session, "market"_a,
              "Market `market`'s episode so far, as a session file crowdbook can replay.")
