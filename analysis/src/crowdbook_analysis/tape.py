@@ -15,6 +15,8 @@ A tape is a directory of tables, as CSV or Parquet, that hold one or many market
   from the book: above the mid a buy, below a sell, at the mid the same as the last print.
 - `value.csv` (optional): `market`, `time` and `value`, a reference value the price can be set
   against, such as a probability worked out from another market or a simulation's true value.
+- `scores.csv` (optional, for games): `market`, `time`, `home` and `away`, the score after each
+  change, which a calibration can make its synthetic markets replay (see `calibrate`).
 - `tape.toml` (optional): `tick`, the price increment (1 if absent); `returns`, how price changes
   are measured, `"difference"` (the default, for prices with bounds such as probabilities) or
   `"log"`; and `payout`, for a binary contract, what a winning unit pays.
@@ -70,6 +72,8 @@ class Market:
     value_time: np.ndarray | None = None
     value: np.ndarray | None = None
     labels: dict = field(default_factory=dict)
+    # For a game: the score after each change, as rows of time, home and away.
+    scores: np.ndarray | None = None
 
 
 @dataclass
@@ -139,6 +143,9 @@ def read_tape(directory: Path | str) -> Tape:
     book = _table(directory, "book").sort("market", "time", maintain_order=True)
     prints = _table(directory, "trades").sort("market", "time", maintain_order=True)
     values = _table(directory, "value", required=False)
+    scored = _table(directory, "scores", required=False)
+    scored = scored.sort("market", "time").partition_by("market", as_dict=True) \
+        if scored is not None else {}
     books = book.partition_by("market", as_dict=True)
     printed = prints.partition_by("market", as_dict=True)
     valued = values.sort("market", "time").partition_by("market", as_dict=True) \
@@ -167,6 +174,7 @@ def read_tape(directory: Path | str) -> Tape:
                                    ask_price[:, 0])
             signs = np.where(signs == 0, inferred, signs)
         value = valued.get((name,))
+        score = scored.get((name,))
         outcome = row.get("outcome")
         markets.append(Market(
             name=name, duration=float(row["duration"]), book_time=book_time,
@@ -179,7 +187,10 @@ def read_tape(directory: Path | str) -> Tape:
             outcome=None if outcome is None else float(outcome),
             value_time=None if value is None else value["time"].cast(pl.Float64).to_numpy(),
             value=None if value is None else value["value"].cast(pl.Float64).to_numpy(),
-            labels={k: v for k, v in row.items() if k not in known}))
+            labels={k: v for k, v in row.items() if k not in known},
+            scores=None if score is None else score.select(
+                pl.col("time").cast(pl.Float64), pl.col("home").cast(pl.Float64),
+                pl.col("away").cast(pl.Float64)).to_numpy()))
     return Tape(markets, options)
 
 
@@ -202,7 +213,7 @@ def write_tape(tape: Tape, directory: Path | str, *, parquet: bool = False) -> N
         rows.append(row | m.labels)
     save(pl.DataFrame(rows, infer_schema_length=None), "markets")
     levels = max((m.bid_price.shape[1] for m in tape.markets), default=1)
-    books, prints, values = [], [], []
+    books, prints, values, scores = [], [], [], []
     for m in tape.markets:
         columns = {"market": [m.name] * len(m.book_time), "time": m.book_time}
         for side, price, size in (("bid", m.bid_price, m.bid_size), ("ask", m.ask_price,
@@ -219,10 +230,16 @@ def write_tape(tape: Tape, directory: Path | str, *, parquet: bool = False) -> N
         if m.value is not None:
             values.append(pl.DataFrame({"market": [m.name] * len(m.value_time),
                                         "time": m.value_time, "value": m.value}))
+        if m.scores is not None:
+            scores.append(pl.DataFrame({"market": [m.name] * len(m.scores),
+                                        "time": m.scores[:, 0], "home": m.scores[:, 1],
+                                        "away": m.scores[:, 2]}))
     save(pl.concat(books, how="vertical_relaxed"), "book")
     save(pl.concat(prints, how="vertical_relaxed"), "trades")
     if values:
         save(pl.concat(values, how="vertical_relaxed"), "value")
+    if scores:
+        save(pl.concat(scores, how="vertical_relaxed"), "scores")
     lines = [f"tick = {tape.options.tick}", f'returns = "{tape.options.returns}"']
     if tape.options.payout is not None:
         lines.append(f"payout = {tape.options.payout}")
@@ -255,7 +272,8 @@ def window(t: Tape, start: float, end: float | None = None) -> Tape:
             ask_price=m.ask_price[keep], ask_size=m.ask_size[keep],
             trade_time=m.trade_time[prints] - start, trade_price=m.trade_price[prints],
             trade_size=m.trade_size[prints], trade_sign=m.trade_sign[prints],
-            outcome=m.outcome, value_time=value_time, value=value, labels=m.labels))
+            outcome=m.outcome, value_time=value_time, value=value, labels=m.labels,
+            scores=None if m.scores is None else m.scores - np.array([start, 0.0, 0.0])))
     return Tape(cut, t.options)
 
 
@@ -319,9 +337,17 @@ def simulate(tool: Path, scenario: str, seeds, *, labels: dict | None = None,
     """Runs a scenario, given as TOML text, once for each seed, as a tape. Each market is named by
     its seed and labelled with `labels` and its seed. Its scenario needs `depth_levels` in its
     `[exchange]` section, for the book."""
+    return simulate_runs(tool, [Run(scenario, seed) for seed in seeds], labels=labels,
+                         workers=workers, sample_interval=sample_interval)
+
+
+def simulate_runs(tool: Path, runs: list[Run], *, labels: dict | None = None,
+                  workers: int | None = None, sample_interval: float = SAMPLE_INTERVAL) -> Tape:
+    """Runs each of several scenarios under its own seed, as one tape, its markets named by their
+    seeds; read as the first scenario says."""
     with tempfile.TemporaryDirectory() as scratch, ThreadPoolExecutor(
             max_workers=workers or os.cpu_count()) as pool:
         markets = list(pool.map(
-            lambda seed: simulated_market(tool, Run(scenario, seed), Path(scratch), str(seed),
-                                          labels, sample_interval), seeds))
-    return Tape(markets, options_for(scenario))
+            lambda job: simulated_market(tool, job, Path(scratch), str(job.seed), labels,
+                                         sample_interval), runs))
+    return Tape(markets, options_for(runs[0].scenario))

@@ -92,6 +92,37 @@ class SpecTest(unittest.TestCase):
         self.assertAlmostEqual(calibrate.chi_squared_95(40), 55.76, delta=0.1)
 
 
+class ConditionTest(unittest.TestCase):
+    def test_a_target_market_fills_its_twins_template(self):
+        from crowdbook_analysis import tape as tapes
+        from test_validate import market
+        m = market("game 1", duration=7200.0)
+        m.labels = {"kickoff": 1800.0, "competition": "a league", "missing": None}
+        m.scores = np.array([[2000.0, 1, 0], [2500.0, 1, 0], [3000.0, 1, 2], [3100.0, 2, 2]])
+        texts = calibrate.market_texts(m)
+        self.assertEqual(texts["duration"], "7200")
+        self.assertEqual(texts["kickoff"], "1800")
+        self.assertEqual(texts["competition"], '"a league"')
+        self.assertNotIn("missing", texts)
+        script = tomllib.loads("script = " + texts["script"])["script"]
+        self.assertEqual(script, [
+            {"at": "2000.000s", "side": "home", "points": 1},
+            {"at": "3000.000s", "side": "away", "points": 2},
+            {"at": "3100.000s", "side": "home", "points": 1}])
+        self.assertEqual(calibrate.market_texts(tapes.Market(
+            **{**m.__dict__, "scores": None}))["script"], "[]")
+
+    def test_a_conditioned_spec_may_use_a_markets_own_values(self):
+        template = TEMPLATE.replace('duration = "60s"', 'duration = "${duration}s"')
+        with self.assertRaisesRegex(ValueError, "condition = true"):
+            spec_from(template=template)
+        spec = spec_from("condition = true\n" + SPEC, template)
+        self.assertTrue(spec.condition)
+        from test_validate import market
+        scenario = spec.scenario(spec.start(), market("m", duration=90.0))
+        self.assertIn('duration = "90s"', scenario)
+
+
 class DrawTest(unittest.TestCase):
     def test_draws_within_ranges_on_their_scales_and_holds_fixed_settings(self):
         spec = spec_from()
@@ -142,3 +173,18 @@ class CalibrateTest(unittest.TestCase):
         self.assertIn("count =", scenario)
         self.assertEqual(data["calibration"]["compared"], ["spread_mean", "maker_at_trade"])
         self.assertIn("reached", data["calibration"])
+
+    def test_a_conditioned_fit_writes_the_twin_of_its_first_market(self):
+        from crowdbook_analysis import validate
+        from test_validate import market
+        template = TEMPLATE.replace('duration = "60s"', 'duration = "${duration}s"')
+        spec = spec_from("condition = true\n" + SPEC.replace(
+            "seeds = 10", "seeds = 2\ngenerations = 2\nheld_out = 2"), template)
+        spec.statistics = ["spread_mean"]
+        config = validate.Config(bootstrap=10)
+        targets = [market(str(i), duration=50.0 + i) for i in range(4)]
+        evaluator = FakeEvaluator(None, spec, config, targets)
+        real = validate.summarize("real", evaluator.tape(spec.start(), range(900, 903)), config)
+        _, _, scenario = calibrate.calibrate(spec, evaluator, real, log=lambda line: None)
+        self.assertIn("twin of the recorded market 0", scenario)
+        self.assertIn('duration = "50s"', scenario)
