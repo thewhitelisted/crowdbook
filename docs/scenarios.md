@@ -331,8 +331,7 @@ Quotes a bid and an ask around a reservation price that leans against its invent
 Avellaneda and Stoikov (2008): `r = s − q·γ·σ²·τ`, with a half spread of
 `γσ²τ/2 + ln(1 + γ/k)/γ`. Its fair price `s` is a running average of trade prices, or, with
 `quote_value`, the true value as it sees it at each requote: a market maker who prices off what the
-asset is worth, as those of crypto prediction markets quote off an exchange's price. That needs a
-`[fundamental]` or `[prediction]` section.
+asset is worth. That needs a `[fundamental]` or `[prediction]` section.
 
 | Parameter | Default | Meaning |
 |---|---|---|
