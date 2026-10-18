@@ -76,8 +76,12 @@ class Parameter:
                 else self.low + (self.high - self.low) * u)
 
     def from_unit(self, u: float) -> float:
+        """The setting at a point of the unit box, as a scenario takes it: whole numbers rounded,
+        durations to the microsecond."""
         value = self.at(u)
-        return float(round(value)) if self.whole else value
+        if self.whole:
+            return float(round(value))
+        return round(value, 6) if self.kind == "duration" else value
 
     def text(self, value: float) -> str:
         if self.kind == "duration":

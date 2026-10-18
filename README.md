@@ -120,6 +120,11 @@ uv run --project analysis crowdbook-polymarket --from 2026-09-28 --to 2026-10-12
 uv run --project analysis crowdbook-realism
 ```
 
+Any market, recorded or simulated, can be held against another: [docs/validation.md](docs/validation.md)
+describes the format both are read in, a report of the same statistics on each with intervals and
+distances, a calibration that fits any scenario to a recording and checks that it can find
+settings it knows, and a generator of many labelled markets for training and analysis.
+
 ## Trade in it yourself
 
 `crowdbook play` runs a scenario in real time on a trading screen in the terminal, with you as
