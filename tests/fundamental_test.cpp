@@ -250,6 +250,49 @@ TEST(PredictionTest, SettingsAreChecked) {
     EXPECT_THROW(static_cast<void>(value.valueAt(10 * kSecond)), std::invalid_argument);
 }
 
+// A recorded path: the opening probability until the first point, each point's value from its
+// time until the next, and the outcome at resolution, the last point's without one. It is a
+// function of time alone, so a late read sees what was recorded then.
+TEST(PredictionTest, ARecordedPathIsFollowedAndSettles) {
+    const PredictionConfig config{.probability = 0.4,
+                                  .path = {{.at = 10 * kSecond, .value = 45.0},
+                                           {.at = 30 * kSecond, .value = 61.5},
+                                           {.at = 30 * kSecond, .value = 63.0},
+                                           {.at = 80 * kSecond, .value = 90.0}},
+                                  .outcome = 100.0};
+    Fundamental value{config, 100 * kSecond, Random{1, 0}};
+    EXPECT_NEAR(value.valueAt(0), 40.0, 1e-12);
+    EXPECT_NEAR(value.valueAt(10 * kSecond - 1), 40.0, 1e-12);
+    EXPECT_NEAR(value.valueAt(10 * kSecond), 45.0, 1e-12);
+    EXPECT_NEAR(value.valueAt(30 * kSecond), 63.0, 1e-12); // the later of two at one time
+    EXPECT_NEAR(value.valueAt(85 * kSecond), 90.0, 1e-12);
+    EXPECT_NEAR(value.valueAt(20 * kSecond), 45.0, 1e-12); // read late
+    EXPECT_NEAR(value.valueAt(100 * kSecond), 100.0, 1e-12);
+    EXPECT_NEAR(value.valueAt(200 * kSecond), 100.0, 1e-12);
+    EXPECT_EQ(value.jumps(), 0);
+
+    Fundamental unsettled{PredictionConfig{.probability = 0.4, .path = {{5 * kSecond, 70.0}}},
+                          100 * kSecond, Random{1, 0}};
+    EXPECT_NEAR(unsettled.valueAt(100 * kSecond), 70.0, 1e-12);
+    Fundamental pathless{PredictionConfig{.probability = 0.4, .outcome = 0.0}, 100 * kSecond,
+                         Random{1, 0}};
+    EXPECT_NEAR(pathless.valueAt(99 * kSecond), 40.0, 1e-12);
+    EXPECT_NEAR(pathless.valueAt(100 * kSecond), 0.0, 1e-12);
+}
+
+TEST(PredictionTest, ARecordedPathIsChecked) {
+    const std::vector<ValuePoint> path{{.at = kSecond, .value = 50.0}};
+    for (const PredictionConfig& config :
+         {PredictionConfig{.path = {{.at = 2 * kSecond, .value = 50.0}, {.at = kSecond}}},
+          PredictionConfig{.path = {{.at = -1, .value = 50.0}}},
+          PredictionConfig{.path = {{.at = kSecond, .value = 101.0}}},
+          PredictionConfig{.path = path, .outcome = -1.0},
+          PredictionConfig{.newsRate = 0.1, .path = path},
+          PredictionConfig{.game = GameConfig{}, .path = path}}) {
+        EXPECT_THROW(Fundamental(config, 100 * kSecond, Random{1, 0}), std::invalid_argument);
+    }
+}
+
 GameConfig smallGame() { return {.start = 10 * kSecond, .length = 60 * kSecond, .scores = 3.0}; }
 
 // A game's market opens at the home side's chance asked for, whatever a score is worth and

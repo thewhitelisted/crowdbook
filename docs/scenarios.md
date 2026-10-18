@@ -65,9 +65,25 @@ noise; every agent keeps its prices within 1 to 99. It takes no `[fundamental]` 
 | `news_rate` | number | `0` | News per second: pieces of news come at random times, this many a second on average |
 | `news_share` | number | `0` | How much of the question's uncertainty arrives as news, from 0 to below 1; the rest comes a little at a time. Needs `news_rate` |
 | `step` | duration | `"1s"` | How often the hidden quantity moves |
+| `path` | list of pairs | none | A recorded value instead of the hidden quantity's: `[[seconds, cents], ...]`, in order of time, from the market's opening, cents from 0 to 100 |
+| `outcome` | number | none | With a `path`, the value at resolution, in cents from 0 to 100 |
 
 At most 500 pieces of news may be expected over the run. The results value each group's position
 at resolution, beside the last price.
+
+With a `path`, the true value is not a model's but one that was recorded, such as the price of a
+sharper market on the same question, so that the market's informed traders and makers see the
+moves a real one saw. It is `probability` until the path's first point, each point's from its time
+until the next (the later of two at one time), and `outcome` at resolution, or the last point's
+where there is no outcome. It takes no news and no game. `crowdbook-calibrate` fills `${value_path}`
+and `${outcome}` from a tape's `value` table and outcomes for a twin of a recorded market:
+
+```toml
+[prediction]
+probability = ${opening_probability}
+path = ${value_path}
+outcome = ${outcome:50}
+```
 
 ### `[prediction.game]` (optional)
 

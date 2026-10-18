@@ -239,7 +239,8 @@ GameConfig readGame(const Reader& reader, const toml::table& table) {
 }
 
 PredictionConfig readPrediction(const Reader& reader, const toml::table& table) {
-    reader.allowOnly(table, {"probability", "news_rate", "news_share", "step", "game"},
+    reader.allowOnly(table,
+                     {"probability", "news_rate", "news_share", "step", "game", "path", "outcome"},
                      "in [prediction]");
     PredictionConfig config;
     if (const auto* node = table.get("game")) {
@@ -270,6 +271,39 @@ PredictionConfig readPrediction(const Reader& reader, const toml::table& table) 
         config.step = reader.duration(*node, "step");
         if (config.step <= 0) {
             reader.fail(*node, "'step' must be positive");
+        }
+    }
+    if (const auto* node = table.get("path")) {
+        const auto* list = node->as_array();
+        if (list == nullptr) {
+            reader.fail(*node, "'path' must be a list of [seconds, cents] pairs, such as "
+                               "[[0, 52], [30.5, 54]]");
+        }
+        for (const toml::node& element : *list) {
+            const auto* pair = element.as_array();
+            if (pair == nullptr || pair->size() != 2) {
+                reader.fail(element, "each point of 'path' is a pair: [seconds, cents]");
+            }
+            const double seconds = reader.number(*pair->get(0), "path");
+            if (!(seconds >= 0.0)) {
+                reader.fail(element, "a point of 'path' must not come before the start");
+            }
+            const ValuePoint point{
+                .at = static_cast<Duration>(std::llround(seconds * static_cast<double>(kSecond))),
+                .value = reader.number(*pair->get(1), "path")};
+            if (!(point.value >= 0.0 && point.value <= 100.0)) {
+                reader.fail(element, "a point of 'path' is worth from 0 to 100 cents");
+            }
+            if (!config.path.empty() && point.at < config.path.back().at) {
+                reader.fail(element, "the points of 'path' must come in order of time");
+            }
+            config.path.push_back(point);
+        }
+    }
+    if (const auto* node = table.get("outcome")) {
+        config.outcome = reader.number(*node, "outcome");
+        if (!(*config.outcome >= 0.0 && *config.outcome <= 100.0)) {
+            reader.fail(*node, "'outcome' must be from 0 to 100 cents");
         }
     }
     return config;
