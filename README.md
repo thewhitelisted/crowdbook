@@ -10,7 +10,7 @@ link. Spreads, depth, price impact and volatility are not assumed; they emerge f
 interact. Writing your own agent means writing one C++ class and naming it in a scenario file,
 or writing a program in any language that trades over the network.
 
-> **Status:** the order book, the exchange, the simulation kernel, six built-in agents, scenario
+> **Status:** the order book, the exchange, the simulation kernel, seven built-in agents, scenario
 > files, the `crowdbook` command and the Python analysis package are done, and
 > [docs/results.md](docs/results.md) reports the experiments. You can trade in a market yourself, in
 > real time, and replay the session exactly afterwards, and a server lets several people and bots

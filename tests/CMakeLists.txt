@@ -30,6 +30,7 @@ add_executable(crowdbook_tests
     market_maker_test.cpp
     math_test.cpp
     momentum_test.cpp
+    probe_test.cpp
     order_book_differential_test.cpp
     order_book_test.cpp
     parameters_test.cpp
