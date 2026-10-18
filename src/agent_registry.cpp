@@ -1,6 +1,7 @@
 #include "crowdbook/agent_registry.hpp"
 
 #include <format>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -45,12 +46,10 @@ std::unique_ptr<Agent> makeZeroIntelligence(const Parameters& parameters,
             .minSize = parameters.integer("min_size", defaults.minSize),
             .maxSize = parameters.integer("max_size", defaults.maxSize),
             .sizeTail = parameters.number("size_tail", defaults.sizeTail),
-            .marketProtection =
-                parameters.integer("market_protection", defaults.marketProtection),
+            .marketProtection = parameters.integer("market_protection", defaults.marketProtection),
             .activityResponse = parameters.number("activity_response", defaults.activityResponse),
             .activityMemory = parameters.duration("activity_memory", defaults.activityMemory),
-            .activityBaseline =
-                parameters.duration("activity_baseline", defaults.activityBaseline),
+            .activityBaseline = parameters.duration("activity_baseline", defaults.activityBaseline),
             .volatilityResponse =
                 parameters.number("volatility_response", defaults.volatilityResponse),
             .activity = environment.activity,
@@ -61,6 +60,12 @@ std::unique_ptr<Agent> makeZeroIntelligence(const Parameters& parameters,
 std::unique_ptr<Agent> makeMarketMaker(const Parameters& parameters,
                                        const Environment& environment) {
     const MarketMakerConfig defaults;
+    // Its belief's parameters are read only when it quotes off the value, so that one set without
+    // quote_value is reported as unknown rather than ignored.
+    std::optional<BeliefConfig> belief;
+    if (parameters.flag("quote_value", false)) {
+        belief = readBelief(parameters, BeliefConfig{});
+    }
     return std::make_unique<MarketMaker>(
         MarketMakerConfig{
             .riskAversion = parameters.number("risk_aversion", defaults.riskAversion),
@@ -72,12 +77,12 @@ std::unique_ptr<Agent> makeMarketMaker(const Parameters& parameters,
             .requoteInterval = parameters.duration("requote_interval", defaults.requoteInterval),
             .fairValueWeight = parameters.number("fair_value_weight", defaults.fairValueWeight),
             .postOnly = parameters.flag("post_only", defaults.postOnly),
+            .valueBelief = belief,
         },
-        environment.referencePrice);
+        environment.referencePrice, environment.fundamental);
 }
 
-std::unique_ptr<Agent> makeAdaptive(const Parameters& parameters,
-                                    const Environment& environment) {
+std::unique_ptr<Agent> makeAdaptive(const Parameters& parameters, const Environment& environment) {
     const AdaptiveConfig defaults;
     return std::make_unique<AdaptiveTrader>(
         AdaptiveConfig{
@@ -94,8 +99,7 @@ std::unique_ptr<Agent> makeAdaptive(const Parameters& parameters,
         environment.fundamental, environment.referencePrice);
 }
 
-std::unique_ptr<Agent> makeExecution(const Parameters& parameters,
-                                     const Environment& environment) {
+std::unique_ptr<Agent> makeExecution(const Parameters& parameters, const Environment& environment) {
     const ExecutionConfig defaults;
     const std::string style = parameters.text("style", "twap");
     if (style != "twap" && style != "pov" && style != "vwap") {
@@ -119,8 +123,7 @@ std::unique_ptr<Agent> makeExecution(const Parameters& parameters,
     });
 }
 
-std::unique_ptr<Agent> makeMomentum(const Parameters& parameters,
-                                    const Environment& environment) {
+std::unique_ptr<Agent> makeMomentum(const Parameters& parameters, const Environment& environment) {
     const MomentumConfig defaults;
     return std::make_unique<MomentumTrader>(
         MomentumConfig{
@@ -134,8 +137,7 @@ std::unique_ptr<Agent> makeMomentum(const Parameters& parameters,
         environment.referencePrice);
 }
 
-std::unique_ptr<Agent> makeInformed(const Parameters& parameters,
-                                    const Environment& environment) {
+std::unique_ptr<Agent> makeInformed(const Parameters& parameters, const Environment& environment) {
     const InformedConfig defaults;
     return std::make_unique<InformedTrader>(
         InformedConfig{
@@ -177,8 +179,8 @@ std::unique_ptr<Agent> AgentRegistry::create(std::string_view type, const Parame
                                              const Environment& environment) const {
     const auto factory = factories_.find(type);
     if (factory == factories_.end()) {
-        throw std::invalid_argument(std::format("unknown agent type '{}'; known types: {}", type,
-                                                joined(types())));
+        throw std::invalid_argument(
+            std::format("unknown agent type '{}'; known types: {}", type, joined(types())));
     }
     std::unique_ptr<Agent> agent = factory->second(parameters, environment);
     if (!agent) {
