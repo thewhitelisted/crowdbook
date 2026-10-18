@@ -169,6 +169,33 @@ class PoolTest(unittest.TestCase):
         settings = pools[0].info["settings"]
         self.assertTrue(np.isfinite(settings).all())
 
+    def test_a_copy_goes_on_as_its_source_does(self):
+        pool = crowdbook_learn.Pool(MARKET, 3, threads=2)
+        pool.reset(seeds=[5, 6, 7])
+        actions_count = len(pool.action_names)
+        for step in range(8):
+            pool.step(actions_for(step, 3, actions_count, 2))
+        untouched = pool.observation["state"][1].copy()
+        observation, info = pool.copy(0, [2])
+        np.testing.assert_array_equal(observation["state"][2], observation["state"][0])
+        np.testing.assert_array_equal(observation["events"][2], observation["events"][0])
+        np.testing.assert_array_equal(info["settings"][2], info["settings"][0])
+        np.testing.assert_array_equal(info["seeds"][2], info["seeds"][0])
+        np.testing.assert_array_equal(observation["state"][1], untouched)
+        self.assertEqual(pool.session(2), pool.session(0))
+        for step in range(8, 20):
+            actions = actions_for(step, 3, actions_count, 2)
+            actions[2] = actions[0]
+            observation, rewards, *_ = pool.step(actions)
+            np.testing.assert_array_equal(observation["state"][2], observation["state"][0])
+            self.assertEqual(rewards[2], rewards[0])
+        with self.assertRaises(ValueError):
+            pool.copy(0, [0])
+        with self.assertRaises(IndexError):
+            pool.copy(0, [3])
+        with self.assertRaises(IndexError):
+            pool.copy(0, [-1])
+
     def test_stepping_releases_the_interpreters_lock(self):
         # The pool steps in another thread while this one counts. With the lock released for
         # each step, the count keeps going as fast as it does alone; held, this thread waits for

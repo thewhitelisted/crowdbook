@@ -753,6 +753,31 @@ std::vector<std::string> lockstep(std::int64_t late = 0) {
     return heard;
 }
 
+TEST(GatewayTest, SaysWhenTheSessionWillFinish) {
+    GatewayOptions options = twoSeats();
+    options.speed = 2.0;
+    Gateway gateway{parseScenario(kScenario), std::string{kScenario},
+                    AgentRegistry::withBuiltIns(), std::move(options)};
+    Client alice{gateway, 0};
+    alice.hello("alice", 0);
+    EXPECT_FALSE(gateway.finishesAt()) << "the clock has not started";
+    Client bob{gateway, 3 * kSecond};
+    bob.hello("bob", 3 * kSecond);
+    // Twenty seconds of market at twice real time, from when the last seat was claimed.
+    ASSERT_TRUE(gateway.finishesAt());
+    EXPECT_EQ(*gateway.finishesAt(), 13 * kSecond);
+    gateway.setPaused(true, 5 * kSecond);
+    EXPECT_FALSE(gateway.finishesAt()) << "paused";
+    gateway.setPaused(false, 7 * kSecond);
+    EXPECT_EQ(*gateway.finishesAt(), 15 * kSecond);
+    // A nanosecond early it is still running; at the time given, it is over.
+    gateway.advance(15 * kSecond - 1);
+    EXPECT_FALSE(gateway.finished());
+    gateway.advance(15 * kSecond);
+    EXPECT_TRUE(gateway.finished());
+    EXPECT_FALSE(gateway.finishesAt());
+}
+
 TEST(GatewayTest, TheSameMessagesAtTheSameWallTimesGiveTheSameBytes) {
     const std::vector<std::string> first = lockstep();
     const std::vector<std::string> second = lockstep();

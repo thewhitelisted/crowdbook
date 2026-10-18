@@ -530,6 +530,8 @@ struct LearningMarket::Episode {
     std::uint64_t depthCount = 0;
 
     std::vector<SessionAction> actions; // every request the seat sent, for session()
+    // Every decision's answer in order, an action and a size or orders, for copyFrom.
+    std::vector<std::variant<std::pair<std::size_t, std::size_t>, LearningOrders>> answers;
 
     // How much of each output was written last time, so only what is stale is cleared.
     struct Written {
@@ -1198,6 +1200,7 @@ LearningStep LearningMarket::step(std::size_t action, std::size_t size,
     }
     const LearningAction chosen = shape_.actions[action];
     const Quantity quantity = shape_.sizes[size];
+    e.answers.emplace_back(std::pair{action, size});
     e.simulation->act(e.seat, [&](AgentContext& context) {
         Episode::Decision{e, context}.apply(chosen, quantity);
     });
@@ -1211,9 +1214,43 @@ LearningStep LearningMarket::stepOrders(const LearningOrders& orders,
         orders.takePrice < 0) {
         throw std::invalid_argument("orders' prices and sizes must not be negative");
     }
+    e.answers.emplace_back(orders);
     e.simulation->act(e.seat,
                       [&](AgentContext& context) { Episode::Decision{e, context}.apply(orders); });
     return advance(out);
+}
+
+LearningStep LearningMarket::copyFrom(const LearningMarket& source,
+                                      const LearningObservation& out) {
+    if (&source == this) {
+        throw std::invalid_argument("a market cannot be copied into itself");
+    }
+    if (!source.episode_) {
+        throw std::logic_error("the market to copy has no episode: reset it first");
+    }
+    if (!sameShape(source.shape_, shape_)) {
+        throw std::invalid_argument("a market can be copied only into one of the same shape");
+    }
+    checkSizes(shape_, out);
+    // Every run is the same from the same scenario, seed and answers, so taking the source's
+    // answers again from its start is a copy, made of nothing but what the engine already
+    // guarantees.
+    const Episode& from = *source.episode_;
+    // The episode's own timing and valuation, which a scenario without a [learning] section took
+    // from the source's shape, not this market's.
+    Scenario scenario = from.scenario;
+    scenario.learning = from.config;
+    LearningStep report = reset(std::move(scenario), out, from.text);
+    for (const auto& answer : from.answers) {
+        report = std::visit(
+            detail::Overloaded{
+                [&](const std::pair<std::size_t, std::size_t>& chosen) {
+                    return step(chosen.first, chosen.second, out);
+                },
+                [&](const LearningOrders& orders) { return stepOrders(orders, out); }},
+            answer);
+    }
+    return report;
 }
 
 LearningStep LearningMarket::advance(const LearningObservation& out) {
@@ -1494,6 +1531,41 @@ std::size_t LearningPool::markets() const noexcept { return state_->markets; }
 std::size_t LearningPool::threads() const noexcept { return state_->workers.threads(); }
 const LearningConfig& LearningPool::config() const noexcept { return state_->config; }
 std::vector<std::string> LearningPool::settingNames() const { return state_->names; }
+
+void LearningPool::copy(std::size_t source, std::span<const std::size_t> targets) {
+    State& s = *state_;
+    const std::scoped_lock lock{s.calls};
+    if (source >= s.markets) {
+        throw std::out_of_range(
+            std::format("there is no market {} in a pool of {}", source, s.markets));
+    }
+    std::vector<std::uint8_t> chosen(s.markets, 0);
+    for (const std::size_t target : targets) {
+        if (target >= s.markets) {
+            throw std::out_of_range(
+                std::format("there is no market {} in a pool of {}", target, s.markets));
+        }
+        if (target == source) {
+            throw std::invalid_argument(
+                std::format("market {} is the source and cannot be a target too", source));
+        }
+        chosen[target] = 1;
+    }
+    if (!s.each[source].started()) {
+        throw std::logic_error(std::format("market {} has no episode: reset it first", source));
+    }
+    const std::size_t count = s.names.size();
+    s.forEach([&](std::size_t market) {
+        if (chosen[market] == 0) {
+            return;
+        }
+        s.report(market, s.each[market].copyFrom(s.each[source], s.observation(market)));
+        const auto settings = State::slice(s.settingBuffer, source, count);
+        std::ranges::copy(settings, State::slice(s.settingBuffer, market, count).begin());
+        s.seedBuffer[market] = s.seedBuffer[source];
+        s.settingsSeedBuffer[market] = s.settingsSeedBuffer[source];
+    });
+}
 
 Session LearningPool::session(std::size_t market) const {
     State& s = *state_;
