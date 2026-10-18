@@ -189,8 +189,13 @@ ScenarioRun::ScenarioRun(const Scenario& scenario, const AgentRegistry& registry
             .name = group.name.empty() ? group.type : group.name, .type = group.type});
         state_->startingAccounts.push_back(group.options.account);
         try {
-            if (group.count < 1) {
-                throw std::invalid_argument("count must be at least 1");
+            if (group.count < 0) {
+                throw std::invalid_argument("count must not be negative");
+            }
+            if (group.count == 0) {
+                // A group of none, as a template switches one off for some markets: its settings
+                // are still checked, by building one agent that never joins.
+                static_cast<void>(registry.create(group.type, group.parameters, environment));
             }
             for (std::int64_t i = 0; i < group.count; ++i) {
                 summary.agents.push_back(state_->simulation.addAgent(
