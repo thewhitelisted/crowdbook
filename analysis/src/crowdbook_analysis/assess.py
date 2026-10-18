@@ -27,6 +27,28 @@ from crowdbook_analysis.runner import find_tool
 QUOTES = (1, 3, 8)
 
 
+def shared_by_the_recording(probe, by_key: dict) -> str | None:
+    """For a maker probe the fit pays, what the recording says of a standing quote about as wide:
+    where it earns a fill there too, and within two tolerances of what it earns in the fit, the
+    flag may be the market's own edge rather than the fit's. None where the recording does not
+    say so, or for a probe that is not a maker."""
+    if probe.family != "maker":
+        return None
+    offset = float(dict(probe.settings).get("offset", 1.0))
+    k = min(QUOTES, key=lambda q: abs(q - offset))
+    entry = by_key.get(f"quote_{k}_after_60")
+    if entry is None:
+        return None
+    real, fitted = entry["real"], entry["simulated"][-1]
+    distance = fitted.get("distance")
+    if not (real is not None and math.isfinite(real) and real > 0 and distance is not None
+            and math.isfinite(distance) and abs(distance) <= 2):
+        return None
+    return (f"the recording pays a quote {k} ticks from the mid as much ({real:+.2f} ticks a "
+            f"fill, marked 60 s later, against {fitted['value']:+.2f} in the fit), so the flag "
+            f"of {probe.name} may be the market's own edge, not the fit's")
+
+
 def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[str, bool]:
     """The verdict as Markdown, and whether the fit is usable, from the fit's report data and the
     sweep's results (None where it was not run)."""
@@ -44,6 +66,8 @@ def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[
     judged = {} if swept is None else {p: s for p, s in swept["judged"].items()
                                        if math.isfinite(s["low"])}
     flagged = [p for p, s in judged.items() if s["low"] > 0]
+    by_key = {entry["key"]: entry for entry in data["statistics"]}
+    shared = [note for note in (shared_by_the_recording(p, by_key) for p in flagged) if note]
     reasons = []
     if not fit["reached"]:
         reasons.append(f"the fit does not reach the recording within chance (held-out distance "
@@ -54,10 +78,15 @@ def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[
     if not judged:
         reasons.append("the no-false-edge check judged no strategy with an interval")
     usable = not reasons
+    note = ("" if not shared else
+            " Yet " + "; and ".join(shared) + ": a flag the recording shares says the market "
+            "pays it, which a strategy tested in the fit should expect, rather than that the fit "
+            "is wrong.")
     lines = ["# Verdict", "",
              ("**Usable for testing strategies**: the fit reaches the recording within chance "
               "and no strategy of the check makes money in it." if usable else
-              "**Not yet usable for testing strategies**: " + "; ".join(reasons) + "."), "",
+              "**Not yet usable for testing strategies**: " + "; ".join(reasons) + "." + note),
+             "",
              "## The fit", "",
              f"- Held-out distance {fit['distance_held_out']:,.1f}, against {chance:,.1f} that "
              f"chance alone stays under 95% of the time, over {len(compared)} statistics.",
@@ -89,7 +118,6 @@ def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[
         if learned:
             lines += ["", *("#" + line if line.startswith("## ") else line
                             for line in sweep.learner_section(swept["learner"]))]
-    by_key = {entry["key"]: entry for entry in data["statistics"]}
     quote_rows = []
     for k in QUOTES:
         for suffix, what in (("after_60", "marked 60 s later"), ("settlement", "at settlement")):

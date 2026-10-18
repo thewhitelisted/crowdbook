@@ -26,7 +26,10 @@ recorded market's twin, for a twin fit), and writes `verdict.md` beside the fit'
   within chance and no strategy of the check, the generic probes or
   [a learner trained in it](#a-learner-in-the-check), makes money in it.
 - **Why not:** the statistics furthest from the recording, any strategy the fitted market pays,
-  and what a standing quote earns in the recording against the fit.
+  and what a standing quote earns in the recording against the fit. Where a maker is flagged and
+  the recording's standing quote about as wide earns a fill too, within two tolerances of the
+  fit's, the verdict says the flag may be the market's own edge rather than the fit's. The fit
+  is still not called usable, since the check cannot tell the two apart for sure.
 
 It exits with 0 for a usable fit and 1 otherwise, so a script or a scheduled job can act on it.
 
