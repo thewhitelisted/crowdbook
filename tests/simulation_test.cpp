@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -13,6 +14,7 @@
 #include "crowdbook/agents/zero_intelligence.hpp"
 #include "crowdbook/event_log.hpp"
 #include "crowdbook/simulation.hpp"
+
 #include "test_agents.hpp"
 
 namespace crowdbook {
@@ -50,6 +52,41 @@ TEST(SimulationTest, RequestsAndRepliesTakeEachAgentsLatency) {
                               }));
     // Bob only gets the public update, after his own delay from the exchange.
     EXPECT_EQ(bob.received, (std::vector<Received>{{.time = 120, .event = top}}));
+}
+
+// In the order delay's stretch, new orders reach the book only after the delay, while cancels go
+// straight through; outside it nothing waits.
+TEST(SimulationTest, TheOrderDelayHoldsOrdersButNotCancels) {
+    Simulation simulation{1};
+    simulation.setOrderDelay({.from = 1'000, .until = 5'000, .delay = 2'000});
+    RecordingSink sink;
+    simulation.setEventSink(&sink);
+    auto& alice = add<RecordingAgent>(simulation, {.latency = {.toExchange = 100}});
+    alice.startHook = [](AgentContext& context) {
+        context.submitLimit(Side::Buy, 99, 5); // reaches the book at 100, before the stretch
+        context.wakeAt(1'000, 1);
+        context.wakeAt(1'200, 2);
+        context.wakeAt(6'000, 3);
+    };
+    alice.wakeupHook = [](AgentContext& context, std::uint64_t tag) {
+        if (tag == 2) {
+            context.cancel(1); // reaches the exchange at 1'300 and is not held
+        } else {
+            context.submitLimit(Side::Buy, 98, 5); // held at 1'100, not at 6'100
+        }
+    };
+
+    simulation.runUntil(10'000);
+
+    ASSERT_EQ(sink.requests.size(), 4U);
+    EXPECT_EQ(sink.requests[0].time, 100);
+    EXPECT_EQ(sink.requests[1].time, 1'300);
+    EXPECT_TRUE(std::holds_alternative<CancelOrder>(sink.requests[1].request));
+    EXPECT_EQ(sink.requests[2].time, 3'100);
+    EXPECT_EQ(sink.requests[3].time, 6'100);
+    EXPECT_THROW(simulation.setOrderDelay({.from = 10, .until = 5, .delay = 1}),
+                 std::invalid_argument);
+    EXPECT_THROW(simulation.setOrderDelay({.delay = -1}), std::invalid_argument);
 }
 
 TEST(SimulationTest, AnInterruptStopsOnceEverythingDueThenHasRun) {

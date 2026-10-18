@@ -56,6 +56,18 @@ struct AgentOptions {
 // one link (an agent to the exchange, or the exchange to an agent) never overtake each other, even
 // with jitter or delays drawn from a distribution: a message held up holds up those behind it, as
 // on one connection. The exchange itself takes no time to process a request.
+// New orders and amendments held at the exchange before they reach the book, for a stretch of the
+// run, as betting exchanges hold bets while an event is in play: one that arrives from `from` until
+// `until` waits `delay` more, and is accepted, or rejected, only then. Cancels are not held, so a
+// resting order can still be cancelled at once.
+struct OrderDelay {
+    Timestamp from = 0;
+    Timestamp until = 0;
+    Duration delay = 0;
+
+    friend bool operator==(const OrderDelay&, const OrderDelay&) = default;
+};
+
 class Simulation {
 public:
     // Throws std::invalid_argument for exchange settings Exchange rejects.
@@ -76,6 +88,10 @@ public:
     // exchange's halt duration, which takes effect only if the market is still halted then.
     // Throws std::invalid_argument for a time in the past.
     void schedulePhase(Timestamp time, Phase phase);
+
+    // Holds new orders and amendments that arrive in the delay's stretch of the run. Throws
+    // std::invalid_argument for a negative delay or a stretch that ends before it starts.
+    void setOrderDelay(const OrderDelay& delay);
 
     // Processes everything scheduled up to and including `endTime`, then moves the clock there.
     // Throws std::invalid_argument for a time after kLatestTime.
@@ -144,6 +160,7 @@ private:
     struct Arrival {
         AgentId sender = 0;
         Request request{};
+        bool held = false; // already held by the order delay, now reaching the book
     };
     // An event reaching an agent: one of its own, which its ledger records, or a public one.
     struct Delivery {
@@ -203,6 +220,7 @@ private:
     bool failed_ = false; // set while a run is under way, and left set if an exception escapes
     bool interrupted_ = false; // asked to stop after the current time
     EventSink* sink_ = nullptr;
+    OrderDelay orderDelay_{};
     std::vector<Event> events_; // reused for every request
 
     std::vector<AgentId> streamed_; // agents sent every public update
