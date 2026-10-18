@@ -130,7 +130,27 @@ On [book.toml](../examples/calibration/book.toml), five settings, the truth at
 maker_intensity 0.8, noise_market_rate 0.3, size_tail 1.2, 20 followers and a follower lag of
 10 s, 400 target markets, starting from 0.4, 0.1, 1.5, 10 and 5 s:
 
-The result is being measured and goes here when it is.
+| setting | start | truth | fitted | 68% interval | covers the truth |
+|---|---:|---:|---:|---:|---|
+| maker_intensity | 0.4 | 0.8 | 0.804 | 0.789 to 0.818 | yes |
+| noise_market_rate | 0.1 | 0.3 | 0.291 | 0.285 to 0.298 | no |
+| size_tail | 1.5 | 1.2 | 1.20 | 1.19 to 1.21 | yes |
+| followers | 10 | 20 | 21 | 20.5 to 21.5 | no |
+| follower_lag | 5 s | 10 s | 9.03 s | 8.56 to 9.52 s | no |
+
+80 generations on 40 common seeds, 27,520 markets in all, about 15 minutes on four cores. On 200
+held-out seeds the fit is within 2 tolerances on 35 of 40 statistics, a distance of 20.8 against
+56.9 that chance stays under, from 81,313 at the start.
+
+- **The settings are found**, each within 1 to 10% of the truth.
+- **The intervals are too narrow**: they cover the truth for 2 of 5 settings where 68% would be
+  3 or 4, the misses 1.3 to 2 standard errors out. The search picks its best point on the same
+  40 seeds it is scored on, and fits their noise as well, which the sandwich formula does not
+  count. Read the intervals as about half the real uncertainty.
+- **It takes a long search.** Stopped at 25 generations, the same fit was at a distance of 749 on
+  held-out seeds, on a compensating point (30 followers 5 s late instead of 20 at 10 s) with
+  intervals just as confident. That is why the report states whether the fit reaches the target
+  within chance: a fit that does not cannot be read for its settings.
 
 ## Datasets
 
