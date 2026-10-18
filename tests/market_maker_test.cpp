@@ -341,6 +341,28 @@ TEST(MarketMakerTest, StaysOutOfAQuietStretch) {
     EXPECT_EQ(context.takeSent().size(), 2U);
 }
 
+// A maker with a threshold comes back after a quiet stretch though its fair price has not moved.
+TEST(MarketMakerTest, ComesBackAfterAQuietStretchWhateverItsThreshold) {
+    MarketMakerConfig config = kConfig;
+    config.quietFrom = kSecond;
+    config.quietUntil = 5 * kSecond;
+    config.requoteThreshold = 2.0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    ASSERT_EQ(context.takeSent().size(), 2U);
+    context.accept(1);
+    context.accept(2);
+    context.setNow(kSecond);
+    maker.onWakeup(context, 0);
+    ASSERT_EQ(context.takeSent().size(), 2U); // both cancelled
+    context.setNow(5 * kSecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(3, Side::Buy, 99, 5),
+                                                        limitOrder(4, Side::Sell, 101, 5)}));
+}
+
 // With an interval it requotes only that often in the quiet stretch, whatever the market does.
 TEST(MarketMakerTest, QuotesRarelyInAQuietStretch) {
     MarketMakerConfig config = kConfig;

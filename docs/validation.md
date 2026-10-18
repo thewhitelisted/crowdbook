@@ -215,8 +215,8 @@ scores show.
 
 A statistic the recording measures in too few of its markets is left out of the target, and the
 fit says so: one that more than a tenth of the recording's resamples leave unmeasured, such as the
-size of aggressive orders where one game of thirty-four had one before kickoff. Its value would be
-that one market's, and its spread across resamples no measure of how far a twin may stray from it.
+size of aggressive orders where one recorded market alone had any. Its value would be that one
+market's, and its spread across resamples no measure of how far a twin may stray from it.
 
 Two checks guard the fit:
 
@@ -389,9 +389,8 @@ makes nothing. In [the learning example](../examples/learning/market.toml), a ma
 with makers who quote the trades, the best probes make +80 a market and the learner +260 [+253,
 +267]: it quotes the touch on both sides and leans against its position, which no probe does.
 
-On the reference twins fitted to 35 recorded game winners (an hour before kickoff and the game,
-the fit not yet within chance), judged on 140 fresh markets, six minutes on four cores, the
-learner learns to stay nearly out: −5.6 [−31.1, +19.9] a market, 1.9 lots.
+On a twin fit's thirty-odd twins of one to four hours each, training and judging the learner on
+140 fresh markets takes about six minutes on four cores.
 
 ## Judging a strategy in a fitted market
 

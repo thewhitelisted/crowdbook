@@ -151,6 +151,7 @@ void MarketMaker::requote(AgentContext& context, bool afterFill) {
                 maintain(context, bids_[at], Side::Buy, std::nullopt, levelSize(level));
                 maintain(context, asks_[at], Side::Sell, std::nullopt, levelSize(level));
             }
+            quotedFair_.reset(); // out of the book: it quotes afresh when the stretch ends
             return;
         }
         if (quotedAt_ && now - *quotedAt_ < config_.quietInterval) {
