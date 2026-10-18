@@ -269,6 +269,33 @@ TEST(GameTest, StartsAtTheProbabilityAskedFor) {
     }
 }
 
+// A contract can pay on the away side's win or on a draw: each opens at its price, and settles on
+// its own result.
+TEST(GameTest, ContractsOnAnAwayWinOrADrawOpenAtTheirPriceAndSettleOnTheirResult) {
+    for (const auto& [side, probability] :
+         {std::pair{GameSide::Away, 0.35}, std::pair{GameSide::Draw, 0.2}}) {
+        GameConfig game = smallGame();
+        game.side = side;
+        int settled = 0;
+        for (std::uint64_t path = 0; path < 40; ++path) {
+            Fundamental value{PredictionConfig{.probability = probability, .game = game},
+                              80 * kSecond, Random{path, 9}};
+            EXPECT_NEAR(value.valueAt(0), 100.0 * probability, 1e-6);
+            const double result = value.valueAt(80 * kSecond);
+            const bool paid = side == GameSide::Away ? value.walk() < 0 : value.walk() == 0;
+            EXPECT_EQ(result, paid ? 100.0 : 0.0);
+            settled += paid ? 1 : 0;
+        }
+        EXPECT_GT(settled, 0);
+    }
+    // A draw's price cannot be above what an even game gives, about 24% with 3 scores expected.
+    GameConfig draw = smallGame();
+    draw.side = GameSide::Draw;
+    EXPECT_THROW(
+        Fundamental(PredictionConfig{.probability = 0.6, .game = draw}, 80 * kSecond, Random{1, 0}),
+        std::invalid_argument);
+}
+
 // With no drift the value is the chance of what happens: of the moments it says 20 to 40, about
 // 30% resolve yes, and so on.
 TEST(GameTest, TheValueIsCalibrated) {

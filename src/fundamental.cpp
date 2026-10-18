@@ -151,21 +151,27 @@ Fundamental::Fundamental(const PredictionConfig& config, Duration resolution, Ra
         // Start the strength where the home side's chance at kickoff is the one asked for. It
         // rises with the strength, so bisection finds it.
         game_ = config.game;
-        const double target = 100.0 * config.probability;
-        double low = -30.0;
+        // A home win's chance rises with the home side's strength and an away win's falls; a
+        // draw's falls as either side grows stronger, so for a draw the home side is taken to be
+        // the stronger, its strength not negative.
+        const double sign = game_->side == GameSide::Home ? 1.0 : -1.0;
+        const auto rising = [&](double strength) {
+            return sign * gameProbability(0, 0.0, strength);
+        };
+        const double target = sign * 100.0 * config.probability;
+        double low = game_->side == GameSide::Draw ? 0.0 : -30.0;
         double high = 30.0;
-        if (gameProbability(0, 0.0, low) > target || gameProbability(0, 0.0, high) < target) {
+        if (rising(low) > target || rising(high) < target) {
             throw std::invalid_argument(std::format(
-                "no strength gives the home side a chance of {} at kickoff with {} scores "
-                "expected and a tie paying {}",
-                config.probability, game_->scores, game_->tie));
+                "no strength gives the contract a price of {} at kickoff with {} scores expected",
+                config.probability, game_->scores));
         }
         for (int i = 0; i < 200; ++i) {
             const double middle = (low + high) / 2.0;
             if (middle == low || middle == high) {
                 break;
             }
-            (gameProbability(0, 0.0, middle) < target ? low : high) = middle;
+            (rising(middle) < target ? low : high) = middle;
         }
         strength_ = (low + high) / 2.0;
         value_ = 0.0;
@@ -368,9 +374,21 @@ double Fundamental::expectedScores(Duration from, Duration to) const noexcept {
 
 double Fundamental::gameProbability(Timestamp time, double lead, double strength) const {
     const GameConfig& game = *game_;
+    // What the contract pays on each result.
+    const auto pays = [&](double win, double tie, double loss) {
+        switch (game.side) {
+        case GameSide::Home:
+            return 100.0 * win + game.tie * tie;
+        case GameSide::Away:
+            return 100.0 * loss + game.tie * tie;
+        case GameSide::Draw:
+            return 100.0 * tie;
+        }
+        return 0.0;
+    };
     const Duration left = game.length - playedBy(time);
     if (left <= 0) {
-        return lead > 0.0 ? 100.0 : (lead == 0.0 ? game.tie : 0.0);
+        return pays(lead > 0.0 ? 1.0 : 0.0, lead == 0.0 ? 1.0 : 0.0, lead < 0.0 ? 1.0 : 0.0);
     }
     const double events = expectedScores(game.length - left, game.length);
     const double homeShare = 1.0 / (1.0 + math::exp(-strength));
@@ -400,7 +418,10 @@ double Fundamental::gameProbability(Timestamp time, double lead, double strength
             tie += awayPoints_[a] * (tail[k] - tail[k + 1]);
         }
     }
-    return 100.0 * (win + tie * game.tie / 100.0) / (awayMass * homeMass);
+    const double mass = awayMass * homeMass;
+    win /= mass;
+    tie /= mass;
+    return pays(win, tie, std::max(1.0 - win - tie, 0.0));
 }
 
 void Fundamental::remember(Duration window) {
@@ -458,7 +479,7 @@ double Fundamental::valueAt(Timestamp time) {
                     moveGame(last * config_.step, *resolution_);
                 }
                 resolvedWalk_ = value_;
-                // A market that closes before the final whistle stops at the probability then.
+                // A market that closes before the final whistle stops at its value then.
                 outcome_ = gameProbability(*resolution_, value_, strength_);
                 return *outcome_;
             }

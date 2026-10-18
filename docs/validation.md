@@ -128,8 +128,8 @@ each market. Markets are compared with markets alike in what is known about them
 each game's result is taken out of the comparison.
 [game_twins.toml](../examples/calibration/game_twins.toml) and
 [game_twins_spec.toml](../examples/calibration/game_twins_spec.toml) fit a contract on the home
-side's win to recorded games this way; a contract on the away side is the same with the scores'
-columns swapped.
+side's win to recorded games this way; for contracts on the away side or a draw, set the game's
+`side`, from a label of the recording if they are mixed.
 
 Two checks guard the fit:
 

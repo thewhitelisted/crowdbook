@@ -42,7 +42,13 @@ struct ScriptedScore {
     friend bool operator==(const ScriptedScore&, const ScriptedScore&) = default;
 };
 
+// Which result of a game a contract on it pays for.
+enum class GameSide : std::uint8_t { Home, Away, Draw };
+
 struct GameConfig {
+    // The result the contract pays 100 for: a win for the home side, for the away side, or a
+    // draw; a contract on a win pays `tie` on a draw.
+    GameSide side = GameSide::Home;
     Duration start = 0;               // kickoff, after the market opens
     Duration length = 5400 * kSecond; // playing time, all periods together
     int periods = 1;                  // of equal length, with a break between each two
@@ -54,7 +60,7 @@ struct GameConfig {
     std::vector<int> points{1};       // what a scoring event can be worth
     // How often a scoring event is worth each of `points`, in proportion.
     std::vector<double> pointWeights{1.0};
-    double tie = 0.0; // cents a share pays if the game ends level
+    double tie = 0.0; // cents a share on a win pays if the game ends level
     // The standard deviation of the strength's change before kickoff, and over the playing time.
     double pregameDrift = 0.0;
     double inPlayDrift = 0.0;
