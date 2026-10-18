@@ -491,7 +491,9 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
 
     duration = sum(p["duration"] for p in ps)
     orders = _stack(ps, "orders").sum(axis=0)
-    out["orders_per_minute"] = 60 * orders[0] / duration if duration > 0 else np.nan
+    # Rates compared as logarithms count none as half of one over the time seen, so that markets
+    # where nothing traded keep a rate, low as the time seen allows, and still count in a fit.
+    out["orders_per_minute"] = 60 * max(orders[0], 0.5) / duration if duration > 0 else np.nan
     out["prints_per_order"] = orders[1] / orders[0] if orders[0] > 0 else np.nan
     sizes = _cat(ps, "sizes")
     median = float(np.median(sizes)) if len(sizes) else np.nan
@@ -500,7 +502,7 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
                               if len(sizes) and median > 0 else np.nan)
     out["order_size_hill"] = hill(sizes, config.tail)
     volume = sum(p["volume"] for p in ps)
-    out["touch_turnover"] = (60 * volume / duration / out["touch_size_mean"]
+    out["touch_turnover"] = (60 * max(volume, 0.5) / duration / out["touch_size_mean"]
                              if duration > 0 and out["touch_size_mean"] > 0 else np.nan)
     gap_values = _cat(ps, "gap_values")
     out["order_gap_median"] = float(np.median(gap_values)) if len(gap_values) else np.nan
@@ -555,7 +557,7 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
         rows = [p["quotes"][k] for p in ps if "quotes" in p]
         total = np.sum(rows, axis=0) if rows else np.zeros(5)
         # Two quotes stand, a bid and an offer: fills an hour a side.
-        out[f"quote_{k}_fills"] = total[0] / hours / 2 if hours > 0 else np.nan
+        out[f"quote_{k}_fills"] = max(total[0], 0.5) / hours / 2 if hours > 0 else np.nan
         out[f"quote_{k}_after_{last:g}"] = total[1] / total[2] if total[2] > 0 else np.nan
         out[f"quote_{k}_settlement"] = total[3] / total[4] if total[4] > 0 else np.nan
 
