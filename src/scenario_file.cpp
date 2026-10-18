@@ -140,7 +140,7 @@ private:
 GameConfig readGame(const Reader& reader, const toml::table& table) {
     reader.allowOnly(table,
                      {"start", "length", "periods", "break", "scores", "points", "point_weights",
-                      "tie", "pregame_drift", "in_play_drift", "news", "news_size"},
+                      "tie", "pregame_drift", "in_play_drift", "news", "news_size", "script"},
                      "in [prediction.game]");
     GameConfig game;
     for (const auto& [key, duration] :
@@ -184,6 +184,30 @@ GameConfig readGame(const Reader& reader, const toml::table& table) {
         game.pointWeights.clear();
         for (const toml::node& element : *list) {
             game.pointWeights.push_back(reader.number(element, "point_weights"));
+        }
+    }
+    if (const auto* node = table.get("script")) {
+        const auto* list = node->as_array();
+        if (list == nullptr) {
+            reader.fail(*node, "'script' must be a list of scores, such as "
+                               "[{ at = \"47m\", side = \"home\", points = 1 }]");
+        }
+        for (const toml::node& element : *list) {
+            const toml::table& entry = reader.table(element, "script");
+            reader.allowOnly(entry, {"at", "side", "points"}, "in a scripted score");
+            ScriptedScore score{.at = reader.duration(reader.required(entry, "at"), "at")};
+            const std::string side = reader.text(reader.required(entry, "side"), "side");
+            if (side != "home" && side != "away") {
+                reader.fail(element, "a scripted score's 'side' is \"home\" or \"away\"");
+            }
+            score.home = side == "home";
+            if (const auto* points = entry.get("points")) {
+                score.points = static_cast<int>(reader.integer(*points, "points", 1, 100));
+            }
+            if (!game.script.empty() && score.at < game.script.back().at) {
+                reader.fail(element, "scripted scores must come in the order they were scored");
+            }
+            game.script.push_back(score);
         }
     }
     return game;

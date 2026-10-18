@@ -85,6 +85,14 @@ void checkGame(const GameConfig& game, const PredictionConfig& config) {
     if (game.news > 500.0) {
         throw std::invalid_argument("at most 500 pieces of news are expected before kickoff");
     }
+    Duration last = 0;
+    for (const ScriptedScore& score : game.script) {
+        if (score.at < last || score.points < 1 || score.points > 100) {
+            throw std::invalid_argument("a game's scripted scores must come in order, at times "
+                                        "that are not negative, each worth 1 to 100 points");
+        }
+        last = score.at;
+    }
 }
 
 // What the walk of a prediction market is: no pull towards a mean, and the given variances.
@@ -266,6 +274,14 @@ void Fundamental::moveGame(Timestamp from, Timestamp to) {
             jumps_ += pieces;
         }
     }
+    // The game that was played, whatever the strength says, at the times it was played, even
+    // where they fall outside the clock, as in time added on.
+    for (; nextScripted_ < game.script.size() && game.script[nextScripted_].at <= to;
+         ++nextScripted_) {
+        const ScriptedScore& score = game.script[nextScripted_];
+        value_ += score.home ? score.points : -score.points;
+        ++jumps_;
+    }
     const Duration played = playedBy(to) - playedBy(from);
     if (played <= 0) {
         return;
@@ -292,6 +308,9 @@ void Fundamental::moveGame(Timestamp from, Timestamp to) {
         }
         return points;
     };
+    if (!game.script.empty()) {
+        return;
+    }
     const std::int64_t home = poisson(game.scores * part * homeShare);
     const std::int64_t away = poisson(game.scores * part * (1.0 - homeShare));
     value_ += static_cast<double>(pointsOf(home) - pointsOf(away));

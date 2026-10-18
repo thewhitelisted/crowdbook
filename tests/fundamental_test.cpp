@@ -347,6 +347,30 @@ TEST(GameTest, AMarketThatClosesEarlyStopsAtTheProbability) {
     }
 }
 
+// A scripted game scores when the script says, worth what it says, and its value moves with it;
+// the strength alone is drawn.
+TEST(GameTest, AScriptedGameReplaysItsScores) {
+    PredictionConfig config{.probability = 0.5, .game = smallGame()};
+    config.game->inPlayDrift = 0.5;
+    config.game->script = {{.at = 20 * kSecond, .home = false, .points = 1},
+                           {.at = 45 * kSecond, .home = true, .points = 2},
+                           {.at = 72 * kSecond, .home = true, .points = 1}};
+    for (std::uint64_t path = 0; path < 5; ++path) {
+        Fundamental value{config, 80 * kSecond, Random{path, 0}};
+        const double before = value.valueAt(19 * kSecond);
+        EXPECT_EQ(value.walk(), 0.0);
+        EXPECT_LT(value.valueAt(20 * kSecond), before);
+        EXPECT_EQ(value.walk(), -1.0);
+        static_cast<void>(value.valueAt(45 * kSecond));
+        EXPECT_EQ(value.walk(), 1.0);
+        // After the clock has run out, in time added on, a score still counts.
+        EXPECT_EQ(value.valueAt(71 * kSecond), 100.0);
+        EXPECT_EQ(value.valueAt(80 * kSecond), 100.0);
+        EXPECT_EQ(value.walk(), 2.0);
+        EXPECT_EQ(value.jumps(), 3);
+    }
+}
+
 // A home score lifts the home side's chance, an away score lowers it.
 TEST(GameTest, ScoresMoveTheValueTheirWay) {
     int checked = 0;
@@ -403,6 +427,7 @@ TEST(GameTest, SettingsAreChecked) {
           with([](GameConfig& g) { g.pointWeights = {1.0, 2.0}; }),
           with([](GameConfig& g) { g.points = {0}; }), with([](GameConfig& g) { g.tie = 101.0; }),
           with([](GameConfig& g) { g.pregameDrift = -1.0; }),
+          with([](GameConfig& g) { g.script = {{.at = 30 * kSecond}, {.at = 20 * kSecond}}; }),
           PredictionConfig{.newsRate = 0.1, .game = smallGame()},
           // With 0.1 scores expected, the home side wins at most about one time in ten.
           PredictionConfig{.probability = 0.5,
