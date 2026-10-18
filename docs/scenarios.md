@@ -357,7 +357,7 @@ still gets its own id and its own random streams.
 |---|---|---|---|
 | `type` | text | required | A built-in type below, or one you register |
 | `name` | text | the type | Label in the results |
-| `count` | integer | `1` | How many agents the group has |
+| `count` | integer | `1` | How many agents the group has; 0 leaves the group out, its settings still checked, as a template switches a group off for some markets |
 | `start` | duration | the start of the run | When the agents start |
 | `latency` | table | no delay | `to_exchange`, `from_exchange` and `jitter`, all durations; either of the first two may be a distribution ([below](#latencies-drawn-from-a-distribution)) |
 | `account` | table | no limits | `initial_cash`, `initial_position`, `max_position`, `max_order_quantity` |
