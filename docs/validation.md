@@ -179,6 +179,10 @@ true value (`${value_path}`) and settle them where the market settled (`${outcom
 about the game's scoring is then fitted or assumed, which the book's statistics could not pin
 down anyway (see the game recovery check below), and only the traders are fitted.
 
+`--start SETTINGS` begins the search from an earlier fit's `settings.toml` instead of the spec's
+starts, so that a fit can be carried on with more generations or seeds, or after a change to the
+template, rather than begun again.
+
 `phase` fits one part of each market, cut where a label of its own says, such as a game in play
 (`"from kickoff"`) or before it (`"before kickoff"`); a twin is cut where its recorded market is.
 A recorded game that sat for eight hours before a two-hour game would otherwise be fitted mostly
