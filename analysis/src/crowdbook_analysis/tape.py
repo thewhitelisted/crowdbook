@@ -29,7 +29,8 @@ simulated markets and recorded ones can be measured by the same code (see `valid
 import os
 import tempfile
 import tomllib
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -109,8 +110,9 @@ def _levels(book: pl.DataFrame, side: str) -> int:
 def _matrix(frame: pl.DataFrame, columns: list[str]) -> np.ndarray:
     if not columns:
         return np.full((len(frame), 1), np.nan)
-    return np.column_stack(
-        [frame[c].cast(pl.Float64).fill_null(np.nan).to_numpy() for c in columns])
+    # One query for all the columns: a query a column costs more than the reading.
+    return frame.select([pl.col(c).cast(pl.Float64).fill_null(np.nan) for c in columns]) \
+        .to_numpy().astype(float, copy=False).reshape(len(frame), len(columns))
 
 
 def infer_signs(time: np.ndarray, price: np.ndarray, book_time: np.ndarray,
@@ -316,7 +318,9 @@ def simulated_market(tool: Path, job: Run, scratch: Path, name: str,
     interval = f"{round(sample_interval * 1e6)}us"
     result = run(tool, job, log=log, log_only="trade", prices=prices,
                  extra=["--depth", str(depth), "--sample-interval", interval])
-    snaps = pl.read_csv(depth, infer_schema_length=0).with_columns(pl.all().cast(pl.Float64))
+    with depth.open() as header:
+        columns = header.readline().strip().split(",")
+    snaps = pl.read_csv(depth, schema={c: pl.Float64 for c in columns})
     levels = _levels(snaps, "bid")
     prints = trades(read_log(log))
     sampled = read_prices(prices)
@@ -391,9 +395,27 @@ def simulate_runs(tool: Path, runs: list[Run], *, labels: dict | None = None,
                   workers: int | None = None, sample_interval: float = SAMPLE_INTERVAL) -> Tape:
     """Runs each of several scenarios under its own seed, as one tape, its markets named by their
     seeds; read as the first scenario says."""
+    markets = simulate_markets(tool, runs, labels=labels, workers=workers,
+                               sample_interval=sample_interval)
+    return Tape(markets, options_for(runs[0].scenario))
+
+
+def simulate_markets(tool: Path, runs: list[Run], *, labels: dict | None = None,
+                     workers: int | None = None, sample_interval: float = SAMPLE_INTERVAL,
+                     then: Callable[[Market], object] | None = None) -> list:
+    """Each run as a market, in the order of the runs, or what `then` makes of it. The workers
+    only run markets and read them; `then` runs here, on each market as it finishes, so that
+    measuring overlaps running the rest without the two contending. Runs may share seeds."""
     with tempfile.TemporaryDirectory() as scratch, ThreadPoolExecutor(
             max_workers=workers or os.cpu_count()) as pool:
-        markets = list(pool.map(
-            lambda job: simulated_market(tool, job, Path(scratch), str(job.seed), labels,
-                                         sample_interval), runs))
-    return Tape(markets, options_for(runs[0].scenario))
+        def one(index: int, job: Run) -> Market:
+            own = Path(scratch) / str(index)
+            own.mkdir()
+            return simulated_market(tool, job, own, str(job.seed), labels, sample_interval)
+
+        futures = {pool.submit(one, index, job): index for index, job in enumerate(runs)}
+        out: list = [None] * len(runs)
+        for future in as_completed(futures):
+            market = future.result()
+            out[futures[future]] = then(market) if then is not None else market
+        return out

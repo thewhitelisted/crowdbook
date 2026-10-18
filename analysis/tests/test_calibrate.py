@@ -238,6 +238,11 @@ class FakeEvaluator(calibrate.Evaluator):
             made.append(market(str(seed), spread=spread))
         return tapes.Tape(made)
 
+    def points(self, candidates, seeds):
+        from crowdbook_analysis import validate
+        return [validate.measure(validate.pieces(self.tape(values, seeds), self.config),
+                                 self.config) for values in candidates]
+
 
 class CalibrateTest(unittest.TestCase):
     def test_a_whole_fit_runs_and_reports(self):
