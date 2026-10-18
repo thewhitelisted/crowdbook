@@ -108,6 +108,8 @@ def main() -> None:
     parser.add_argument("--seeds", type=int)
     parser.add_argument("--held-out", type=int)
     parser.add_argument("--refits", type=int, default=0)
+    parser.add_argument("--start", type=Path, metavar="SETTINGS",
+                        help="start the fit from an earlier fit's settings.toml")
     parser.add_argument("--sweep-seeds", type=int, default=100,
                         help="markets for each strategy in the search (100)")
     parser.add_argument("--confirm", type=int, default=400,
@@ -119,6 +121,8 @@ def main() -> None:
     command = [sys.executable, "-m", "crowdbook_analysis.calibrate", str(args.spec),
                "--real", str(args.real), "--crowdbook", str(tool), "--output", str(args.output),
                "--refits", str(args.refits)]
+    if args.start:
+        command += ["--start", str(args.start)]
     for name in ("generations", "seeds", "held_out"):
         if getattr(args, name) is not None:
             command += [f"--{name.replace('_', '-')}", str(getattr(args, name))]
