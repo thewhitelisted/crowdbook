@@ -165,6 +165,12 @@ score; [prop_twins.toml](../examples/calibration/prop_twins.toml) is a first tem
 player's prop, a total of that player's scoring alone, with thin, wide books and small
 recreational takers. Both take each market's `in_play_delay` from its label.
 
+Every twin template takes the venue's fees from labels of the recording, `maker_fee` and
+`taker_fee` in ticks a lot and `fee_curve` (`"flat"`, or `"probability"` for a fee that scales
+with 4p(1 − p)), none where it has no such labels, and the in-play order delay from
+`in_play_delay`, so that the twins, and the no-false-edge check on them, charge what the venue
+charges.
+
 Where the recording has a reference price, such as a sharper market's mid on the same question,
 [reference_twins.toml](../examples/calibration/reference_twins.toml) and
 [reference_twins_spec.toml](../examples/calibration/reference_twins_spec.toml) make that the twins'
