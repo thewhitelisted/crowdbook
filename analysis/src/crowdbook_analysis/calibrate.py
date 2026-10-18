@@ -335,6 +335,10 @@ def make_target(real: validate.Summary, start: validate.Summary, wanted: list[st
     for key, _, log in validate.statistic_names(config):
         if wanted is not None and key not in wanted:
             continue
+        # What a standing quote earns checks a fit for edges the real market lacks; fitted to,
+        # it would check nothing.
+        if wanted is None and key.startswith("quote_"):
+            continue
         if not (np.isfinite(real.point.get(key, np.nan))
                 and np.isfinite(start.point.get(key, np.nan))):
             continue
