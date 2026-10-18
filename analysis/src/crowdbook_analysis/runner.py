@@ -39,10 +39,11 @@ def run(
     log: Path | None = None,
     log_only: str | None = None,
     prices: Path | None = None,
+    extra: list[str] | None = None,
 ) -> dict:
     """Runs one scenario and returns its results, as written by `crowdbook run --json`.
     Optionally writes its event log (only the `log_only` kinds, if given) and its prices sampled
-    every second."""
+    every second; `extra` arguments go to the command as they are."""
     with tempfile.TemporaryDirectory() as scratch:
         scenario = Path(scratch) / "scenario.toml"
         scenario.write_text(job.scenario)
@@ -56,6 +57,7 @@ def run(
                 command += ["--log-only", log_only]
         if prices:
             command += ["--prices", str(prices)]
+        command += extra or []
         finished = subprocess.run(command, capture_output=True, text=True)
         if finished.returncode != 0:
             raise RuntimeError(f"{' '.join(command)} failed: {finished.stderr.strip()}")
