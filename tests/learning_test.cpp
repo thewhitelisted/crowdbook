@@ -1079,7 +1079,7 @@ TEST(LearningTest, RangesAreCheckedAtTheirEndsWhenLoaded) {
         return std::string{"no error"};
     };
     const std::vector<std::pair<std::string, std::string>> cases{
-        {"agents.noise.count = [0, 10]", "every range at its low end"},
+        {"agents.noise.count = [-1, 10]", "every range at its low end"},
         {"agents.noise.count = [1.5, 3.0]", "'count' must be a whole number"},
         {"agents.ghost.count = [1, 2]", "no agent group is named 'ghost'"},
         {"agents.noise = [1, 2]", "must name an agent group and one of its settings"},

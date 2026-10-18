@@ -167,6 +167,11 @@ score; [prop_twins.toml](../examples/calibration/prop_twins.toml) is a first tem
 player's prop, a total of that player's scoring alone, with thin, wide books and small
 recreational takers. Both take each market's `in_play_delay` from its label.
 
+Every twin template has makers who quote only in play, thin and wide, as some sports' books are
+quoted in play while others are cleared at kickoff and left: an `in_play_makers` label sets how
+many a market has, none without it, and `in_play_intensity`, `in_play_size`, `in_play_lag` and
+`in_play_requote` their width, size, lateness and pace, as labels or as settings a spec fits.
+
 Every twin template takes the venue's fees from labels of the recording, `maker_fee` and
 `taker_fee` in ticks a lot and `fee_curve` (`"flat"`, or `"probability"` for a fee that scales
 with 4p(1 − p)), none where it has no such labels, and the in-play order delay from

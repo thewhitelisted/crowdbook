@@ -158,7 +158,7 @@ TEST(ScenarioFileTest, RejectsUnknownKeysWithTheirLine) {
 TEST(ScenarioFileTest, RejectsValuesOfTheWrongKindOrRange) {
     const std::string agent = "[[agents]]\ntype = \"momentum\"\n";
     const std::vector<std::pair<std::string, std::string>> cases = {
-        {agent + "count = 0\n", "'count' must be between 1 and 1000000"},
+        {agent + "count = -1\n", "'count' must be between 0 and 1000000"},
         {"duration = 5\n" + agent, "'duration' must be a duration in quotes"},
         {"duration = \"5 minutes\"\n" + agent, "'5 minutes' is not a valid duration"},
         {"reference_price = 0\n" + agent, "'reference_price' must be between 1 and 1000000000"},

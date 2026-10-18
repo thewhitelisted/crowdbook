@@ -157,6 +157,24 @@ TEST(ScenarioTest, SameScenarioGivesTheSameResult) {
     }
 }
 
+// A group of none changes nothing about the market, as a template switches a group off for some
+// markets; it is still reported, empty, and its settings are still checked.
+TEST(ScenarioTest, AGroupOfNoneIsLeftOut) {
+    const AgentRegistry registry = AgentRegistry::withBuiltIns();
+    Scenario off = marketWithAMaker();
+    off.groups.push_back(group("momentum", 0, "off"));
+    const RunResult without = runScenario(marketWithAMaker(), registry);
+    const RunResult with = runScenario(off, registry);
+    EXPECT_EQ(with.trades, without.trades);
+    EXPECT_EQ(with.lastPrice, without.lastPrice);
+    ASSERT_EQ(with.groups.size(), without.groups.size() + 1);
+    EXPECT_TRUE(with.groups.back().agents.empty());
+    EXPECT_EQ(with.groups.back().traded, 0);
+
+    off.groups.back().parameters.set("intervl", 2.0);
+    EXPECT_THROW(static_cast<void>(runScenario(off, registry)), ScenarioError);
+}
+
 TEST(ScenarioTest, InformedTradersSeeTheFundamental) {
     Scenario scenario{.seed = 2, .duration = 5 * kSecond, .referencePrice = 1'000};
     scenario.fundamental = FundamentalConfig{.initial = 1'000.0, .volatility = 5.0};

@@ -872,7 +872,7 @@ AgentGroup readGroup(const Reader& reader, const toml::table& table) {
         } else if (name == "name") {
             group.name = reader.text(node, name);
         } else if (name == "count") {
-            group.count = reader.integer(node, name, 1, 1'000'000);
+            group.count = reader.integer(node, name, 0, 1'000'000);
         } else if (name == "start") {
             group.options.startTime = reader.duration(node, name);
         } else if (name == "latency") {
