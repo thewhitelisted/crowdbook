@@ -173,16 +173,24 @@ class ConditionTest(unittest.TestCase):
         early.labels = {"kickoff": 20.0, "value_path": [(0.0, 50.0)]}
         late.labels = {"kickoff": 70.0}
         evaluator = calibrate.Evaluator(None, spec, validate.Config(), [early, late])
-        # Twins of the two, a seed each, in the order the evaluator runs them; the second's own
-        # label wins over its recorded market's.
+        # Twins of the two, in the order the evaluator runs them: a twin is cut at its recorded
+        # market's kickoff even where its run gives one of its own, and other labels of the run
+        # win.
         twins = [market("1"), market("2"), market("3")]
-        twins[2].labels = {"kickoff": 90.0}
+        twins[2].labels = {"kickoff": 90.0, "seed": 3}
         for index, twin in enumerate(twins):
             evaluator._label_twin(index, twin)
-        self.assertEqual([t.labels["kickoff"] for t in twins], [20.0, 70.0, 90.0])
+        self.assertEqual([t.labels["kickoff"] for t in twins], [20.0, 70.0, 20.0])
+        self.assertEqual(twins[2].labels["seed"], 3)
         self.assertNotIn("value_path", twins[0].labels)
         cut = spec.cut(tapes.Tape(twins))
-        self.assertEqual([m.duration for m in cut.markets], [80.0, 30.0, 10.0])
+        self.assertEqual([m.duration for m in cut.markets], [80.0, 30.0, 80.0])
+        # A recorded market without the label is left out, and so are its twins.
+        late.labels = {}
+        orphan = market("4")
+        orphan.labels = {"kickoff": 5.0}
+        evaluator._label_twin(1, orphan)
+        self.assertEqual(spec.cut(tapes.Tape([orphan])).markets, [])
 
     def test_around_trims_each_recorded_market_before_the_fit(self):
         from crowdbook_analysis import tape as tapes
@@ -209,6 +217,11 @@ class ConditionTest(unittest.TestCase):
                                           Path(scratch) / "twins")
             self.assertEqual([p.name for p in paths], ["0000_game_1.toml", "0001_game_2.toml"])
             self.assertEqual(tomllib.loads(paths[1].read_text())["duration"], "45s")
+            # A later fit of one market leaves no twin of the earlier fit behind.
+            again = calibrate.write_twins(spec, values, [market("other", duration=20.0)],
+                                          Path(scratch) / "twins")
+            self.assertEqual(sorted(p.name for p in (Path(scratch) / "twins").iterdir()),
+                             [p.name for p in again])
 
     def test_writes_the_settings_as_toml(self):
         values = {"rate": np.float64(0.25), "traders": 30.0, "tiny": np.float64(1e-7)}

@@ -379,12 +379,19 @@ class Evaluator:
         return self.spec.cut(t)
 
     def _label_twin(self, index: int, market: tapes.Market) -> None:
-        """A twin's run carries its recorded market's labels, such as its kickoff, so that it is
-        cut where its recorded market is; the run's own labels win."""
+        """A twin's run carries its recorded market's labels, such as its kickoff, the run's own
+        winning, except the phase's label: a twin is cut where its recorded market is."""
         if self.spec.condition:
             target = self.targets[index % len(self.targets)]
             own = {k: v for k, v in target.labels.items() if not isinstance(v, list)}
             market.labels = own | market.labels
+            # A twin is cut where its recorded market is, or left out with it.
+            if self.spec.phase is not None:
+                label = self.spec.phase[0]
+                if label in own:
+                    market.labels[label] = own[label]
+                else:
+                    market.labels.pop(label, None)
 
     def point(self, values: dict[str, float], seeds) -> dict[str, float]:
         return self.points([values], seeds)[0]
@@ -804,6 +811,8 @@ def write_twins(spec: Spec, values: dict[str, float], targets: list[tapes.Market
     """The twin of every recorded market at these settings, one scenario file each, named by its
     market; returns the files in the order of the markets."""
     out.mkdir(parents=True, exist_ok=True)
+    for stale in out.glob("*.toml"):  # an earlier fit's twins, which are not this one's
+        stale.unlink()
     paths = []
     for index, market in enumerate(targets):
         name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(market.name)).strip("._") or "market"

@@ -303,6 +303,20 @@ TEST(MarketMakerTest, QuotesALadderOfLevels) {
               }));
 }
 
+// Levels far apart reach the ends of the exchange's prices and are left out there, never
+// wrapping round.
+TEST(MarketMakerTest, ALadderStopsAtTheEndsOfThePrices) {
+    MarketMakerConfig config = kConfig;
+    config.levels = 3;
+    config.levelSpacing = kMaxPrice;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(1, Side::Buy, 99, 5),
+                                                        limitOrder(2, Side::Sell, 101, 5)}));
+}
+
 // A level is quoted only while filling it and every level nearer the touch keeps the position
 // within max_inventory: with 20 lots at most, the third level (5 + 10 + 20) is left out.
 TEST(MarketMakerTest, ALadderStopsAtItsInventoryLimit) {
@@ -357,6 +371,11 @@ TEST(MarketMakerTest, RejectsInvalidConfigs) {
                  std::invalid_argument);
     EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levelGrowth = 0.0; }), kReference}),
                  std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levelGrowth = 1e30; }), kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW(
+        (MarketMaker{withChange([](auto& c) { c.levelSpacing = kMaxPrice + 1; }), kReference}),
+        std::invalid_argument);
 }
 
 } // namespace
