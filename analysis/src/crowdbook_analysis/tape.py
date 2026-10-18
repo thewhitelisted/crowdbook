@@ -252,11 +252,15 @@ def write_tape(tape: Tape, directory: Path | str, *, parquet: bool = False) -> N
     (directory / "tape.toml").write_text("\n".join(lines) + "\n")
 
 
+# Labels that are times from a market's start, moved with it when a market is cut.
+TIME_LABELS = ("kickoff", "kickoff_recorded")
+
+
 def window(t: Tape, start: float, end: float | None = None) -> Tape:
     """Each market cut to the part from `start` to `end` seconds (to its end if None), with times
     counted from `start`: before kickoff and during play, say, measured apart. The book as it
-    stood at `start` is kept as the first snapshot; the outcome and labels are kept, and only the
-    scores within the part."""
+    stood at `start` is kept as the first snapshot; the outcome and labels are kept, time labels
+    (`TIME_LABELS`) counted from `start` too, and only the scores within the part."""
     cut = []
     for m in t.markets:
         stop = m.duration if end is None else min(end, m.duration)
@@ -279,10 +283,27 @@ def window(t: Tape, start: float, end: float | None = None) -> Tape:
             ask_price=m.ask_price[keep], ask_size=m.ask_size[keep],
             trade_time=m.trade_time[prints] - start, trade_price=m.trade_price[prints],
             trade_size=m.trade_size[prints], trade_sign=m.trade_sign[prints],
-            outcome=m.outcome, value_time=value_time, value=value, labels=m.labels,
+            outcome=m.outcome, value_time=value_time, value=value,
+            labels={k: (v - start if k in TIME_LABELS and isinstance(v, (int, float))
+                        and not isinstance(v, bool) else v) for k, v in m.labels.items()},
             scores=None if m.scores is None else
             m.scores[(m.scores[:, 0] >= start) & (m.scores[:, 0] <= stop)]
             - np.array([start, 0.0, 0.0])))
+    return Tape(cut, t.options)
+
+
+def around(t: Tape, label: str, before: float, after: float | None) -> Tape:
+    """Each market cut to the span from `before` seconds ahead of the time a label of its own
+    gives, such as a game's kickoff, to `after` seconds past it (to its end if None), each end
+    kept within the market. Markets without the label are left out."""
+    cut = []
+    for m in t.markets:
+        at = m.labels.get(label)
+        if at is None or isinstance(at, bool) or not np.isfinite(float(at)):
+            continue
+        start = max(float(at) - before, 0.0)
+        end = None if after is None else float(at) + after
+        cut += window(Tape([m], t.options), start, end).markets
     return Tape(cut, t.options)
 
 

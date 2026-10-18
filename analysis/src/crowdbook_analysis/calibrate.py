@@ -13,6 +13,7 @@ A spec names a scenario template and the settings to fit:
     held_out = 200                  # markets the fit is judged on afterwards, on other seeds
     window = [0, 1800]              # optional: compare only this part of each market, in seconds
     phase = "from kickoff"          # optional: or the part of each from (or "before") a label
+    around = { label = "kickoff", before = 3600, after = 9000 }   # optional: see below
     sample_interval = 0.1           # optional: seconds between samples of the simulated book
     condition = true                # optional: twins of each target market (see below)
 
@@ -35,6 +36,11 @@ has not settled), and for a game `${script}`, its scores replayed (see
 `[prediction.game]`); `seeds` and
 `held_out` then count the twins of each market. Markets alike in what is known about them are
 compared with each other, and the luck of a game's result is taken out of the comparison.
+
+`around` trims each recorded market, before anything is fitted, to the span from `before` seconds
+ahead of the time a label of its own gives to `after` seconds past it (to its end without
+`after`): its twins are then as short, so a fit of games that sat for hours before kickoff runs
+on the part that matters at a fraction of the cost.
 
 `--truth` fits markets the engine made itself at known settings instead of a recording: a fit
 that cannot find settings it knows the answer to should not be trusted with ones it does not.
@@ -128,6 +134,13 @@ class Spec:
     # The part of each market compared, cut at a time a label of its own gives, such as a game's
     # kickoff: (label, True) from it on, (label, False) before it; or all of it.
     phase: tuple[str, bool] | None = None
+    # Each recorded market trimmed, before anything is fitted, to the span from `before` seconds
+    # ahead of a label's time to `after` past it (its end where None), so that its twins are as
+    # short: (label, before, after).
+    around: tuple[str, float, float | None] | None = None
+
+    def trim(self, t: tapes.Tape) -> tapes.Tape:
+        return t if self.around is None else tapes.around(t, *self.around)
 
     def cut(self, t: tapes.Tape) -> tapes.Tape:
         if self.window is not None:
@@ -295,10 +308,19 @@ def read_spec(path: Path) -> Spec:
         if len(words) != 2 or words[0] not in ("from", "before"):
             raise ValueError('phase is "from LABEL" or "before LABEL", such as "from kickoff"')
         phase = (words[1], words[0] == "from")
+    around = None
+    if "around" in spec:
+        entry = spec["around"]
+        if not isinstance(entry, dict) or "label" not in entry or "before" not in entry \
+                or set(entry) - {"label", "before", "after"}:
+            raise ValueError('around is { label = "kickoff", before = SECONDS, after = SECONDS }, '
+                             "after optional")
+        around = (str(entry["label"]), float(entry["before"]),
+                  float(entry["after"]) if "after" in entry else None)
     return Spec(template, parameters, spec.get("statistics"), int(spec.get("seeds", 60)),
                 int(spec.get("generations", 30)), int(spec.get("held_out", 200)), window,
                 float(spec.get("sample_interval", tapes.SAMPLE_INTERVAL)),
-                bool(spec.get("condition", False)), phase)
+                bool(spec.get("condition", False)), phase, around)
 
 
 class Target:
@@ -735,7 +757,9 @@ def main() -> None:
         if getattr(args, name) is not None:
             setattr(spec, name, getattr(args, name))
     config = validate.Config(bootstrap=args.bootstrap)
-    recorded = tapes.read_tape(args.real) if args.real else None
+    recorded = spec.trim(tapes.read_tape(args.real)) if args.real else None
+    if recorded is not None and not recorded.markets:
+        parser.error("no recorded market is left once trimmed: does each have the label?")
     if spec.condition and recorded is None:
         parser.error("a conditioned spec is fitted to a recording: give --real")
     evaluator = Evaluator(find_tool(args.crowdbook), spec, config,

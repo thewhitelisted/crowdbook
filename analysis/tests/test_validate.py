@@ -89,6 +89,20 @@ class TapeTest(unittest.TestCase):
         self.assertEqual(tape.window(whole, 50.0).markets[0].duration, 50.0)
         self.assertEqual(tape.window(whole, 200.0).markets, [])
 
+    def test_a_cut_market_counts_its_time_labels_from_the_cut(self):
+        whole = tape.Tape([market(value=np.arange(100.0)), market("late", duration=50.0)])
+        whole.markets[0].labels = {"kickoff": 60.0, "side": "home"}
+        whole.markets[1].labels = {"kickoff": 45.0}
+        cut = tape.window(whole, 10.0).markets[0]
+        self.assertEqual(cut.labels, {"kickoff": 50.0, "side": "home"})
+        self.assertEqual(whole.markets[0].labels["kickoff"], 60.0)  # the original is untouched
+        # Around each market's own kickoff: from 20 s ahead to 15 s past, kept within it.
+        trimmed = tape.around(whole, "kickoff", 20.0, 15.0).markets
+        self.assertEqual([m.duration for m in trimmed], [35.0, 25.0])
+        self.assertEqual([m.labels["kickoff"] for m in trimmed], [20.0, 20.0])
+        self.assertEqual(trimmed[0].value[0], 40.0)
+        self.assertEqual(len(tape.around(whole, "missing", 1.0, None).markets), 0)
+
     def test_a_phase_cuts_each_market_at_its_own_label(self):
         first, second = market("a"), market("b")
         first.labels, second.labels = {"kickoff": 30.0}, {"kickoff": 60.0}
