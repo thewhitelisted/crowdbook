@@ -11,7 +11,8 @@ reference value and how each market settled. `--scenario` runs a scenario into a
 statistics, measured alike on both:
 
 - **The book at the touch**: the spread, time-weighted, its median and how often it is one tick;
-  the size at the best bid and ask, and within the first five levels; how often one side is empty.
+  the size at the best bid and ask, and within the first five levels; how often one side is empty;
+  how often the best prices change, seen once a grid step.
 - **Trades**: aggressive orders a minute (the prints one order makes at one time are one order),
   their sizes (the median, the largest tenth against the median and the tail's Hill exponent),
   how bursty they come (the coefficient of variation of the gaps between them), and the share in
@@ -94,6 +95,7 @@ def statistic_names(config: Config = Config()) -> list[tuple[str, str, bool]]:
         ("depth_near_3", "size within 3 ticks of the mid a side, mean", True),
         ("depth_near_10", "size within 10 ticks of the mid a side, mean", True),
         ("touch_turnover", "lots traded a minute over the size at the touch", True),
+        ("touch_moves", "best bid or ask price changes a minute, seen each grid step", True),
         ("orders_per_minute", "aggressive orders a minute", True),
         ("prints_per_order", "prints per aggressive order", True),
         ("order_size_median", "order size, median", True),
@@ -402,6 +404,16 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     p["spread_grid"] = (sample_last(m.book_time, spread, grid) if len(m.book_time)
                         else grid * np.nan)
     p["touch_grid"] = sample_last(m.book_time, touch, grid) if len(m.book_time) else grid * np.nan
+    # How often the touch's prices change, seen on the grid alike for a recording that logs every
+    # change and a simulation sampled once a step: steps where the best bid or ask differs from
+    # the step before, both quoted.
+    if len(m.book_time) and len(grid) > 1:
+        bid_grid = sample_last(m.book_time, m.bid_price[:, 0], grid)
+        ask_grid = sample_last(m.book_time, m.ask_price[:, 0], grid)
+        quoted = np.isfinite(bid_grid[1:]) & np.isfinite(bid_grid[:-1]) \
+            & np.isfinite(ask_grid[1:]) & np.isfinite(ask_grid[:-1])
+        moved = quoted & ((bid_grid[1:] != bid_grid[:-1]) | (ask_grid[1:] != ask_grid[:-1]))
+        p["touch_moves"] = np.array([moved.sum(), quoted.sum() * config.grid])
 
     # What resting orders earn on each print: the resting side sold where a buyer took.
     def mid_at(t: np.ndarray, strictly_before: bool) -> np.ndarray:
@@ -531,6 +543,9 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
                               if len(sizes) and median > 0 else np.nan)
     out["order_size_hill"] = hill(sizes, config.tail)
     volume = sum(p["volume"] for p in ps)
+    moves = _stack(ps, "touch_moves")
+    moves = moves.sum(axis=0) if moves is not None else np.zeros(2)
+    out["touch_moves"] = 60 * max(moves[0], 0.5) / moves[1] if moves[1] > 0 else np.nan
     out["touch_turnover"] = (60 * max(volume, 0.5) / duration / out["touch_size_mean"]
                              if duration > 0 and out["touch_size_mean"] > 0 else np.nan)
     gap_values = _cat(ps, "gap_values")
