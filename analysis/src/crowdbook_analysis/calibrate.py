@@ -12,6 +12,7 @@ A spec names a scenario template and the settings to fit:
     generations = 30
     held_out = 200                  # markets the fit is judged on afterwards, on other seeds
     window = [0, 1800]              # optional: compare only this part of each market, in seconds
+    sample_interval = 0.1           # optional: seconds between samples of the simulated book
 
     [parameters.noise_rate]
     low = 0.001
@@ -105,6 +106,7 @@ class Spec:
     held_out: int = 200
     # The part of each market compared, from and to seconds (to its end where None), or all of it.
     window: tuple[float, float | None] | None = None
+    sample_interval: float = tapes.SAMPLE_INTERVAL  # seconds between samples of the book
 
     def cut(self, t: tapes.Tape) -> tapes.Tape:
         return t if self.window is None else tapes.window(t, *self.window)
@@ -159,7 +161,8 @@ def read_spec(path: Path) -> Spec:
             raise ValueError("window is [start] or [start, end], in seconds")
         window = (float(bounds[0]), float(bounds[1]) if len(bounds) == 2 else None)
     return Spec(template, parameters, spec.get("statistics"), int(spec.get("seeds", 60)),
-                int(spec.get("generations", 30)), int(spec.get("held_out", 200)), window)
+                int(spec.get("generations", 30)), int(spec.get("held_out", 200)), window,
+                float(spec.get("sample_interval", tapes.SAMPLE_INTERVAL)))
 
 
 class Target:
@@ -189,7 +192,8 @@ class Evaluator:
     def tape(self, values: dict[str, float], seeds) -> tapes.Tape:
         self.runs += len(seeds)
         return self.spec.cut(tapes.simulate(self.tool, self.spec.scenario(values), seeds,
-                                            labels={k: float(v) for k, v in values.items()}))
+                                            labels={k: float(v) for k, v in values.items()},
+                                            sample_interval=self.spec.sample_interval))
 
     def point(self, values: dict[str, float], seeds) -> dict[str, float]:
         t = self.tape(values, seeds)

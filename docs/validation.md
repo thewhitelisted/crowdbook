@@ -97,6 +97,7 @@ seeds = 40            # markets each candidate is judged on, the same for every 
 generations = 80
 held_out = 200        # markets the fit is judged on afterwards, on other seeds
 window = [0, 1800]    # optional: compare only this part of each market, in seconds
+sample_interval = 0.1 # optional: seconds between samples of the simulated book
 
 [parameters.follower_lag]
 low = 0.5

@@ -3,6 +3,8 @@ template = "game.toml"
 seeds = 30
 generations = 60
 held_out = 200
+# Games last over two hours: a sample of the book every second is enough for these statistics.
+sample_interval = 1.0
 
 # With 1.5 scores expected and a draw paying nothing, the home side wins at most 78% of the time
 # however strong it is, so a higher chance at kickoff could not be reached.
