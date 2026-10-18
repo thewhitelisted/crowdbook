@@ -7,12 +7,13 @@ The generic probes each follow one rule. A market fitted to a real one can pay w
 does, such as how slowly its price follows the value, read from several signals at once: a
 learner trained there finds it, and a strategy trained in the fitted market would trade it,
 though the real market need not pay it. This probe is that learner, small enough to train in
-minutes: each decision it reads a dozen numbers any seat could compute from what it heard, the
+minutes: each decision it reads eleven numbers any seat could compute from what it heard, the
 flow of aggressive orders and the mid's path over three horizons, the touch's imbalance, the
 spread, its own position and the last trade, and maps them, through three linear scores, to a
 position it takes toward at the touch and to a bid and an offer it rests at the best prices or
-not. Its weights are searched by CMA-ES on what it makes, after fees, valued as the market values
-a position, on the search's markets, a fresh set each generation and the same for every candidate
+not. Its weights are searched by CMA-ES on what it makes, after fees, valued at the true value
+up to its last decision (a settlement's jump left out, which only adds noise), on the search's
+markets, a fresh set each generation and the same for every candidate
 of one; the final mean is judged on fresh markets, like each generic family's best, and flagged
 when its interval there lies above zero. It trades through `crowdbook_learn`'s pool as the
 learning seat, from the scenario's `[participant]`, which the probe replaces with its own latency
@@ -42,7 +43,7 @@ FEATURES = (*(f"flow {h:g}s" for h in HALF_LIVES), *(f"trend {h:g}s" for h in HA
 HEADS = ("target", "bid", "ask")
 
 _TRADE, _FILL = 1, 4
-_HEADER = re.compile(r"^\s*\[\[?\s*([A-Za-z_][\w.\-\" ]*?)\s*\]\]?\s*(#.*)?$")
+_HEADER = re.compile(r"^\s*\[\[?\s*([A-Za-z_\"'][\w.\-\"' ]*?)\s*\]\]?\s*(#.*)?$")
 
 
 def learn_module():
@@ -74,7 +75,7 @@ def without_tables(text: str, names: tuple[str, ...]) -> str:
     for line in text.splitlines():
         header = _HEADER.match(line)
         if header:
-            name = header.group(1).replace(" ", "").replace('"', "")
+            name = header.group(1).replace(" ", "").replace('"', "").replace("'", "")
             skipping = any(name == n or name.startswith(n + ".") for n in names)
         if not skipping:
             kept.append(line)
@@ -85,13 +86,27 @@ def seat(text: str, *, latency: str, size: int, max_position: int, interval: str
     """The scenario with the probe's seat: its own [participant] and [learning] in place of any
     the scenario has, with no feed, so that it learns from the market alone."""
     out = without_tables(text, ("participant", "learning"))
+    # Valued as the sweep values its probes: at the true value where there is one, at the last
+    # trade otherwise, never closed through the book.
+    parsed = tomllib.loads(out)
+    mark = "value" if "fundamental" in parsed or "prediction" in parsed else "last"
     out += (f'\n[participant]\nlatency = {{ to_exchange = "{latency}", '
             f'from_exchange = "{latency}" }}\n'
             f"account = {{ max_position = {max_position}, max_order_quantity = {size} }}\n"
             f'\n[learning]\ninterval = "{interval}"\nwarmup = "{interval}"\n'
-            f"sizes = [{size}]\ndepth_levels = 1\nmax_depth_updates = 0\nmax_events = 512\n")
+            f"sizes = [{size}]\ndepth_levels = 1\nmax_depth_updates = 0\nmax_events = 512\n"
+            f'reward_mark = "{mark}"\nclose = "{mark}"\n')
     tomllib.loads(out)  # a clear error here rather than in the pool
     return out
+
+
+def _heard(observation: dict) -> tuple[np.ndarray, np.ndarray]:
+    """The event rows heard since the last decision, as far as the most any market kept, and
+    which of them each market kept."""
+    events = observation["events"]
+    kept = np.minimum(observation["counts"][:, 0], events.shape[1])
+    width = int(kept.max()) if len(kept) else 0
+    return events[:, :width], np.arange(width)[None, :] < kept[:, None]
 
 
 def _nanoseconds(duration: str) -> int:
@@ -136,9 +151,7 @@ class Features:
     def update(self, observation: dict) -> np.ndarray:
         """The features of this decision, a row a market, from its observation."""
         state = observation["state"]
-        events = observation["events"]
-        kept = np.minimum(observation["counts"][:, 0], events.shape[1])
-        rows = np.arange(events.shape[1])[None, :] < kept[:, None]
+        events, rows = _heard(observation)
         trades = rows & (events[:, :, 0] == _TRADE)
         quantity = np.where(trades, events[:, :, 3], 0).astype(float)
         signed = (quantity * events[:, :, 4]).sum(axis=1)
@@ -189,8 +202,10 @@ def orders(weights: np.ndarray, x: np.ndarray, state: np.ndarray, names: list[st
     take = np.clip(target - position, -size, size)
     take = np.where(((take > 0) & (ask > 0)) | ((take < 0) & (bid > 0)), take, 0)
     out = np.zeros((len(x), 5), dtype=np.int64)
-    quote_bid = (z[:, 1] > 0) & (bid > 0) & (take <= 0)
-    quote_ask = (z[:, 2] > 0) & (ask > 0) & (take >= 0)
+    # A take cancels the seat's quote on the side it takes from, a buy its offer and a sell its
+    # bid, so none is asked for there.
+    quote_bid = (z[:, 1] > 0) & (bid > 0) & (take >= 0)
+    quote_ask = (z[:, 2] > 0) & (ask > 0) & (take <= 0)
     out[:, 0] = np.where(quote_bid, bid, 0)
     out[:, 1] = np.where(quote_bid, size, 0)
     out[:, 2] = np.where(quote_ask, ask, 0)
@@ -222,12 +237,16 @@ class Played:
     made: np.ndarray
     lots: np.ndarray
     maker: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    # What it made to its last decision, valued at the true value then: all but the close, where
+    # a contract that settles jumps to its outcome. What a calibrated value expects the same, with
+    # less noise, and so what it trains on.
+    marked: np.ndarray = field(default_factory=lambda: np.zeros(0))
 
 
 def play(learn, texts: list[str], weights: np.ndarray, seeds: list[int], settings: Settings,
          pool_markets: int = 256) -> Played:
-    """Plays job i, weights[i] on seeds[i] in texts[seeds' index mod len], in a pool of markets
-    refilled as episodes end."""
+    """Plays job i, weights[i] on seeds[i] in texts[seeds[i] mod len], in a pool of markets
+    refilled as episodes end: a seed runs the same scenario whichever candidate plays it."""
     jobs = len(seeds)
     count = max(1, min(pool_markets, jobs))
     pool = learn.Pool.from_text(texts[0], markets=count, threads=settings.threads)
@@ -235,60 +254,64 @@ def play(learn, texts: list[str], weights: np.ndarray, seeds: list[int], setting
     features = Features(count, names)
     every = _nanoseconds(settings.interval)
     clock = names["state"].index("time")
+    open_buy, open_sell = names["state"].index("open_buy"), names["state"].index("open_sell")
     last = np.zeros((count, 5), dtype=np.int64)
-    queue = list(range(jobs))
-    running: list[int | None] = [None] * count
-    made, lots, maker = np.zeros(jobs), np.zeros(jobs), np.zeros(jobs)
+    following = 0  # the next job to start
+    running = np.full(count, -1)  # each market's job, or -1 for none
+    # What each job made, the lots it traded and those it rested, a row a job and one more, which
+    # markets with nothing left to run add to.
+    totals = np.zeros((jobs + 1, 4))
     w = np.zeros((count, len(HEADS), len(FEATURES)))
 
     def start(mask: np.ndarray) -> None:
+        nonlocal following
         for market in np.flatnonzero(mask):
-            running[market] = queue.pop(0) if queue else None
+            running[market] = following if following < jobs else -1
+            following += 1
         # Markets with nothing left to run replay the first job, and are not counted.
-        index = [k if k is not None else 0 for k in running]
+        index = np.where(running >= 0, running, 0)
         pool.reset(seeds=[seeds[k] for k in index], mask=mask,
-                   scenarios=[texts[k % len(texts)] for k in index])
+                   scenarios=[texts[seeds[k] % len(texts)] for k in index])
         last[mask] = 0
-        for market in np.flatnonzero(mask):
-            w[market] = weights[index[market]] if running[market] is not None else 0.0
+        w[mask] = np.where((running[mask] >= 0)[:, None, None], weights[index[mask]], 0.0)
         features.reset(mask)
 
     start(np.ones(count, dtype=bool))
     observation = pool.observation
-    while any(k is not None for k in running):
+    while (running >= 0).any():
         x = features.update(observation)
         # It acts on its schedule only: at a decision a fill of its own brings between them, it
-        # leaves its quotes as they were and takes nothing, so that it cannot trade on every
-        # fill, a decision apiece.
-        scheduled = observation["state"][:, clock] % every == 0
-        chosen = orders(w, x, observation["state"], names["state"], settings.size,
-                        settings.max_position)
-        last = np.where(scheduled[:, None], chosen, last)
+        # leaves the quotes it still has as they are, places none afresh and takes nothing, so
+        # that it cannot trade on every fill, a decision apiece.
+        state = observation["state"]
+        scheduled = state[:, clock] % every == 0
+        chosen = orders(w, x, state, names["state"], settings.size, settings.max_position)
+        last[scheduled] = chosen[scheduled]
         sent = last.copy()
-        sent[~scheduled, 4] = 0
+        between = ~scheduled
+        sent[between, 4] = 0
+        sent[between & (state[:, open_buy] <= 0), :2] = 0
+        sent[between & (state[:, open_sell] <= 0), 2:4] = 0
+        last[between] = sent[between]
         observation, rewards, terminated, _, _ = pool.step_orders(sent)
-        events = observation["events"]
-        kept = np.minimum(observation["counts"][:, 0], events.shape[1])
-        rows = np.arange(events.shape[1])[None, :] < kept[:, None]
+        events, rows = _heard(observation)
         fills = rows & (events[:, :, 0] == _FILL)
         filled = np.where(fills, events[:, :, 4], 0).sum(axis=1)
         rested = np.where(fills & (events[:, :, 5] == 0), events[:, :, 4], 0).sum(axis=1)
-        for market in range(count):
-            k = running[market]
-            if k is not None:
-                made[k] += rewards[market]
-                lots[k] += filled[market]
-                maker[k] += rested[market]
+        np.add.at(totals, np.where(running >= 0, running, jobs),
+                  np.stack([rewards, filled, rested, np.where(terminated, 0.0, rewards)],
+                           axis=1))
         ended = terminated.copy()
         if ended.any():
             start(ended)
             observation = pool.observation
-    return Played(made, lots, maker)
+    return Played(*totals[:jobs].T)
 
 
 def train(learn, texts: list[str], settings: Settings, log=print) -> tuple[np.ndarray, list]:
-    """The weights CMA-ES settles on, from all zeros, a strategy that never trades; and each
-    generation's mean made a market, over its candidates."""
+    """The weights CMA-ES settles on, from all zeros, a strategy that never trades, scored on
+    what each candidate made to the last decision of each market; and each generation's mean of
+    that a market, over its candidates."""
     shape = (len(HEADS), len(FEATURES))
     cma = Cma(np.zeros(int(np.prod(shape))), settings.sigma, settings.seed)
     history = []
@@ -298,7 +321,7 @@ def train(learn, texts: list[str], settings: Settings, log=print) -> tuple[np.nd
         seeds = list(range(first, first + settings.markets)) * len(points)
         candidates = np.repeat(points.reshape(len(points), *shape), settings.markets, axis=0)
         played = play(learn, texts, candidates, seeds, settings)
-        scores = played.made.reshape(len(points), settings.markets).mean(axis=1)
+        scores = played.marked.reshape(len(points), settings.markets).mean(axis=1)
         cma.tell(points, -scores)
         history.append(float(scores.mean()))
         log(f"learner, generation {generation + 1}: {scores.mean():+.1f} a market on average, "

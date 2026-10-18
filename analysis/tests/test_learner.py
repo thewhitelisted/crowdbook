@@ -65,6 +65,27 @@ class SeatTest(unittest.TestCase):
         self.assertEqual(seated["learning"]["warmup"], "250ms")
         self.assertEqual(len(seated["agents"]), 1)
 
+    def test_valued_as_the_probes_are(self):
+        # At the true value where there is one, at the last trade otherwise; never closed
+        # through the book.
+        for text, mark in (('[fundamental]\nvolatility = 1.0\n', "value"),
+                           ('[prediction]\nprobability = 0.5\n', "value"), ("seed = 1\n", "last")):
+            seated = tomllib.loads(learner.seat(text, latency="1ms", size=1, max_position=10,
+                                                interval="1s"))
+            self.assertEqual(seated["learning"]["close"], mark)
+            self.assertEqual(seated["learning"]["reward_mark"], mark)
+
+    def test_quoted_headers_end_a_table_left_out_and_are_left_out_themselves(self):
+        text = ('[participant]\nlatency = { to_exchange = "50ms" }\n'
+                '["exchange"]\ntaker_fee = 0.2\n'
+                '[ "learning" ]\ninterval = "5s"\n'
+                "['agents'.x]\ny = 1\n")
+        seated = tomllib.loads(learner.seat(text, latency="1ms", size=1, max_position=10,
+                                            interval="1s"))
+        self.assertEqual(seated["exchange"]["taker_fee"], 0.2)
+        self.assertEqual(seated["learning"]["interval"], "1s")
+        self.assertEqual(seated["agents"]["x"]["y"], 1)
+
     def test_durations(self):
         self.assertEqual(learner._nanoseconds("1s"), SECOND)
         self.assertEqual(learner._nanoseconds("250ms"), 250_000_000)
@@ -145,9 +166,12 @@ class OrdersTest(unittest.TestCase):
                          [99, 2, 101, 2, 0])
         self.assertEqual(list(self.orders(self.weights(0, 0.1, -0.1), [book(0)])[0]),
                          [99, 2, 0, 0, 0])
-        # A take on a side cancels the quote there, so none is asked for.
+        # A take cancels the quote on the side it takes from, a buy the offer, so none is asked
+        # for there.
         self.assertEqual(list(self.orders(self.weights(2.0, 0.1, 0.1), [book(0)])[0]),
-                         [0, 0, 101, 2, 2])
+                         [99, 2, 0, 0, 2])
+        self.assertEqual(list(self.orders(self.weights(-2.0, 0.1, 0.1), [book(0)])[0]),
+                         [0, 0, 101, 2, -2])
 
 
 class FakePool:
@@ -161,6 +185,9 @@ class FakePool:
     steps = 30
     made = []  # every pool's takes
 
+    sent = []  # every pool's orders
+    resting = False  # whether the quotes it is sent rest, unfilled
+
     def __init__(self, markets: int):
         self.markets = markets
         self.observation = observation([book(SECOND)] * markets, [[trade(0, 100, 1, 1)]] *
@@ -172,6 +199,7 @@ class FakePool:
         self.rng = [np.random.default_rng(0)] * markets
         self.time = np.zeros(markets, dtype=np.int64)
         self.scenarios = [None] * markets
+        self.history = []  # the scenarios after each reset
 
     @classmethod
     def from_text(cls, text: str, markets: int, threads: int = 0):
@@ -186,6 +214,9 @@ class FakePool:
         state[market, STATE.index("bid_price")] = 99
         state[market, STATE.index("ask_price")] = 101
         state[market, STATE.index("max_position")] = 10
+        sent = FakePool.sent[-1][market] if FakePool.sent and FakePool.resting else np.zeros(5)
+        state[market, STATE.index("open_buy")] = sent[1]
+        state[market, STATE.index("open_sell")] = sent[3]
         self.observation["events"][market, 0] = trade(0, 100, 1, int(self.side[market]))
         self.observation["counts"][market, 0] = 1
 
@@ -199,9 +230,11 @@ class FakePool:
             self.terminated[market] = False
             self.scenarios[market] = scenarios[market]
             self._show(market)
+        self.history.append(list(self.scenarios))
 
     def step_orders(self, orders):
         FakePool.made.append(orders[:, 4].copy())
+        FakePool.sent.append(orders.copy())
         rewards = np.zeros(self.markets)
         for market in range(self.markets):
             if self.terminated[market]:
@@ -225,7 +258,7 @@ class FakeLearn:
 
 class TrainingTest(unittest.TestCase):
     def setUp(self):
-        FakePool.pays, FakePool.made = 1.0, []
+        FakePool.pays, FakePool.made, FakePool.sent, FakePool.resting = 1.0, [], [], False
 
     def settings(self, **changes) -> learner.Settings:
         return learner.Settings(**{"generations": 8, "markets": 8, "size": 5, **changes})
@@ -240,9 +273,7 @@ class TrainingTest(unittest.TestCase):
         self.assertEqual(played.made[0], played.made[3])
         self.assertEqual(played.made[1], played.made[4])
         self.assertGreater(played.made.min(), 0)
-        # It takes only on its schedule, never at a fill's decision between.
-        takes = np.concatenate(FakePool.made)
-        self.assertTrue((takes != 0).any())
+        self.assertTrue((np.concatenate(FakePool.made) != 0).any())
 
     def test_takes_nothing_at_a_decision_off_its_schedule(self):
         weights = np.zeros((1, len(learner.HEADS), len(learner.FEATURES)))
@@ -255,6 +286,29 @@ class TrainingTest(unittest.TestCase):
             if k % 3 == 1:
                 self.assertEqual(take, 0, k)
         self.assertGreater(sum(takes), 0)
+
+    def test_between_decisions_it_keeps_only_the_quotes_it_still_has(self):
+        weights = np.zeros((1, len(learner.HEADS), len(learner.FEATURES)))
+        weights[0, 1:, -1] = 1.0  # quotes both sides at every decision of its own
+        for resting in (False, True):
+            FakePool.sent, FakePool.resting = [], resting
+            learner.play(FakeLearn, ["a"], weights, [1], self.settings())
+            for k, orders in enumerate(FakePool.sent):
+                quoted = list(orders[0, [1, 3]])
+                # Decisions 1, 4, 7, ... are a fill's: a quote filled there is not placed again.
+                self.assertEqual(quoted, [5, 5] if k % 3 != 1 or resting else [0, 0], k)
+
+    def test_a_seed_runs_the_same_scenario_for_every_candidate(self):
+        pools = []
+        real = FakePool.from_text
+        FakePool.from_text = classmethod(lambda cls, text, markets, threads=0:
+                                         pools.append(cls(markets)) or pools[-1])
+        try:
+            weights = np.zeros((6, len(learner.HEADS), len(learner.FEATURES)))
+            learner.play(FakeLearn, ["a", "b", "c"], weights, [7, 8, 7, 8, 7, 8], self.settings())
+        finally:
+            FakePool.from_text = real
+        self.assertEqual(pools[0].history[0], ["b", "c", "b", "c", "b", "c"])
 
     def test_finds_an_edge_planted_in_the_flow_and_none_where_there_is_none(self):
         # Known answer: where the last trade's side says where the value goes, the learner

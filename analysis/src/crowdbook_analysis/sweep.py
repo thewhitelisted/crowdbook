@@ -212,8 +212,9 @@ def learner_section(trained: dict) -> list[str]:
     shown = ", ".join(f"{made:+.1f}" for made in history)
     return ["## The learner", "",
             f"Trained by CMA-ES for {settings.generations} generations, each candidate on "
-            f"{settings.markets} markets, from weights of 0, a strategy that never trades. What "
-            f"each generation's candidates made a market on average: {shown}.", "",
+            f"{settings.markets} markets, from weights of 0, a strategy that never trades, on "
+            "what it made to its last decision, valued at the true value then. What each "
+            f"generation's candidates made a market so, on average: {shown}.", "",
             "Its weights: a take toward its limit on the side the target's score is past 1 on, "
             "and a bid or an offer at the best price where theirs is above 0. Signals with large "
             "weights are what the market pays it for.", "",

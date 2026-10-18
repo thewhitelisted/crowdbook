@@ -74,6 +74,7 @@ class SweepTest(unittest.TestCase):
                     sweep.scenario_files([Path(scratch) / missing])
 
     def test_the_learner_is_judged_and_reported_beside_the_probes(self):
+        sys.path.insert(0, str(Path(__file__).parent))
         from test_learner import FakeLearn, FakePool  # a market that pays following flow
         FakePool.pays = 1.0
         found, real = [], learner.learn_module
