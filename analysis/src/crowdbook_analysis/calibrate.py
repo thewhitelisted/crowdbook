@@ -73,6 +73,9 @@ FIT_SEED = 1
 HELD_OUT_SEED = 100_001
 JACOBIAN_SEED = 200_001
 REFIT_SEED = 1_000_001
+# The first step of a search carried on from an earlier fit: near a fit the distance rises
+# steeply, and a step of 0.15 of each range, right from the spec's starts, there only overshoots.
+RESUMED_STEP = 0.02
 TRUTH_SEED = 900_001
 BOOTSTRAP = 100
 
@@ -650,17 +653,18 @@ def parse_truth(text: str, spec: Spec) -> dict[str, float]:
 
 def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
               truth: dict[str, float] | None = None, log=print, refits: int = 0,
-              refit_generations: int = 15) -> tuple[str, dict, str]:
+              refit_generations: int = 15, step: float = 0.15) -> tuple[str, dict, str]:
     """The whole fit: returns the report as Markdown, as a dictionary, and the fitted scenario.
     With `refits` of 2 or more, the search runs again that many times from the fit, on fresh
-    seeds, and the spread of where it lands is added to the intervals."""
+    seeds, and the spread of where it lands is added to the intervals. `step` is the search's
+    first step, a share of each setting's range."""
     config = evaluator.config
     fit_seeds = range(FIT_SEED, FIT_SEED + spec.seeds)
     held_out = range(HELD_OUT_SEED, HELD_OUT_SEED + spec.held_out)
     start_summary = evaluator.summary("start", spec.start(), fit_seeds, seed=2)
     target = make_target(real, start_summary, spec.statistics, config)
     log(f"{real.markets} target markets; {len(target.keys)} statistics compared")
-    fitted, score = search(evaluator, target, fit_seeds, spec.generations, log)
+    fitted, score = search(evaluator, target, fit_seeds, spec.generations, log, sigma=step)
     log(f"fitted, distance {score:.1f} on the fit's seeds: {fitted}")
     # About 100 markets for each difference, or the fit's own number if more: with twins, that
     # many all told.
@@ -749,10 +753,16 @@ def main() -> None:
     parser.add_argument("--start", type=Path, metavar="SETTINGS",
                         help="start the search from these settings, such as an earlier fit's "
                         "settings.toml, instead of the spec's starts")
+    parser.add_argument("--step", type=float,
+                        help="the search's first step, a share of each setting's range: 0.15, "
+                        f"or {RESUMED_STEP} with --start, near a fit where a long step only "
+                        "overshoots")
     parser.add_argument("--crowdbook", help="the crowdbook executable")
     parser.add_argument("--output", type=Path, default=Path("calibrated"),
                         help="directory for the fitted scenario and the report")
     args = parser.parse_args()
+    if args.step is not None and not 0 < args.step <= 1:
+        parser.error("--step is a share of each setting's range, above 0 and at most 1")
     if args.refits < 0 or args.refits == 1:
         parser.error("--refits is 0, for none, or 2 or more: one search alone has no spread")
     if bool(args.real) == bool(args.truth):
@@ -781,7 +791,9 @@ def main() -> None:
     text, data, scenario = calibrate(spec, evaluator, real, truth=truth,
                                      log=lambda line: print(line, flush=True),
                                      refits=args.refits,
-                                     refit_generations=args.refit_generations)
+                                     refit_generations=args.refit_generations,
+                                     step=args.step if args.step is not None else (
+                                         RESUMED_STEP if args.start else 0.15))
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "scenario.toml").write_text(scenario)
     fitted = {row["name"]: float(row["fitted"]) for row in data["calibration"]["settings"]}

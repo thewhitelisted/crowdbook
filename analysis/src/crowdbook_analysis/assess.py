@@ -116,6 +116,7 @@ def main() -> None:
     parser.add_argument("--refits", type=int, default=0)
     parser.add_argument("--start", type=Path, metavar="SETTINGS",
                         help="start the fit from an earlier fit's settings.toml")
+    parser.add_argument("--step", type=float, help="the search's first step (see calibrate)")
     parser.add_argument("--sweep-seeds", type=int, default=100,
                         help="markets for each strategy in the search (100)")
     parser.add_argument("--confirm", type=int, default=400,
@@ -129,6 +130,8 @@ def main() -> None:
                "--refits", str(args.refits)]
     if args.start:
         command += ["--start", str(args.start)]
+    if args.step is not None:
+        command += ["--step", str(args.step)]
     for name in ("generations", "seeds", "held_out"):
         if getattr(args, name) is not None:
             command += [f"--{name.replace('_', '-')}", str(getattr(args, name))]
