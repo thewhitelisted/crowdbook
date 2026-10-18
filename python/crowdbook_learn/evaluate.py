@@ -29,6 +29,7 @@ _ASK = STATE_NAMES.index("ask_price")
 _FILL = EVENT_NAMES.index("fill")
 _QUOTE = EVENT_NAMES.index("quote")
 _ACCEPTED = EVENT_NAMES.index("accepted")
+_MODIFIED = EVENT_NAMES.index("modified")
 
 
 @dataclass
@@ -41,8 +42,8 @@ class Episode:
     fills: list = field(default_factory=list)  # (time, side, price, quantity, maker, fee units)
     mids: list = field(default_factory=list)  # (time, mid) as the seat heard them
     value: float = float("nan")  # the true value at the end, where there is one
-    # Quotes as they reached the book: (time, side, price, quantity, lots ahead), the lots ahead
-    # being the size the seat last saw at that price, its own order not yet there.
+    # Quotes as they reached the book, placed or moved: (time, side, price, quantity, lots ahead),
+    # the lots ahead being the size the seat last saw at that price, its own order not yet there.
     quotes: list = field(default_factory=list)
 
 
@@ -54,13 +55,26 @@ def _ahead(book: np.ndarray, side: int, price: int) -> int:
     return int(match[0, 1]) if len(match) else 0
 
 
+def _takes(book: np.ndarray, side: int, price: int) -> bool:
+    """Whether a limit order at `price` reaches the other side of the book last seen: a take,
+    not a quote."""
+    facing = book[1 if side > 0 else 0][0]
+    if facing[1] <= 0:
+        return False
+    return price >= facing[0] if side > 0 else price <= facing[0]
+
+
 def _record(episode: Episode, row_state: np.ndarray, events: np.ndarray,
             book: np.ndarray | None = None) -> None:
     for event in events:
         kind, time = int(event[0]), int(event[1])
-        if kind == _ACCEPTED and int(event[5]) == 0 and book is not None:
+        placed = (kind == _ACCEPTED and int(event[5]) == 0) or kind == _MODIFIED
+        if placed and book is not None:
+            # A quote placed or moved; a limit order that reaches the other side is a take.
             side, price = int(event[2]), int(event[3])
-            episode.quotes.append((time, side, price, int(event[4]), _ahead(book, side, price)))
+            if not _takes(book, side, price):
+                episode.quotes.append((time, side, price, int(event[4]),
+                                       _ahead(book, side, price)))
         elif kind == _FILL:
             episode.fills.append((time, int(event[2]), int(event[3]), int(event[4]),
                                   int(event[5]) == 0, int(event[6])))

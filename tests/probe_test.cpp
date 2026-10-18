@@ -49,6 +49,28 @@ TEST(ProbeTest, AMakerQuotesItsWidthAroundTheMid) {
     EXPECT_EQ(order(sent[3]).price, 1'004);
 }
 
+// At its limit a maker still moves its quote: the one it replaces takes no room.
+TEST(ProbeTest, AMakerAtItsLimitStillMovesItsQuote) {
+    Probe probe{{.style = ProbeStyle::Maker, .size = 1, .maxPosition = 2, .offset = 1.0},
+                kReference};
+    FakeContext context;
+    tick(probe, context, 1'000); // bid 999 (id 1), ask 1'001 (id 2)
+    context.takeSent();
+    context.accept(1);
+    context.accept(2);
+    context.fill(1, 1);
+    probe.onFilled(context, OrderFilled{.clientOrderId = 1, .leavesQuantity = 0});
+    tick(probe, context, 1'000); // one long: a new bid (id 3), and now at the limit
+    ASSERT_EQ(context.takeSent().size(), 1U);
+    context.accept(3);
+    tick(probe, context, 1'002);
+    const std::vector<Request> sent = context.takeSent();
+    ASSERT_EQ(sent.size(), 4U);
+    EXPECT_TRUE(std::holds_alternative<CancelOrder>(sent[0]));
+    EXPECT_EQ(order(sent[1]).side, Side::Buy);
+    EXPECT_EQ(order(sent[1]).price, 1'001);
+}
+
 // A trend follower buys at the ask when the mid rises, up to its limit; a reversal trader sells.
 TEST(ProbeTest, TrendAndReversalTakeOppositeSides) {
     for (const auto style : {ProbeStyle::Trend, ProbeStyle::Reversal}) {
@@ -95,8 +117,9 @@ TEST(ProbeTest, AFlowFollowerTakesWithTheTakers) {
 TEST(ProbeTest, SettingsAreChecked) {
     for (const ProbeConfig& config :
          {ProbeConfig{.interval = 0}, ProbeConfig{.size = 0}, ProbeConfig{.size = 20},
-          ProbeConfig{.offset = -1.0}, ProbeConfig{.fastHalfLife = 60 * kSecond},
-          ProbeConfig{.imbalance = 0.4}, ProbeConfig{.imbalance = 1.0}}) {
+          ProbeConfig{.offset = -1.0}, ProbeConfig{.offset = 0.0},
+          ProbeConfig{.fastHalfLife = 60 * kSecond}, ProbeConfig{.imbalance = 0.4},
+          ProbeConfig{.imbalance = 1.0}}) {
         EXPECT_THROW((Probe{config, kReference}), std::invalid_argument);
     }
 }

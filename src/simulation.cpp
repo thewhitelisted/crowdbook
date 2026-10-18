@@ -284,13 +284,37 @@ void Simulation::setOrderDelay(const OrderDelay& delay) {
 }
 
 void Simulation::process(const Arrival& arrival) {
-    if (!arrival.held && orderDelay_.delay > 0 && now_ >= orderDelay_.from &&
-        now_ < orderDelay_.until &&
-        (orderDelay_.cancels || !std::holds_alternative<CancelOrder>(arrival.request))) {
-        // Copied out first: scheduling may move the action being processed.
-        Arrival held{.sender = arrival.sender, .request = arrival.request, .held = true};
-        schedule(now_ + orderDelay_.delay).emplace<Arrival>(std::move(held));
-        return;
+    if (!arrival.held && (orderDelay_.delay > 0 || !heldOrders_.empty())) {
+        const ClientOrderId target =
+            std::visit([](const auto& request) { return request.clientOrderId; }, arrival.request);
+        const auto key = std::pair{arrival.sender, target};
+        Timestamp release = now_;
+        if (orderDelay_.delay > 0 && now_ >= orderDelay_.from && now_ < orderDelay_.until &&
+            (orderDelay_.cancels || !std::holds_alternative<CancelOrder>(arrival.request))) {
+            release = now_ + orderDelay_.delay;
+        }
+        // A request for an order still held waits for it, so that it never overtakes the order
+        // it is about, as on one connection; requests for other orders do not.
+        if (const auto found = heldOrders_.find(key); found != heldOrders_.end()) {
+            release = std::max(release, found->second);
+        }
+        if (release > now_) {
+            if (!std::holds_alternative<CancelOrder>(arrival.request)) {
+                heldOrders_[key] = release;
+            }
+            // Copied out first: scheduling may move the action being processed.
+            Arrival held{.sender = arrival.sender, .request = arrival.request, .held = true};
+            schedule(release).emplace<Arrival>(std::move(held));
+            return;
+        }
+    }
+    if (arrival.held) {
+        const ClientOrderId target =
+            std::visit([](const auto& request) { return request.clientOrderId; }, arrival.request);
+        if (const auto found = heldOrders_.find(std::pair{arrival.sender, target});
+            found != heldOrders_.end() && found->second <= now_) {
+            heldOrders_.erase(found);
+        }
     }
     if (sink_ != nullptr) {
         sink_->onRequest(now_, arrival.sender, arrival.request);

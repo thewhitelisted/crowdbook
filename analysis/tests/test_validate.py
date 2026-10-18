@@ -51,6 +51,14 @@ class TapeTest(unittest.TestCase):
             np.testing.assert_allclose(second.ask_price, original.markets[1].ask_price)
             np.testing.assert_allclose(second.trade_sign, original.markets[1].trade_sign)
 
+    def test_labels_value_what_each_group_made_at_the_true_value(self):
+        group = {"name": "big makers", "cash": -950, "initial_cash": 0, "position": 10,
+                 "initial_position": 0, "fees": 2.5, "pnl": 30, "traded": 12}
+        self.assertEqual(tape.outcomes({"final_value": 100.0, "groups": [group]}),
+                         {"pnl_big_makers": 47.5, "traded_big_makers": 12})
+        self.assertEqual(tape.outcomes({"final_value": None, "groups": [group]})
+                         ["pnl_big_makers"], 27.5)
+
     def test_infers_who_took_liquidity_from_the_quote_before_each_print(self):
         signs = tape.infer_signs(
             time=np.array([1.0, 2.0, 3.0, 4.0]), price=np.array([51.0, 49.0, 50.0, 52.0]),

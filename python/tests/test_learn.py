@@ -84,6 +84,11 @@ class PoolTest(unittest.TestCase):
                          sorted([(1, bid[0] - 2, 3), (-1, ask[0] + 2, 4)]))
         position = names.index("position")
         self.assertEqual(obs["state"][1, position], 2)
+        # A quote at a price the exchange would not take pulls the one there.
+        obs, *_ = pool.step_orders(np.array([[bid[0] - 2, 3, 2_000_000_000, 4, 0], [0, 0, 0, 0, 0]],
+                                            dtype=np.int64))
+        resting = obs["orders"][0][(obs["orders"][0][:, 2] > 0) & (obs["orders"][0][:, 4] == 0)]
+        self.assertEqual(sorted(resting[:, 0].tolist()), [1])
         # Asking for no quotes cancels them.
         obs, *_ = pool.step_orders(np.zeros((2, 5), dtype=np.int64))
         self.assertTrue(np.all(obs["orders"][0][:, 2] == 0) or np.all(obs["orders"][0][:, 4] == 1))

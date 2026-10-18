@@ -26,9 +26,9 @@ Probe::Probe(const ProbeConfig& config, Price referencePrice)
         throw std::invalid_argument("a probe needs a positive interval and window and "
                                     "0 < fast_half_life < slow_half_life");
     }
-    if (!(config.offset >= 0.0) || !(config.threshold >= 0.0) ||
+    if (!(config.offset > 0.0) || !(config.threshold >= 0.0) ||
         !(config.imbalance >= 0.5 && config.imbalance < 1.0)) {
-        throw std::invalid_argument("a probe needs an offset and a threshold that are not "
+        throw std::invalid_argument("a probe needs a positive offset, a threshold that is not "
                                     "negative and an imbalance from 0.5 to below 1");
     }
     if (config.size < 1 || config.maxPosition < config.size || config.maxPosition > kMaxQuantity) {
@@ -60,7 +60,12 @@ void Probe::forget(ClientOrderId id) {
     }
 }
 
-void Probe::onFilled(AgentContext& /*context*/, const OrderFilled& event) {
+void Probe::onFilled(AgentContext& context, const OrderFilled& event) {
+    if (config_.style == ProbeStyle::Flow && event.liquidity == Liquidity::Taker) {
+        // Its own takes are in the trades it hears; a flow follower weighs the others' alone.
+        own_.emplace_back(context.now(),
+                          event.side == Side::Buy ? event.quantity : -event.quantity);
+    }
     if (event.leavesQuantity == 0) {
         forget(event.clientOrderId);
     }
@@ -79,15 +84,21 @@ void Probe::quote(AgentContext& context, Side side, Price price) {
     if (resting && resting->price == price) {
         return;
     }
+    const Ledger& ledger = context.ledger();
+    // The order being replaced takes no room: its cancel goes first.
+    Quantity replaced = 0;
     if (resting) {
+        if (const OwnOrder* own = ledger.find(resting->id)) {
+            replaced = own->leaves;
+        }
         context.cancel(resting->id);
         resting.reset();
     }
-    const Ledger& ledger = context.ledger();
     const Quantity room =
-        side == Side::Buy
-            ? config_.maxPosition - ledger.position() - ledger.openQuantity(Side::Buy)
-            : config_.maxPosition + ledger.position() - ledger.openQuantity(Side::Sell);
+        (side == Side::Buy
+             ? config_.maxPosition - ledger.position() - ledger.openQuantity(Side::Buy)
+             : config_.maxPosition + ledger.position() - ledger.openQuantity(Side::Sell)) +
+        replaced;
     if (room >= config_.size && price >= 1 && price <= context.maxPrice()) {
         resting = Quote{.id = context.submitLimit(side, price, config_.size), .price = price};
     }
@@ -138,14 +149,18 @@ void Probe::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
         break;
     }
     case ProbeStyle::Flow: {
-        while (!flow_.empty() && flow_.front().first <= context.now() - config_.window) {
-            flow_.pop_front();
+        for (auto* recent : {&flow_, &own_}) {
+            while (!recent->empty() && recent->front().first <= context.now() - config_.window) {
+                recent->pop_front();
+            }
         }
         Quantity bought = 0;
         Quantity total = 0;
-        for (const auto& [time, signedQuantity] : flow_) {
-            bought += std::max<Quantity>(signedQuantity, 0);
-            total += signedQuantity < 0 ? -signedQuantity : signedQuantity;
+        for (const auto& [sign, recent] : {std::pair{1, &flow_}, std::pair{-1, &own_}}) {
+            for (const auto& [time, signedQuantity] : *recent) {
+                bought += sign * std::max<Quantity>(signedQuantity, 0);
+                total += sign * (signedQuantity < 0 ? -signedQuantity : signedQuantity);
+            }
         }
         if (total > 0) {
             const double share = static_cast<double>(bought) / static_cast<double>(total);

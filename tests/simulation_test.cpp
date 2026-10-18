@@ -94,6 +94,24 @@ TEST(SimulationTest, TheOrderDelayHoldsOrdersButNotCancels) {
     holding.runUntil(10'000);
     ASSERT_EQ(held.requests.size(), 1U);
     EXPECT_EQ(held.requests[0].time, 2'100);
+    // A cancel of an order still held waits for it rather than overtaking it, even once the
+    // stretch is over.
+    Simulation late{1};
+    late.setOrderDelay({.from = 0, .until = 1'000, .delay = 2'000});
+    RecordingSink seen;
+    late.setEventSink(&seen);
+    auto& carol = add<RecordingAgent>(late, {.latency = {.toExchange = 100}});
+    carol.startHook = [](AgentContext& context) {
+        context.submitLimit(Side::Buy, 99, 5); // held at 100 until 2'100
+        context.wakeAt(1'500, 1);
+    };
+    carol.wakeupHook = [](AgentContext& context, std::uint64_t) { context.cancel(1); };
+    late.runUntil(10'000);
+    ASSERT_EQ(seen.requests.size(), 2U);
+    EXPECT_EQ(seen.requests[0].time, 2'100);
+    EXPECT_EQ(seen.requests[1].time, 2'100);
+    EXPECT_TRUE(std::holds_alternative<CancelOrder>(seen.requests[1].request));
+    EXPECT_EQ(late.exchange().book().orderCount(), 0U);
     EXPECT_THROW(simulation.setOrderDelay({.from = 10, .until = 5, .delay = 1}),
                  std::invalid_argument);
     EXPECT_THROW(simulation.setOrderDelay({.delay = -1}), std::invalid_argument);

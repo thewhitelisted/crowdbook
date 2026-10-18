@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from crowdbook_analysis.runner import find_tool
+from crowdbook_analysis.runner import find_tool, pnl_at_value
 
 SEARCH_SEED = 500_001
 CONFIRM_SEED = 600_001
@@ -85,10 +85,7 @@ def made(result: dict) -> tuple[float, int]:
         if group["name"] == "probe":
             value = result.get("final_value")
             value = result["last_price"] if value is None else value
-            pnl = ((group["cash"] - group["initial_cash"])
-                   + (group["position"] - group["initial_position"]) * value
-                   - float(group.get("fees", 0.0)))
-            return pnl, int(group["traded"])
+            return pnl_at_value(group, value), int(group["traded"])
     raise KeyError("probe")
 
 

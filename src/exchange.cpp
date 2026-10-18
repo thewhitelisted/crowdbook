@@ -212,6 +212,7 @@ void Exchange::clearBook(std::vector<Event>& events) {
     }
     publishTopOfBook(events);
     publishDepth(events);
+    publishIndicative(events);
 }
 
 void Exchange::setPhase(Phase phase, std::vector<Event>& events) {
