@@ -32,6 +32,16 @@ inline constexpr Price kPredictionPayout = 100;
 // is the probability that the home side ends ahead, given the score, the playing time left and the
 // strength as it is now, with a tie paying `tie` cents a share; when the game ends it is 100, 0
 // or `tie`. A market that closes before the game ends stops at the probability then.
+// A score in a game that was played: when, as time from the market's opening, which side and what
+// it was worth.
+struct ScriptedScore {
+    Duration at = 0;
+    bool home = true;
+    int points = 1;
+
+    friend bool operator==(const ScriptedScore&, const ScriptedScore&) = default;
+};
+
 struct GameConfig {
     Duration start = 0;               // kickoff, after the market opens
     Duration length = 5400 * kSecond; // playing time, all periods together
@@ -47,6 +57,9 @@ struct GameConfig {
     double inPlayDrift = 0.0;
     double news = 0.0;     // pieces of news expected before kickoff
     double newsSize = 0.0; // the standard deviation of each, in strength
+    // The scores of a game that was played, in order, instead of scores drawn at random: the value
+    // still prices what is to come from the expected scoring, but the score follows the script.
+    std::vector<ScriptedScore> script{};
 
     // When the game ends, as time from the market's opening.
     [[nodiscard]] Duration end() const noexcept {
@@ -161,6 +174,7 @@ private:
     // distributions of points to come.
     std::optional<GameConfig> game_{};
     double strength_ = 0.0;
+    std::size_t nextScripted_ = 0; // the first scripted score not yet played
     mutable std::vector<double> homePoints_;
     mutable std::vector<double> awayPoints_;
     // A step before the current one: the walk then, and for a prediction market its value, worked

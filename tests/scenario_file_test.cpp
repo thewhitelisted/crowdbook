@@ -312,22 +312,26 @@ pregame_drift = 0.2
 in_play_drift = 0.1
 news = 3
 news_size = 0.15
+script = [{ at = "70m", side = "away", points = 3 }, { at = "71m", side = "home" }]
 [[agents]]
 type = "zero_intelligence"
 )");
     ASSERT_TRUE(scenario.prediction && scenario.prediction->game);
-    EXPECT_EQ(*scenario.prediction->game, (GameConfig{.start = 3600 * kSecond,
-                                                      .length = 2880 * kSecond,
-                                                      .periods = 4,
-                                                      .breakLength = 300 * kSecond,
-                                                      .scores = 85.0,
-                                                      .points = {1, 2, 3},
-                                                      .pointWeights = {0.2, 0.55, 0.25},
-                                                      .tie = 50.0,
-                                                      .pregameDrift = 0.2,
-                                                      .inPlayDrift = 0.1,
-                                                      .news = 3.0,
-                                                      .newsSize = 0.15}));
+    EXPECT_EQ(*scenario.prediction->game,
+              (GameConfig{.start = 3600 * kSecond,
+                          .length = 2880 * kSecond,
+                          .periods = 4,
+                          .breakLength = 300 * kSecond,
+                          .scores = 85.0,
+                          .points = {1, 2, 3},
+                          .pointWeights = {0.2, 0.55, 0.25},
+                          .tie = 50.0,
+                          .pregameDrift = 0.2,
+                          .inPlayDrift = 0.1,
+                          .news = 3.0,
+                          .newsSize = 0.15,
+                          .script = {{.at = 4200 * kSecond, .home = false, .points = 3},
+                                     {.at = 4260 * kSecond}}}));
     EXPECT_EQ(scenario.prediction->game->end(), 3600 * kSecond + 2880 * kSecond + 900 * kSecond);
     EXPECT_NEAR(makeFundamental(scenario)->valueAt(0), 60.0, 1e-6);
     const Scenario defaults =
@@ -374,6 +378,11 @@ TEST(ScenarioFileTest, RejectsPredictionMarketsThatMakeNoSense) {
              std::pair{"[prediction.game]\nhalves = 2", "test.toml:2: unknown key 'halves'"},
              std::pair{"[prediction.game]\npoints = [2, 3]\npoint_weights = [1.0]",
                        "test.toml:3: 'point_weights' must be a list as long as 'points'"},
+             std::pair{"[prediction.game]\nscript = [{ at = \"1m\", side = \"left\" }]",
+                       "test.toml:2: a scripted score's 'side' is \"home\" or \"away\""},
+             std::pair{"[prediction.game]\nscript = [{ at = \"2m\", side = \"home\" }, "
+                       "{ at = \"1m\", side = \"away\" }]",
+                       "scripted scores must come in the order they were scored"},
              std::pair{"[prediction]\nnews_rate = 0.1\n[prediction.game]",
                        "prediction: a game brings its own news"},
          }) {

@@ -96,11 +96,15 @@ strength starts wherever gives it; `news_rate` and `news_share` are not used wit
 | `in_play_drift` | number | `0` | The standard deviation of its change over the playing time |
 | `news` | number | `0` | Pieces of news expected before kickoff, at most 500 |
 | `news_size` | number | `0` | The standard deviation of each piece's move in the strength |
+| `script` | list of tables | none | The scores of a game that was played, in order, instead of random ones: `{ at = "47m", side = "home", points = 1 }`, `at` from the market's opening; `points` is 1 unless given |
 
 The strength is in log-odds of who scores: at strength s the home side scores a share
 1 ÷ (1 + e^(−s)) of the scoring events, so 0 is an even game and ±1 makes one side score 73% of
 them. A run that ends before the game does, after its periods and breaks, stops with the game
-unfinished, its value the probability then. A `probability` that
+unfinished, its value the probability then. With a `script` the score follows it, at the times
+given even outside the clock, as in time added on, while the strength still drifts and the value
+still prices what is to come from the expected scoring: one market can be made to replay a game
+that was played. A `probability` that
 no strength reaches is an error, as in a low-scoring game where a tie pays nothing and the home
 side cannot be made a near-certainty.
 
