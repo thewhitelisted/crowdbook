@@ -28,7 +28,11 @@ or writing a program in any language that trades over the network.
 > fitted to them, every setting at once, with uncertainties, judged on seeds the fit never saw;
 > takers pay Polymarket's own fee. A learning agent can step markets from Python, many at once on
 > threads of their own, each through a seat of its own, with rewards from the scoring rules and the
-> market's settings drawn at random for each episode, and every episode replays exactly. Next:
+> market's settings drawn at random for each episode, and every episode replays exactly. Any
+> market, recorded or simulated, can be held against another statistic by statistic with intervals,
+> a scenario fitted to a recording is checked against settings it knows, and labelled synthetic
+> markets come by the thousand; a contract can be on a game, its probability jumping on scores,
+> with orders held while the game is in play. Next:
 > industry protocols, FIX and a binary encoding, so trading systems can use crowdbook as a test
 > exchange. See [docs/design.md](docs/design.md) for the goal, the architecture, the testing
 > approach and the roadmap.
