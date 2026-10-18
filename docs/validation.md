@@ -175,3 +175,32 @@ traders who see it a second or two late, and recreational bettors who see it lat
 side and rate long shots too high (`tilt`), in one such market. Over 200 of its markets the makers
 made 0.88 cents a lot traded, the bettors lost 0.92 and the sharps nothing clear; it is an example
 to fit, not a fit.
+
+## Decisions
+
+- **One format, tapes, for recorded and simulated markets.** Why: a statistic computed by one
+  piece of code on both sides cannot differ for reasons of code; a recording is converted once, by
+  whoever holds it, and nothing in the engine knows where it came from. To change it: `tape.py`,
+  with `read_tape` and `write_tape` kept each other's inverse (tested).
+- **Intervals from resampling markets, not moments.** Why: moments within a market are alike, so
+  counting them as independent makes every difference look significant; markets are the unit
+  that repeats. The cost is wide intervals with few markets, and a bootstrap that understates the
+  spread below about 50 markets (40 of 46 within 2 where 44 would be expected).
+- **Distances in tolerances of both sides together, logarithms for scales.** Why: a target with
+  thousands of markets is known precisely, and a synthetic market judged on a handful of seeds is
+  not; summing both spreads asks the synthetic market to be within chance of the real one, not of
+  itself. It is the fifteen-minute fit's rule, made general.
+- **The calibration states whether it reached the target, and is checked on known settings.**
+  Why: a fit stopped early sat on a compensating point with confident intervals; only the distance
+  against chance and a recovery of known settings showed it.
+- **A game is a kind of prediction market, not a new kind of market.** Why: settlement, prices of
+  1 to 99, the probability fee curve, valuing at resolution and the learning environment all carry
+  over unchanged; only the true value differs. Its value is the exact probability given the score,
+  the time left and the strength as it is now, not integrated over how the strength may still
+  drift: exact where nothing drifts (tested for calibration) and close otherwise.
+- **The bettors' tilt is in log-odds.** Why: a favourite–longshot bias is a pull toward even that
+  vanishes at 50 and cannot cross 0 or 100; a constant `bias` cannot express it.
+- **Datasets are made by the Python package, not a new command.** Why: at about 80 ms a market on
+  one core, half of it the simulation itself, a native writer would at most double the rate, and
+  the spec, the labels and the format already live in Python. To change it: a `crowdbook run`
+  option that writes a tape directly would remove the parsing.
