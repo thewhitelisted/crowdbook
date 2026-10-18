@@ -32,6 +32,7 @@ news_size = 0.15
 depth_levels = 10
 order_delay = "5s"         # while the game is in play, orders wait before they reach the book;
 order_delay_from = "30m"   # cancels do not
+clear_at = ["30m"]          # the book is cleared at kickoff
 order_delay_until = "135m"
 
 [participant]

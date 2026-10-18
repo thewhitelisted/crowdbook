@@ -34,6 +34,7 @@ script = ${script}       # the scores the recorded game had
 depth_levels = 10
 order_delay = "5s"         # while the game is in play, orders wait before they reach the book;
 order_delay_from = "${kickoff}s"   # cancels do not
+clear_at = ["${kickoff}s"]          # the book is cleared at kickoff
 order_delay_until = "${duration}s"
 
 [participant]
@@ -56,6 +57,8 @@ quote_size = 50
 max_inventory = 2000
 requote_interval = "500ms"
 post_only = true
+quiet_from = "${kickoff}s"   # in play the makers stay away, or with a label quote that often
+quiet_interval = ${maker_in_play_interval:"0s"}
 latency = { to_exchange = "20ms", from_exchange = "20ms" }
 account = { max_position = 2100, max_order_quantity = 50 }
 

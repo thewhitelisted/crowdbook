@@ -137,7 +137,9 @@ each game's result is taken out of the comparison.
 [game_twins_spec.toml](../examples/calibration/game_twins_spec.toml) fit a contract on the home
 side's win to recorded games this way, or the away side's or a draw, from a `side` label of the
 recording (`${side:"home"}`: a placeholder can give what to write where nothing sets it). A draw
-cannot open above the chance of a draw in an even game, so draws open at 26% at most.
+cannot open above the chance of a draw in an even game, so draws open at 26% at most. The twins' book is cleared at kickoff (`clear_at`), and their makers stay away in play
+(`quiet_from`), or with a `maker_in_play_interval` label requote only that often, as recorded games
+show of some kinds of game and not others.
 
 Two checks guard the fit:
 

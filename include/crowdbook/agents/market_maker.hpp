@@ -31,6 +31,12 @@ struct MarketMakerConfig {
     // requote, rather than the average of trades: a market maker who prices off what the asset is
     // worth.
     std::optional<BeliefConfig> valueBelief{};
+    // A quiet stretch of the run, from quietFrom until quietUntil, as makers who stay away from
+    // an event in play: with no quietInterval it pulls its quotes and stays out; with one it
+    // requotes only that often, leaving its quotes where they are between.
+    std::optional<Timestamp> quietFrom{};
+    Timestamp quietUntil = kLatestTime;
+    Duration quietInterval = 0;
 };
 
 struct Quotes {
@@ -93,6 +99,7 @@ private:
     MarketView market_;
     std::optional<double> tradeAverage_;
     std::optional<Belief> belief_;
+    std::optional<Timestamp> quotedAt_; // its last requote in a quiet stretch
     std::optional<Quote> bid_;
     std::optional<Quote> ask_;
 };

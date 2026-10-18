@@ -101,6 +101,20 @@ OrderResult OrderBook::modify(OrderId id, Price price, Quantity quantity,
     return submit(replacement, fills);
 }
 
+std::vector<RestingOrder> OrderBook::restingOrders() const {
+    std::vector<RestingOrder> out;
+    const auto walk = [&out](const auto& levels) {
+        for (const auto& [price, level] : levels) {
+            for (const Node* node = level.head; node != nullptr; node = node->next) {
+                out.push_back(toRestingOrder(*node));
+            }
+        }
+    };
+    walk(bids_);
+    walk(asks_);
+    return out;
+}
+
 std::optional<RestingOrder> OrderBook::cancel(OrderId id) {
     Node* const* found = orders_.find(id);
     if (found == nullptr) {

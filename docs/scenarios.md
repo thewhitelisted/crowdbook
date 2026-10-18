@@ -122,6 +122,7 @@ Rules and market data that apply to everyone.
 | `auction_fee` | number | `0` | Ticks per lot paid by both sides of a trade in an auction's uncross; not negative |
 | `fee_curve` | string | `"flat"` | How fees vary with the price of a fill: `"flat"`, or `"probability"` in a prediction market, where a fill at price p pays each fee times 4·q·(1 − q) for q = p ÷ 100, the share of the payout: the whole fee at 50 and less toward either end |
 | `order_delay` | duration | none | New orders and amendments wait this long at the exchange before they reach the book, as betting exchanges hold bets while an event is in play; cancels do not wait, so a resting order can still be pulled at once. An order is accepted, or rejected, only when it reaches the book |
+| `clear_at` | list of durations | none | Times at which the exchange clears its book, cancelling every resting order, as betting exchanges do when an event goes in play; each owner hears its orders cancelled with the reason `cleared` |
 | `order_delay_cancels` | boolean | `false` | Hold cancels too, as long as orders; with `false` they go straight through. Needs an `order_delay` |
 | `order_delay_from`, `order_delay_until` | duration | the start, the end | The stretch of the run in which orders are held: an order is held if it reaches the exchange from `order_delay_from` until before `order_delay_until`. They need an `order_delay` |
 
@@ -391,6 +392,8 @@ asset is worth. That needs a `[fundamental]` or `[prediction]` section.
 | `post_only` | `false` | Quote with post-only orders, a tick off the far side of the book it last saw, so it only ever adds liquidity |
 | `quote_value` | `false` | Quote around the true value as it sees it, rather than the average of trades |
 | `noise`, `error`, `error_memory`, `bias`, `tilt`, `lag` | `1.0`, `0`, `"60s"`, `0`, `0`, `"0s"` | With `quote_value`, how it sees the value, as [below](#how-traders-see-the-true-value); without it, not allowed |
+| `quiet_from`, `quiet_until` | duration | none, the end | A quiet stretch of the run, as makers who stay away from an event in play: from `quiet_from` until `quiet_until` |
+| `quiet_interval` | duration | `"0s"` | In the quiet stretch: with `"0s"` it pulls its quotes and stays out; otherwise it requotes only this often, leaving its quotes where they are between |
 
 Keep γ·σ²·τ, the skew per lot of inventory, small. When other traders anchor on the market maker's
 quotes, a large skew drags the whole market against its own inventory.
