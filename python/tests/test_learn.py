@@ -110,6 +110,8 @@ class PoolTest(unittest.TestCase):
         self.assertGreater(once["summary"]["lots"], 0)
         self.assertAlmostEqual(once["summary"]["maker_share"], 1.0)
         self.assertIn("10s", once["summary"]["markouts"])
+        self.assertGreater(once["summary"]["lots_ahead_median"], 0)  # joining the touch
+        self.assertTrue(0 < once["summary"]["quote_fill_rate"] <= 1)
         self.assertGreaterEqual(twice["summary"]["lots"], once["summary"]["lots"])
         # The same seeds and policy give the same episodes.
         again = evaluate.run(join, [text, text], seeds=range(1, 7), markets=3, threads=2)

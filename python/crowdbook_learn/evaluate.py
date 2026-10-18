@@ -27,6 +27,7 @@ _BID = STATE_NAMES.index("bid_price")
 _ASK = STATE_NAMES.index("ask_price")
 _FILL = EVENT_NAMES.index("fill")
 _QUOTE = EVENT_NAMES.index("quote")
+_ACCEPTED = EVENT_NAMES.index("accepted")
 
 
 @dataclass
@@ -39,12 +40,27 @@ class Episode:
     fills: list = field(default_factory=list)  # (time, side, price, quantity, maker, fee units)
     mids: list = field(default_factory=list)  # (time, mid) as the seat heard them
     value: float = float("nan")  # the true value at the end, where there is one
+    # Quotes as they reached the book: (time, side, price, quantity, lots ahead), the lots ahead
+    # being the size the seat last saw at that price, its own order not yet there.
+    quotes: list = field(default_factory=list)
 
 
-def _record(episode: Episode, row_state: np.ndarray, events: np.ndarray) -> None:
+def _ahead(book: np.ndarray, side: int, price: int) -> int:
+    """The size at `price` on the seat's side of the book it last saw: book[0] bids, book[1]
+    offers, each levels of (price, quantity)."""
+    levels = book[0 if side > 0 else 1]
+    match = levels[levels[:, 0] == price]
+    return int(match[0, 1]) if len(match) else 0
+
+
+def _record(episode: Episode, row_state: np.ndarray, events: np.ndarray,
+            book: np.ndarray | None = None) -> None:
     for event in events:
         kind, time = int(event[0]), int(event[1])
-        if kind == _FILL:
+        if kind == _ACCEPTED and int(event[5]) == 0 and book is not None:
+            side, price = int(event[2]), int(event[3])
+            episode.quotes.append((time, side, price, int(event[4]), _ahead(book, side, price)))
+        elif kind == _FILL:
             episode.fills.append((time, int(event[2]), int(event[3]), int(event[4]),
                                   int(event[5]) == 0, int(event[6])))
         elif kind == _QUOTE and event[2] > 0 and event[4] > 0:
@@ -84,6 +100,7 @@ def run(policy: Callable, scenarios: str | Sequence[str], seeds: Sequence[int], 
     start(np.ones(count, dtype=bool))
     scores = np.zeros(count)
     while any(k is not None for k in running):
+        seen = pool.observation["book"].copy()
         orders = np.asarray(policy(pool.observation, pool.info), dtype=np.int64).copy()
         orders[:, [1, 3, 4]] *= scale
         observation, rewards, terminated, _, info = pool.step_orders(orders)
@@ -93,7 +110,7 @@ def run(policy: Callable, scenarios: str | Sequence[str], seeds: Sequence[int], 
                 continue
             kept = min(int(observation["counts"][market][0]), len(observation["events"][market]))
             _record(episodes[market], observation["state"][market],
-                    observation["events"][market][:kept])
+                    observation["events"][market][:kept], seen[market])
         ended = terminated.copy()
         if ended.any():
             for market in np.flatnonzero(ended):
@@ -128,7 +145,10 @@ def markouts(episode: Episode, horizons: Sequence[float]) -> np.ndarray:
 
 def summarize(episodes: list[Episode], horizons: Sequence[float] = (1, 10, 60)) -> dict:
     """What the strategy made a market, with a 95% interval; the lots it traded, as a maker and as
-    a taker; what it made a lot; and its fills' markouts, size-weighted, by horizon."""
+    a taker; what it made a lot; its quotes' place in the queue (the lots ahead of each when it
+    reached the book, as the size at its price the seat last saw), the share of the lots it quoted
+    that filled and how long a filled quote waited; and its fills' markouts, size-weighted, by
+    horizon."""
     scores = np.array([e.score for e in episodes])
     lots = np.array([sum(f[3] for f in e.fills) for e in episodes], dtype=float)
     maker = np.array([sum(f[3] for f in e.fills if f[4]) for e in episodes], dtype=float)
@@ -141,6 +161,16 @@ def summarize(episodes: list[Episode], horizons: Sequence[float] = (1, 10, 60)) 
             ok = np.isfinite(marks)
             weighted += np.nansum(marks * sizes, axis=0)
             weights += np.sum(sizes * ok, axis=0)
+    quoted = sum(q[3] for e in episodes for q in e.quotes)
+    ahead = [q[4] for e in episodes for q in e.quotes]
+    waits = []
+    for e in episodes:
+        # A maker fill's wait: from the latest quote on its side at its price before it.
+        for time, side, price, _quantity, rested, _fee in e.fills:
+            if rested:
+                placed = [q[0] for q in e.quotes if q[1] == side and q[2] == price and q[0] <= time]
+                if placed:
+                    waits.append((time - max(placed)) / 1e9)
     error = scores.std(ddof=1) / np.sqrt(len(scores)) if len(scores) > 1 else np.nan
     return {
         "markets": len(episodes),
@@ -150,6 +180,9 @@ def summarize(episodes: list[Episode], horizons: Sequence[float] = (1, 10, 60)) 
         "lots": float(lots.mean()),
         "maker_share": float(maker.sum() / lots.sum()) if lots.sum() > 0 else float("nan"),
         "made_per_lot": float(scores.sum() / lots.sum()) if lots.sum() > 0 else float("nan"),
+        "quote_fill_rate": float(maker.sum() / quoted) if quoted > 0 else float("nan"),
+        "lots_ahead_median": float(np.median(ahead)) if ahead else float("nan"),
+        "wait_to_fill_median": float(np.median(waits)) if waits else float("nan"),
         "markouts": {f"{h:g}s": float(w / n) if n > 0 else float("nan")
                      for h, w, n in zip(horizons, weighted, weights, strict=True)},
     }
