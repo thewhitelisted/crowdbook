@@ -235,9 +235,9 @@ On the fitted fifteen-minute question ([up_or_down.toml](../examples/scenarios/u
 
 | each family's best, on fresh markets | made a market (tick-lots) | per lot traded |
 |---|---:|---:|
-| maker, 8 ticks either side | **+29.8 [+11.7, +47.9], flagged** | +1.47 |
+| maker, 8 ticks either side | **+28.1 [+10.1, +46.0], flagged** | +1.39 |
 | trend, 60 s against 600 s | −43.0 [−93.0, +7.0] | −1.24 |
-| flow, 120 s at 80% | −46.9 [−93.7, −0.1] | −1.49 |
+| flow, 120 s at 80% | −57.3 [−104.0, −10.5] | −1.75 |
 | reversal, 60 s against 600 s | −106.4 [−147.5, −65.2] | −3.91 |
 
 That market was fitted to trades alone, with one market maker quoting around the average of trades,
