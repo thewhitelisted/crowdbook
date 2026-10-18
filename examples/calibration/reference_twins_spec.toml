@@ -14,12 +14,12 @@ sample_interval = 1.0
 [parameters.maker_intensity]
 low = 0.05
 high = 3.0
-start = 0.5
+start = 0.7
 
 [parameters.maker_size]
 low = 5
 high = 50000
-start = 1000
+start = 3000
 whole = true
 
 [parameters.deep_size]
@@ -55,3 +55,8 @@ log = false
 low = 0.000001
 high = 0.05
 start = 0.0001
+
+[parameters.noise_limit_rate]
+low = 0.00001
+high = 0.05
+start = 0.001
