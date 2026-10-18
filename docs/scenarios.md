@@ -80,11 +80,15 @@ exactly from the distribution of the points each side has still to score; it jum
 score, and once the game ends it is 100, 0, or what a tie pays, and stays there until the market
 settles at the end of the run. `probability` is the home side's chance at kickoff, and the
 strength starts wherever gives it; `news_rate` and `news_share` are not used with a game, and
-`step` is how often the game moves. [game.toml](../examples/scenarios/game.toml) is one.
+`step` is how often the game moves. [game.toml](../examples/scenarios/game.toml) is one. A contract on
+a total or a spread is priced the same way, from the points still to come; a player's prop, over
+or under a number of that player's points, is a total of a game whose scoring is the player's
+alone.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `side` | string | `"home"` | What the contract pays 100 for: `"home"`, a win for the home side, `"away"`, a win for the away side, or `"draw"`; `probability` is its price at kickoff, and for a draw the home side is taken to be the stronger |
+| `side` | string | `"home"` | What the contract pays 100 for: `"home"`, a win for the home side, `"away"`, a win for the away side, or `"draw"`; `"over"` or `"under"`, both sides' points together over or under `line`; `"home_spread"` or `"away_spread"`, the home side's lead over or under `line`. `probability` is its price at kickoff: for a win, a draw or a spread it sets the sides' strength, the home side taken to be the stronger for a draw; for a total it sets how much is expected to be scored, `scores` scaled to give it |
+| `line` | number | `0` | The line of a total or a spread, in points; a half point never ties, and a result exactly on a whole one pays `tie` |
 | `start` | duration | `"0s"` | Kickoff, after the market opens |
 | `length` | duration | `"90m"` | Playing time, all periods together |
 | `periods` | integer | `1` | Periods of equal playing time, from 1 to 100 |
@@ -93,7 +97,7 @@ strength starts wherever gives it; `news_rate` and `news_share` are not used wit
 | `late_scoring` | number | `1` | How many times faster scoring events come at the end of the playing time than at its start, the rate changing in a straight line between; above 0, at most 100 |
 | `points` | list of integers | `[1]` | What a scoring event can be worth, from 1 to 100 |
 | `point_weights` | list of numbers | equal | How often each of `points`, in proportion |
-| `tie` | number | `0` | Cents a share on a win pays if the game ends level, from 0 to 100 |
+| `tie` | number | `0` | Cents a share pays if the game ends level, for a win, or exactly on the line, for a total or a spread; from 0 to 100 |
 | `pregame_drift` | number | `0` | The standard deviation of the strength's change from the opening to kickoff |
 | `in_play_drift` | number | `0` | The standard deviation of its change over the playing time |
 | `news` | number | `0` | Pieces of news expected before kickoff, at most 500 |
