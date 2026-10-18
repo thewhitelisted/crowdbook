@@ -29,7 +29,7 @@ struct MarketMakerConfig {
     bool postOnly = false;
     // With a belief, the fair price is the value as the belief sees it, looked at on every
     // requote, rather than the average of trades: a market maker who prices off what the asset is
-    // worth, as those of crypto prediction markets quote off an exchange's price.
+    // worth.
     std::optional<BeliefConfig> valueBelief{};
 };
 
