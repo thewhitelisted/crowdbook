@@ -84,6 +84,16 @@ TEST(SimulationTest, TheOrderDelayHoldsOrdersButNotCancels) {
     EXPECT_TRUE(std::holds_alternative<CancelOrder>(sink.requests[1].request));
     EXPECT_EQ(sink.requests[2].time, 3'100);
     EXPECT_EQ(sink.requests[3].time, 6'100);
+    // Held cancels wait like orders.
+    Simulation holding{1};
+    holding.setOrderDelay({.from = 0, .until = 5'000, .delay = 2'000, .cancels = true});
+    RecordingSink held;
+    holding.setEventSink(&held);
+    auto& bob = add<RecordingAgent>(holding, {.latency = {.toExchange = 100}});
+    bob.startHook = [](AgentContext& context) { context.cancel(1); };
+    holding.runUntil(10'000);
+    ASSERT_EQ(held.requests.size(), 1U);
+    EXPECT_EQ(held.requests[0].time, 2'100);
     EXPECT_THROW(simulation.setOrderDelay({.from = 10, .until = 5, .delay = 1}),
                  std::invalid_argument);
     EXPECT_THROW(simulation.setOrderDelay({.delay = -1}), std::invalid_argument);

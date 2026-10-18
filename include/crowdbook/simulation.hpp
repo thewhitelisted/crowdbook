@@ -59,11 +59,12 @@ struct AgentOptions {
 // New orders and amendments held at the exchange before they reach the book, for a stretch of the
 // run, as betting exchanges hold bets while an event is in play: one that arrives from `from` until
 // `until` waits `delay` more, and is accepted, or rejected, only then. Cancels are not held, so a
-// resting order can still be cancelled at once.
+// resting order can still be cancelled at once, unless `cancels` holds them too.
 struct OrderDelay {
     Timestamp from = 0;
     Timestamp until = 0;
     Duration delay = 0;
+    bool cancels = false;
 
     friend bool operator==(const OrderDelay&, const OrderDelay&) = default;
 };
