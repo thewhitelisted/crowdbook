@@ -229,6 +229,36 @@ def write_tape(tape: Tape, directory: Path | str, *, parquet: bool = False) -> N
     (directory / "tape.toml").write_text("\n".join(lines) + "\n")
 
 
+def window(t: Tape, start: float, end: float | None = None) -> Tape:
+    """Each market cut to the part from `start` to `end` seconds (to its end if None), with times
+    counted from `start`: before kickoff and during play, say, measured apart. The book as it
+    stood at `start` is kept as the first snapshot; the outcome and labels are kept."""
+    cut = []
+    for m in t.markets:
+        stop = m.duration if end is None else min(end, m.duration)
+        if stop <= start:
+            continue
+        first = max(np.searchsorted(m.book_time, start, side="right") - 1, 0)
+        books = np.arange(len(m.book_time))
+        keep = (books >= first) & (m.book_time <= stop)
+        prints = (m.trade_time >= start) & (m.trade_time <= stop)
+        book_time = np.maximum(m.book_time[keep] - start, 0.0)
+        value_time = value = None
+        if m.value is not None:
+            first_value = max(np.searchsorted(m.value_time, start, side="right") - 1, 0)
+            chosen = (np.arange(len(m.value_time)) >= first_value) & (m.value_time <= stop)
+            value_time = np.maximum(m.value_time[chosen] - start, 0.0)
+            value = m.value[chosen]
+        cut.append(Market(
+            name=m.name, duration=stop - start, book_time=book_time,
+            bid_price=m.bid_price[keep], bid_size=m.bid_size[keep],
+            ask_price=m.ask_price[keep], ask_size=m.ask_size[keep],
+            trade_time=m.trade_time[prints] - start, trade_price=m.trade_price[prints],
+            trade_size=m.trade_size[prints], trade_sign=m.trade_sign[prints],
+            outcome=m.outcome, value_time=value_time, value=value, labels=m.labels))
+    return Tape(cut, t.options)
+
+
 def options_for(scenario: str) -> Options:
     """How a scenario's prices are read: a prediction market's in cents of a unit that pays 100,
     by differences; any other market's by logarithms."""
