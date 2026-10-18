@@ -147,6 +147,13 @@ score; [prop_twins.toml](../examples/calibration/prop_twins.toml) is a first tem
 player's prop, a total of that player's scoring alone, with thin, wide books and small
 recreational takers. Both take each market's `in_play_delay` from its label.
 
+Where the recording has a reference price, such as a sharper market's mid on the same question,
+[reference_twins.toml](../examples/calibration/reference_twins.toml) and
+[reference_twins_spec.toml](../examples/calibration/reference_twins_spec.toml) make that the twins'
+true value (`${value_path}`) and settle them where the market settled (`${outcome}`). Nothing
+about the game's scoring is then fitted or assumed, which the book's statistics could not pin
+down anyway (see the game recovery check below), and only the traders are fitted.
+
 Two checks guard the fit:
 
 - **Does it reach the target?** At the true settings every compared statistic is off by chance
