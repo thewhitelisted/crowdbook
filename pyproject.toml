@@ -60,10 +60,10 @@ CROWDBOOK_BUILD_PYTHON = "ON"
 build = "cp312-*"
 skip = "*-musllinux_*"
 test-requires = ["gymnasium>=1.0"]
-test-environment = { CROWDBOOK_SOURCE_DIR = "{project}", CROWDBOOK = "crowdbook" }
+# test-environment leaves {project} as it is, so the tests' variables are set in the command.
 test-command = [
     "crowdbook --version",
-    "python -m unittest discover -s {project}/python/tests",
+    "CROWDBOOK_SOURCE_DIR={project} CROWDBOOK=crowdbook python -m unittest discover -s {project}/python/tests",
 ]
 
 [tool.cibuildwheel.macos]
