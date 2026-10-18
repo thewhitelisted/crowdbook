@@ -56,7 +56,8 @@ from crowdbook_analysis.fit import Cma
 from crowdbook_analysis.runner import Run, find_tool
 
 # A setting's place in a template; comment lines are left as they are.
-PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
+# `${name:default}` gives what to write where nothing sets it, as for a label some recordings lack.
+PLACEHOLDER = re.compile(r"\$\{(\w+)(?::([^}]*))?\}")
 FIT_SEED = 1
 HELD_OUT_SEED = 100_001
 JACOBIAN_SEED = 200_001
@@ -128,6 +129,8 @@ class Spec:
             texts = market_texts(market) | texts
 
         def fill(match: re.Match) -> str:
+            if match.group(1) not in texts and match.group(2) is not None:
+                return match.group(2)
             if match.group(1) not in texts:
                 raise KeyError(f"the template uses ${{{match.group(1)}}}, which the spec does "
                                "not set")
@@ -146,6 +149,9 @@ class Spec:
         return {p.name: p.from_unit(u) for p, u in zip(self.parameters, point, strict=True)}
 
 
+DRAW_HIGHEST = 0.26
+
+
 def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[tapes.Market]:
     """A binary contract's markets, each labelled `opening_probability`: its first reference
     value, else its first mid, as a share of the payout, kept from `low` to `high`, so that its
@@ -162,7 +168,10 @@ def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[t
             mids = mids[np.isfinite(mids)]
             first = mids[0] if len(mids) else np.nan
         if np.isfinite(first):
-            m.labels["opening_probability"] = float(np.clip(first / t.options.payout, low, high))
+            # A contract on a draw cannot open above the chance of a draw in an even game, about
+            # 27% with the 2.5 scores the game twins expect at least.
+            top = DRAW_HIGHEST if m.labels.get("side") == "draw" else high
+            m.labels["opening_probability"] = float(np.clip(first / t.options.payout, low, top))
     return t.markets
 
 
@@ -208,9 +217,11 @@ def read_spec(path: Path) -> Spec:
                                     entry.get("kind", "number")))
     if not parameters:
         raise ValueError("the spec sets no [parameters]")
-    used = {name for line in template.splitlines() if not line.lstrip().startswith("#")
-            for name in PLACEHOLDER.findall(line)}
-    unknown = used - {p.name for p in parameters}
+    found = [match for line in template.splitlines() if not line.lstrip().startswith("#")
+             for match in PLACEHOLDER.finditer(line)]
+    used = {match.group(1) for match in found}
+    unknown = {match.group(1) for match in found if match.group(2) is None} - {
+        p.name for p in parameters}
     if unknown and not spec.get("condition", False):
         raise ValueError(f"the template uses {', '.join(sorted(unknown))}, which the spec does "
                          "not set; a target market's own values need condition = true")

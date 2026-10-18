@@ -15,6 +15,7 @@ probability = ${opening_probability}   # where the recorded market opened
 step = "1s"
 
 [prediction.game]
+side = ${side:"home"}         # the result the contract pays on: a label of the recording, or "home"
 start = "${kickoff}s"     # kickoff, after the market opens
 length = "90m"           # playing time
 periods = 2
