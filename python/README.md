@@ -59,18 +59,30 @@ The scenario's `[learning]` section sets the decisions, the actions, the sizes a
 drawn for each episode; [docs/scenarios.md](../docs/scenarios.md#learning-optional) lists its keys
 and [docs/design.md](../docs/design.md#learning-environment) describes the environment.
 
-## Building
+## Installing
 
-CMake builds the module with the rest of crowdbook when it finds Python 3.12 or later with its
-development files, into `build/<preset>/python`:
+The module is part of the `crowdbook-engine` package, with the `crowdbook` command:
+
+```bash
+pip install .                      # from crowdbook's checkout: CMake 3.25+ and a C++23 compiler
+pip install "crowdbook-engine[gymnasium]==X.Y.Z" \
+    --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/vX.Y.Z
+python python/examples/random_policy.py examples/learning/market.toml
+```
+
+The second line installs a release's wheel, with no compiler, and Gymnasium for `VectorEnv`;
+[docs/quickstart.md](../docs/quickstart.md#install) has the details. NumPy comes with it.
+
+Working on crowdbook itself, CMake builds the module with the rest when it finds Python 3.12 or
+later with its development files, into `build/<preset>/python`, which imports as it is:
 
 ```bash
 cmake --workflow --preset release
 PYTHONPATH=build/release/python python3 python/examples/random_policy.py examples/learning/market.toml
 ```
 
-It needs NumPy, and Gymnasium for `VectorEnv`; [requirements.txt](requirements.txt) pins the
-versions CI tests. `ctest` runs [tests/test_learn.py](tests/test_learn.py) when NumPy is installed.
+[requirements.txt](requirements.txt) pins the NumPy and Gymnasium that CI tests with, and `ctest`
+runs [tests/test_learn.py](tests/test_learn.py) when NumPy is installed.
 
 ## License
 
