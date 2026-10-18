@@ -133,8 +133,8 @@ uv run --project analysis crowdbook-realism
 Any market, recorded or simulated, can be held against another: [docs/validation.md](docs/validation.md)
 describes the format both are read in, a report of the same statistics on each with intervals and
 distances, a calibration that fits any scenario to a recording and checks that it can find
-settings it knows, a check that the fitted market pays no generic strategy the recording does
-not, and a generator of many labelled markets for training and analysis. From a recording to a
+settings it knows, a check that the fitted market pays no strategy, generic or learned, the
+recording does not, and a generator of many labelled markets for training and analysis. From a recording to a
 verdict on whether its fit can be trusted for testing strategies, in one command, as
 [docs/tutorial.md](docs/tutorial.md) shows step by step:
 

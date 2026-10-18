@@ -9,8 +9,8 @@ comes from:
 2. **A fit**: the simulator's settings that make its markets look like the recording, statistic
    by statistic, with uncertainties.
 3. **A verdict**: does the fit reach the recording within chance, and does the fitted market pay
-   any generic strategy? A fitted market that pays a naive strategy the real one does not would
-   make every strategy tested in it look better than it is.
+   any strategy of the check, generic or learned? A fitted market that pays a simple strategy the
+   real one does not would make every strategy tested in it look better than it is.
 4. **A strategy tested** in the fitted market and across the fit's uncertainty: what it makes,
    its fills, what they were worth a while later, and how much it can trade.
 
@@ -124,19 +124,20 @@ None makes money for sure, after fees. So `assessed/verdict.md` says:
 > **Usable for testing strategies**: the fit reaches the recording within chance and no strategy
 > of the check makes money in it.
 
-Why fees of two ticks: at one tick a lot, the learner makes +87.5 [+58.5, +116.4] a market by
-following the last few seconds' order flow, and the verdict is no. That edge is real here: the
-recording was made by the very model fitted, so its market pays the same flow-follower. With a
-real recording the check cannot tell a market's own edge from one the fit invented; either way,
-a strategy tested where a simple one is paid is judged against the wrong bar, and a real fee that
-removes the edge, as here, or a closer look at the recording, comes first.
-
-and the command exits with 0, 1 when it is not usable, so that a script can act on it. When it
+The command exits with 0, or 1 when it is not usable, so that a script can act on it. When it
 says no, it says why: the statistics furthest from the recording, and any strategy the fitted
 market pays. It also shows what a lot quoted 1, 3 and 8 ticks from the mid would have earned in
 the recording and in the fit, measured alike: where the recording pays such a quote as well as the
 fit does, a maker's flag is the market's own edge; where it does not, the flag is the fit's, and
 nothing tested in that fit can be trusted until the fit is corrected.
+
+Why fees of two ticks: at one tick a lot, the learner makes +87.5 [+58.5, +116.4] a market,
+taking with the order flow and the trend of the last twenty seconds to two minutes and moving
+its quotes with them, and the verdict is no. The recording was made by the very model fitted, so the edge
+is most likely the model's own, which the recording's market would pay too. With a real recording
+the check cannot tell a market's own edge from one the fit invented; either way, a strategy
+tested where a simple one is paid is judged against the wrong bar, and a real fee that removes
+the edge, as here, or a closer look at the recording comes first.
 
 ## 4. A strategy, tested
 
@@ -164,7 +165,8 @@ Each row runs the strategy on 200 markets, about twenty seconds:
 It loses about 1.6 ticks a lot. Its fills are worth +0.39 ticks ten seconds on, before fees: it
 earns part of the spread and is not picked off, but the fee of two ticks a lot takes more than
 all of it. The markout is what tells you whether a change could save it: here the fee, not adverse
-selection, is the problem, so quoting wider might, and trading faster would not.
+selection, is the problem, so quoting wider is the only change that could, and the check's makers
+suggest even that barely breaks even; trading faster would not.
 `crowdbook_learn.evaluate` reports more than the table shows: the lots ahead of each quote in the
 queue, the share of quoted lots that filled, how long a fill waited, markouts at 1, 10 and 60
 seconds, and with `scales=(1, 2, 4)` the same at larger sizes, which says how much the market can
