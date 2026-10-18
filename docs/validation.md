@@ -187,7 +187,11 @@ down anyway (see the game recovery check below), and only the traders are fitted
 
 `--start SETTINGS` begins the search from an earlier fit's `settings.toml` instead of the spec's
 starts, so that a fit can be carried on with more generations or seeds, or after a change to the
-template, rather than begun again.
+template, rather than begun again. The tolerances come partly from the starting point's markets,
+so the distances of a fit started elsewhere compare only roughly with the first fit's.
+
+Labels that a template reads as times, such as `kickoff` and `in_play_delay`, are numbers of
+seconds, as the templates write `"${kickoff}s"`.
 
 `around` trims each recorded market before anything is fitted, to the span from `before` seconds
 ahead of the time a label of its own gives to `after` seconds past it (to its end without

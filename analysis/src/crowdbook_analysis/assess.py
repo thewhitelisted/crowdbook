@@ -147,12 +147,14 @@ def main() -> None:
         if not probes:
             known = sorted({p.family for p in sweep.default_probes()})
             parser.error(f"no strategy family in {args.families}: they are {', '.join(known)}")
-    swept = sweep.sweep(tool, [f.read_text() for f in files], probes, args.sweep_seeds,
-                        args.confirm)
-    text, _ = sweep.report(f"{len(files)} fitted markets", swept, args.sweep_seeds, args.confirm)
+    # Every fitted market at least once in the search and twice on the fresh markets.
+    search = max(args.sweep_seeds, len(files))
+    confirm = max(args.confirm, 2 * len(files))
+    swept = sweep.sweep(tool, [f.read_text() for f in files], probes, search, confirm)
+    text, _ = sweep.report(f"{len(files)} fitted markets", swept, search, confirm)
     (args.output / "sweep.md").write_text(text)
 
-    text, usable = verdict(data, swept, args.sweep_seeds, args.confirm)
+    text, usable = verdict(data, swept, search, confirm)
     (args.output / "verdict.md").write_text(text)
     print(text)
     raise SystemExit(0 if usable else 1)
