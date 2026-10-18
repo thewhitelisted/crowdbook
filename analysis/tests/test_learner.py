@@ -187,6 +187,7 @@ class FakePool:
 
     sent = []  # every pool's orders
     resting = False  # whether the quotes it is sent rest, unfilled
+    stop_at = None  # the decision at which the loss limit stops the seat, if any
 
     def __init__(self, markets: int):
         self.markets = markets
@@ -200,6 +201,7 @@ class FakePool:
         self.time = np.zeros(markets, dtype=np.int64)
         self.scenarios = [None] * markets
         self.history = []  # the scenarios after each reset
+        self.stopped = np.zeros(markets, dtype=bool)
 
     @classmethod
     def from_text(cls, text: str, markets: int, threads: int = 0):
@@ -247,8 +249,13 @@ class FakePool:
             self.time[market] = (self.time[market] // SECOND + 1) * SECOND - (
                 SECOND // 3 if off else 0)
             self.terminated[market] = self.step_count[market] >= self.steps
+            stopped = self.stop_at is not None and self.step_count[market] == self.stop_at
+            if stopped:
+                rewards[market] = -1000.0  # the loss that crossed the limit, and its close
+            self.stopped[market] = stopped
+            self.terminated[market] |= stopped
             self._show(market)
-        return self.observation, rewards, self.terminated, None, None
+        return self.observation, rewards, self.terminated, None, {"stopped": self.stopped}
 
 
 class FakeLearn:
@@ -259,6 +266,7 @@ class FakeLearn:
 class TrainingTest(unittest.TestCase):
     def setUp(self):
         FakePool.pays, FakePool.made, FakePool.sent, FakePool.resting = 1.0, [], [], False
+        FakePool.stop_at = None
 
     def settings(self, **changes) -> learner.Settings:
         return learner.Settings(**{"generations": 8, "markets": 8, "size": 5, **changes})
@@ -297,6 +305,16 @@ class TrainingTest(unittest.TestCase):
                 quoted = list(orders[0, [1, 3]])
                 # Decisions 1, 4, 7, ... are a fill's: a quote filled there is not placed again.
                 self.assertEqual(quoted, [5, 5] if k % 3 != 1 or resting else [0, 0], k)
+
+    def test_trains_on_all_but_a_settlement_and_never_leaves_out_a_stop(self):
+        weights = np.zeros((2, len(learner.HEADS), len(learner.FEATURES)))
+        weights[:, 0, 0] = 5.0
+        whole = learner.play(FakeLearn, ["a"], weights, [1, 2], self.settings())
+        self.assertTrue((whole.marked != whole.made).all())  # the last step is the close
+        FakePool.stop_at = 10
+        stopped = learner.play(FakeLearn, ["a"], weights, [1, 2], self.settings())
+        np.testing.assert_array_equal(stopped.marked, stopped.made)
+        self.assertTrue((stopped.made < -900).all())
 
     def test_a_seed_runs_the_same_scenario_for_every_candidate(self):
         pools = []

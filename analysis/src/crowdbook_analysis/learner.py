@@ -237,9 +237,10 @@ class Played:
     made: np.ndarray
     lots: np.ndarray
     maker: np.ndarray = field(default_factory=lambda: np.zeros(0))
-    # What it made to its last decision, valued at the true value then: all but the close, where
-    # a contract that settles jumps to its outcome. What a calibrated value expects the same, with
-    # less noise, and so what it trains on.
+    # What it made to its last decision, valued as the market marks a position then, at the true
+    # value where it has one: all but the close, where a contract that settles jumps to its
+    # outcome, unless the loss limit stopped the seat. What a calibrated value expects the same,
+    # with less noise, and so what it trains on.
     marked: np.ndarray = field(default_factory=lambda: np.zeros(0))
 
 
@@ -293,14 +294,14 @@ def play(learn, texts: list[str], weights: np.ndarray, seeds: list[int], setting
         sent[between & (state[:, open_buy] <= 0), :2] = 0
         sent[between & (state[:, open_sell] <= 0), 2:4] = 0
         last[between] = sent[between]
-        observation, rewards, terminated, _, _ = pool.step_orders(sent)
+        observation, rewards, terminated, _, info = pool.step_orders(sent)
         events, rows = _heard(observation)
         fills = rows & (events[:, :, 0] == _FILL)
         filled = np.where(fills, events[:, :, 4], 0).sum(axis=1)
         rested = np.where(fills & (events[:, :, 5] == 0), events[:, :, 4], 0).sum(axis=1)
         np.add.at(totals, np.where(running >= 0, running, jobs),
-                  np.stack([rewards, filled, rested, np.where(terminated, 0.0, rewards)],
-                           axis=1))
+                  np.stack([rewards, filled, rested,
+                            np.where(terminated & ~info["stopped"], 0.0, rewards)], axis=1))
         ended = terminated.copy()
         if ended.any():
             start(ended)

@@ -13,10 +13,9 @@ statistics, measured alike on both:
 - **The book at the touch**: the spread, time-weighted, its median and how often it is one tick;
   the size at the best bid and ask, and within the first five levels; how often one side is empty;
   how often the best prices change, seen once a grid step.
-- **Trades**: aggressive orders a minute (the prints on one side each within a millisecond of the
-  one before are one order), their sizes (the median, the largest tenth against the median and
-  the tail's Hill exponent),
-  how bursty they come (the coefficient of variation of the gaps between them), and the share in
+- **Trades**: aggressive orders a minute (the prints one order makes at one time are one order,
+  or on a tape with `same_order` each within that of the one before), their sizes (the median,
+  the largest tenth against the median and the tail's Hill exponent), how bursty they come (the coefficient of variation of the gaps between them), and the share in
   the first and last tenth of the market's life.
 - **Returns**: the mid's changes over one, ten and sixty grid steps (a second each by default),
   their standard deviation, excess kurtosis and the Hill exponent of the tail, the variance ratio
@@ -80,10 +79,6 @@ class Config:
     quote_offsets: tuple = (1, 3, 8)
     tail: float = 0.1  # the share of the largest counted as a tail
     bootstrap: int = 200
-    # Seconds: prints on one side closer than this to the one before are the same aggressive order. A
-    # venue may stamp each fill of one order apart, microseconds after the last; the engine
-    # stamps them all at once.
-    same_order: float = 0.001
 
 
 # Every statistic: its key, how the report names it, and whether it is compared as a logarithm.
@@ -266,16 +261,17 @@ def _weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> flo
 
 def _order_starts(m: tapes.Market, same_order: float) -> np.ndarray:
     """Which prints start an aggressive order: those on another side than the print before, or
-    `same_order` seconds or more after it."""
+    at another time, or with `same_order`, the tape's, that many seconds or more after it."""
     new = np.ones(len(m.trade_time), dtype=bool)
+    gaps = np.diff(m.trade_time)
     # A nanosecond's slack, so that prints a whole `same_order` apart on a tape stamped to it
     # count as two orders however the seconds were rounded.
-    new[1:] = ((np.diff(m.trade_time) > same_order - 1e-9)
-               | (m.trade_sign[1:] != m.trade_sign[:-1]))
+    later = gaps > same_order - 1e-9 if same_order > 0 else gaps != 0
+    new[1:] = later | (m.trade_sign[1:] != m.trade_sign[:-1])
     return new
 
 
-def _orders(m: tapes.Market, same_order: float = Config.same_order
+def _orders(m: tapes.Market, same_order: float = 0.0
             ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Aggressive orders from prints: the prints on one side at one time, or each less than
     `same_order` seconds after the one before, are one order, at their size-weighted price. Returns
@@ -292,7 +288,7 @@ def _orders(m: tapes.Market, same_order: float = Config.same_order
     return m.trade_time[new], sizes, m.trade_sign[new], prices
 
 
-def _standing_quotes(m: tapes.Market, mid_at, config: Config) -> dict:
+def _standing_quotes(m: tapes.Market, mid_at, config: Config, same_order: float = 0.0) -> dict:
     """What a lot quoted `k` ticks either side of the mid would have earned: a bid at the mid less
     k and an offer at the mid plus k, rounded away from the mid to a tick, standing always. An
     aggressive order whose prints reach the quote fills it, a lot at the quote's price, marked to
@@ -302,7 +298,7 @@ def _standing_quotes(m: tapes.Market, mid_at, config: Config) -> dict:
     out = {}
     if len(m.trade_time) == 0:
         return {k: np.zeros(5) for k in config.quote_offsets}
-    starts = np.flatnonzero(_order_starts(m, config.same_order))
+    starts = np.flatnonzero(_order_starts(m, same_order))
     sign = m.trade_sign[starts]
     time = m.trade_time[starts]
     # How far each order reached: its highest price for a buyer, its lowest for a seller.
@@ -390,7 +386,7 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     p["volume"] = float(m.trade_size.sum())
 
     # Orders.
-    times, sizes, signs, prices = _orders(m, config.same_order)
+    times, sizes, signs, prices = _orders(m, options.same_order)
     p["orders"] = np.array([len(times), len(m.trade_time)])
     p["sizes"] = sizes
     gaps = np.diff(times)
@@ -447,7 +443,7 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
         earned["settlement"] = s * (price - m.outcome)
     p["maker"] = {k: np.array([np.nansum(v * size * np.isfinite(v)),
                                np.sum(size * np.isfinite(v))]) for k, v in earned.items()}
-    p["quotes"] = _standing_quotes(m, mid_at, config)
+    p["quotes"] = _standing_quotes(m, mid_at, config, options.same_order)
 
     # How the mid follows the value.
     if m.value is not None and len(m.value):

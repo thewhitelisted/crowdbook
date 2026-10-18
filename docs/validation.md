@@ -47,7 +47,10 @@ that markets priced in dollars and in cents compare.
 
 An optional `tape.toml` gives `tick`, the price increment (1 if absent), `returns`,
 `"difference"` (the default, for bounded prices such as probabilities) or `"log"`, and for a binary
-contract `payout`, what a winning unit pays. A recording is converted to a tape once, by whoever
+contract `payout`, what a winning unit pays. `same_order`, in seconds, is for a venue that stamps
+each fill of one order apart: the prints on one side each less than that after the one before are
+then one aggressive order (`same_order = 0.001` for books whose fills come microseconds apart).
+Without it only prints at one time are one order, as the engine stamps them. A recording is converted to a tape once, by whoever
 holds it; `tape.simulate` runs any scenario under many seeds into one, its book sampled every
 100 ms.
 
@@ -59,7 +62,7 @@ same statistics on a real tape and on one or more synthetic ones:
 | family | statistics |
 |---|---|
 | the book | the spread, time-weighted, its median and the share of time at one tick; size at the best quotes, within five levels, and within 3 and 10 ticks of the mid; how often a side is empty; how often the best prices change, seen once a grid step alike for a recording and a simulation |
-| trades | aggressive orders a minute (the prints on one side each within a millisecond of the one before count once, as a venue may stamp one order's fills microseconds apart), prints per order, order sizes (median, the largest tenth against the median, the tail's Hill exponent), the gaps between orders (median, and how bursty), the share in the first and last tenth of the market, and lots traded a minute over the size at the touch, how fast the touch is filled |
+| trades | aggressive orders a minute (the prints one order makes at one time count once, or with the tape's `same_order` each within that of the one before), prints per order, order sizes (median, the largest tenth against the median, the tail's Hill exponent), the gaps between orders (median, and how bursty), the share in the first and last tenth of the market, and lots traded a minute over the size at the touch, how fast the touch is filled |
 | returns | the mid's changes over 1, 10 and 60 s: standard deviation, excess kurtosis, the tail exponent, variance ratios, successive changes' autocorrelation |
 | volatility clustering | the autocorrelation of the size of 1 s changes, 1 and 10 s apart |
 | order-flow memory | the autocorrelation of order signs 1, 10 and 50 orders apart; the bounce in trade prices and Roll's spread from it |

@@ -75,8 +75,11 @@ class SweepTest(unittest.TestCase):
 
     def test_the_learner_is_judged_and_reported_beside_the_probes(self):
         sys.path.insert(0, str(Path(__file__).parent))
-        from test_learner import FakeLearn, FakePool  # a market that pays following flow
-        FakePool.pays = 1.0
+        try:
+            from test_learner import FakeLearn, FakePool  # a market that pays following flow
+        finally:
+            sys.path.pop(0)
+        FakePool.pays, FakePool.stop_at, FakePool.resting = 1.0, None, False
         found, real = [], learner.learn_module
         learner.learn_module = lambda: FakeLearn
         try:
