@@ -1,8 +1,8 @@
 # A first template for a player's prop, over or under a number of that player's points, fitted
 # to recorded markets twin by twin. The "game" is the player's scoring alone: a total whose
 # scores are the player's, as many expected as the opening price says; recorded games' scores are
-# not the player's, so the twins draw theirs. Recorded props showed thin books some 12 cents wide
-# and small recreational trades; prop_twins_spec.toml starts there, and fits the makers' width,
+# not the player's, so the twins draw theirs. prop_twins_spec.toml starts from thin, wide books and
+# small recreational trades, and fits the makers' width,
 # how many recreational takers there are and how they lean. Set the makers, bettors and sharps to
 # what recordings show as they come.
 #
