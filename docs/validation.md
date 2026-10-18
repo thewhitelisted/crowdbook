@@ -47,6 +47,7 @@ same statistics on a real tape and on one or more synthetic ones:
 | volatility clustering | the autocorrelation of the size of 1 s changes, 1 and 10 s apart |
 | order-flow memory | the autocorrelation of order signs 1, 10 and 50 orders apart; the bounce in trade prices and Roll's spread from it |
 | what resting orders earn | per unit filled, size-weighted: from the mid just before (the effective half spread), marked to the mid 1, 10 and 60 s later, and at settlement |
+| what a standing quote would earn | a lot bid and offered 1, 3 and 8 ticks from the mid, filled by any aggressive order that reaches it: fills an hour a side, and per fill marked 60 s later and at settlement. Not in a fit's target unless its spec names it (see the no-false-edge check) |
 | how fast the mid follows the value | of a 1 s move of the value, the share the mid has made 0, 0.5, 1, 2 and 5 s after it; the delay at which the mid is closest to the value as it was; the mean distance; how often the best bid is above the value or the best ask below it, and by more than 2 ticks |
 | scores, for games | from each score, how long until the touch moves (the median, and the share within 5 s), and until the value moves |
 | calibration | for a binary contract, the Brier score of the mid, and how often prices of 10 to 20% and 80 to 90% of the payout paid out |
@@ -245,6 +246,14 @@ in it should be trusted until the fit is corrected. `--latency` runs the probes 
 `--families maker,trend` runs only some. Given several scenarios, or a directory such as a twin
 fit's `twins/`, the markets take them in turn, so that the check covers every recorded market's
 twin and not one alone.
+
+The validation report carries the real side of the makers' check: what a lot quoted 1, 3 and 8
+ticks from the mid would have earned, measured alike on the recording and on the fit. A fit
+leaves these statistics out of its target, so that they stay a check on it. Where the fit pays a
+standing quote much more than the recording does, the makers' flags are the fit's, not the
+market's. The measure ignores the queue and the quote's own effect on the others, and needs a mid:
+a stretch where one side of the book is empty, such as a game in play with its makers away, goes
+unmeasured, while a probe there may be the only liquidity, so a flag there needs a closer look.
 
 On the fitted fifteen-minute question ([up_or_down.toml](../examples/scenarios/up_or_down.toml)),
 100 markets a probe and 400 fresh ones, 18 seconds on four cores:
