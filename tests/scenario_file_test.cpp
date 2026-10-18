@@ -341,6 +341,11 @@ type = "zero_intelligence"
     const Scenario defaults =
         parseScenario("duration = \"2h\"\n[prediction.game]\n[[agents]]\ntype = \"momentum\"\n");
     EXPECT_EQ(*defaults.prediction->game, GameConfig{});
+    const Scenario total =
+        parseScenario("duration = \"2h\"\n[prediction.game]\nside = \"over\"\nline = 45.5\n"
+                      "[[agents]]\ntype = \"momentum\"\n");
+    EXPECT_EQ(total.prediction->game->side, GameSide::Over);
+    EXPECT_EQ(total.prediction->game->line, 45.5);
 }
 
 TEST(ScenarioFileTest, ReadsAnOrderDelay) {
@@ -407,7 +412,7 @@ TEST(ScenarioFileTest, RejectsPredictionMarketsThatMakeNoSense) {
                        "test.toml:1: a game's 'length' must be positive"},
              std::pair{"[prediction.game]\nhalves = 2", "test.toml:2: unknown key 'halves'"},
              std::pair{"[prediction.game]\nside = \"left\"",
-                       "test.toml:2: 'side' is \"home\", \"away\" or \"draw\""},
+                       "test.toml:2: 'side' is \"home\", \"away\", \"draw\""},
              std::pair{"[prediction.game]\npoints = [2, 3]\npoint_weights = [1.0]",
                        "test.toml:3: 'point_weights' must be a list as long as 'points'"},
              std::pair{"[prediction.game]\nscript = [{ at = \"1m\", side = \"left\" }]",

@@ -296,6 +296,49 @@ TEST(GameTest, ContractsOnAnAwayWinOrADrawOpenAtTheirPriceAndSettleOnTheirResult
         std::invalid_argument);
 }
 
+// A total over or under a line opens at its price, the expected scoring set to give it, and
+// settles on the points scored; a spread opens and settles on the home side's lead against it.
+TEST(GameTest, TotalsAndSpreadsOpenAtTheirPriceAndSettleOnTheirLine) {
+    struct Case {
+        GameSide side;
+        double line;
+        double probability;
+    };
+    for (const auto& [side, line, probability] :
+         {Case{GameSide::Over, 2.5, 0.45}, Case{GameSide::Under, 2.5, 0.6},
+          Case{GameSide::HomeSpread, 1.5, 0.3}, Case{GameSide::AwaySpread, -0.5, 0.4}}) {
+        GameConfig game = smallGame();
+        game.side = side;
+        game.line = line;
+        int paid = 0;
+        for (std::uint64_t path = 0; path < 300; ++path) {
+            Fundamental value{PredictionConfig{.probability = probability, .game = game},
+                              80 * kSecond, Random{path, 11}};
+            EXPECT_NEAR(value.valueAt(0), 100.0 * probability, 1e-6);
+            const double result = value.valueAt(80 * kSecond);
+            EXPECT_TRUE(result == 0.0 || result == 100.0);
+            paid += result == 100.0 ? 1 : 0;
+        }
+        // Without drift the price is the chance it pays, give or take the spread of 300 games.
+        EXPECT_NEAR(paid / 300.0, probability, 4 * std::sqrt(probability * (1 - probability) / 300))
+            << static_cast<int>(side);
+    }
+}
+
+// A whole-number line can be met exactly: then the contract pays its tie.
+TEST(GameTest, AResultOnTheLinePaysTheTie) {
+    GameConfig game{.length = 20 * kSecond,
+                    .scores = 2.0,
+                    .tie = 50.0,
+                    .script = {{.at = 5 * kSecond, .home = true, .points = 1},
+                               {.at = 9 * kSecond, .home = false, .points = 1}}};
+    game.side = GameSide::Over;
+    game.line = 2.0;
+    Fundamental value{PredictionConfig{.probability = 0.5, .game = game}, 30 * kSecond,
+                      Random{1, 0}};
+    EXPECT_EQ(value.valueAt(30 * kSecond), 50.0);
+}
+
 // With no drift the value is the chance of what happens: of the moments it says 20 to 40, about
 // 30% resolve yes, and so on.
 TEST(GameTest, TheValueIsCalibrated) {

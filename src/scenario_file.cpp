@@ -141,7 +141,7 @@ GameConfig readGame(const Reader& reader, const toml::table& table) {
     reader.allowOnly(table,
                      {"start", "length", "periods", "break", "scores", "points", "point_weights",
                       "tie", "pregame_drift", "in_play_drift", "news", "news_size", "script",
-                      "late_scoring", "side"},
+                      "late_scoring", "side", "line"},
                      "in [prediction.game]");
     GameConfig game;
     if (const auto* node = table.get("side")) {
@@ -152,9 +152,21 @@ GameConfig readGame(const Reader& reader, const toml::table& table) {
             game.side = GameSide::Away;
         } else if (side == "draw") {
             game.side = GameSide::Draw;
+        } else if (side == "over") {
+            game.side = GameSide::Over;
+        } else if (side == "under") {
+            game.side = GameSide::Under;
+        } else if (side == "home_spread") {
+            game.side = GameSide::HomeSpread;
+        } else if (side == "away_spread") {
+            game.side = GameSide::AwaySpread;
         } else {
-            reader.fail(*node, "'side' is \"home\", \"away\" or \"draw\"");
+            reader.fail(*node, "'side' is \"home\", \"away\", \"draw\", \"over\", "
+                               "\"under\", \"home_spread\" or \"away_spread\"");
         }
+    }
+    if (const auto* node = table.get("line")) {
+        game.line = reader.number(*node, "line");
     }
     for (const auto& [key, duration] :
          {std::pair{"start", &game.start}, std::pair{"length", &game.length},
