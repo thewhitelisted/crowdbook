@@ -17,10 +17,12 @@ DEFAULT_TOOL = REPO / "build" / "release" / "apps" / "crowdbook"
 def find_tool(path: str | None) -> Path:
     """The crowdbook executable: `path`, else $CROWDBOOK, else the Release build of this checkout,
     else the one the crowdbook-engine wheel installed beside this package, else `crowdbook` on the
-    path."""
+    path. A directory given stands for the `crowdbook` in it."""
     chosen = path or os.environ.get("CROWDBOOK")
     if chosen:
         tool = Path(chosen)
+        if tool.is_dir():
+            tool = tool / "crowdbook"
     else:
         candidates = [DEFAULT_TOOL, Path(sysconfig.get_path("scripts")) / "crowdbook"]
         if on_path := shutil.which("crowdbook"):
@@ -31,7 +33,7 @@ def find_tool(path: str | None) -> Path:
         raise SystemExit(
             f"crowdbook not found{where}; install it with `pip install crowdbook-engine` (or "
             "`pip install .` in crowdbook's checkout), build it with `cmake --workflow --preset "
-            "release`, or pass --crowdbook"
+            "release`, or pass --crowdbook with the path of the crowdbook executable"
         )
     return tool
 
