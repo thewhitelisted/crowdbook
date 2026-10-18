@@ -2,15 +2,13 @@ name: wheels
 
 # The wheels an outsider installs: crowdbook-engine (the crowdbook command and the learning pool)
 # for Linux and macOS, crowdbook-analysis and the Python client, and the tutorial run from them
-# alone, as docs/tutorial.md has a newcomer run it. Run on a tag v*, it also attaches them to a
-# GitHub release.
-#
-# Off for now: the account's Actions allotment is nearly spent, so the workflow runs only when
-# started by hand (workflow_dispatch). To turn it back on, restore these triggers:
-#   push: { branches: [main], tags: ['v*'] }
-#   pull_request:
+# alone, as docs/tutorial.md has a newcomer run it. A tag v* also attaches them to a GitHub release.
 
 on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
   workflow_dispatch:
 
 permissions:
