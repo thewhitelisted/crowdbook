@@ -82,6 +82,10 @@ def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[
             " Yet " + "; and ".join(shared) + ": a flag the recording shares says the market "
             "pays it, which a strategy tested in the fit should expect, rather than that the fit "
             "is wrong.")
+    if flagged and all(p.family == "learner" for p in flagged):
+        note += (" Only the learner is paid, and the recording has no measure of what it does: "
+                 "whether the real market pays it too, a fit can say only by a test of the "
+                 "learner on the recording, or by paper trading, not by this check.")
     lines = ["# Verdict", "",
              ("**Usable for testing strategies**: the fit reaches the recording within chance "
               "and no strategy of the check makes money in it." if usable else

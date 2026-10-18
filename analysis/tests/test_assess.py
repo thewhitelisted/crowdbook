@@ -62,6 +62,17 @@ class VerdictTest(unittest.TestCase):
         data["statistics"][2]["real"] = -0.1
         self.assertNotIn("market's own edge", assess.verdict(data, swept(True), 100, 400)[0])
 
+    def test_says_when_only_the_learner_is_paid(self):
+        learner = sweep.Probe.of("learner", {"generations": 20, "markets": 16})
+        paid = {"searched": {}, "judged": {learner: {"mean": 9.0, "low": 2.0, "high": 16.0}}}
+        text, usable = assess.verdict(report(True), paid, 100, 400)
+        self.assertFalse(usable)
+        self.assertIn("Only the learner is paid", text)
+        # With a generic probe flagged too, the note is not given.
+        both = swept(True)
+        both["judged"][learner] = paid["judged"][learner]
+        self.assertNotIn("Only the learner", assess.verdict(report(True), both, 100, 400)[0])
+
     def test_only_a_makers_flag_is_set_against_the_recordings_quotes(self):
         entry = {"key": "quote_3_after_60", "real": 0.5,
                  "simulated": [{"value": 0.5, "distance": 0.0}]}
