@@ -200,7 +200,7 @@ def write_tape(tape: Tape, directory: Path | str, *, parquet: bool = False) -> N
         if m.outcome is not None:
             row["outcome"] = m.outcome
         rows.append(row | m.labels)
-    save(pl.DataFrame(rows), "markets")
+    save(pl.DataFrame(rows, infer_schema_length=None), "markets")
     levels = max((m.bid_price.shape[1] for m in tape.markets), default=1)
     books, prints, values = [], [], []
     for m in tape.markets:
@@ -269,7 +269,19 @@ def simulated_market(tool: Path, job: Run, scratch: Path, name: str,
         outcome=float(final) if final is not None and options_for(job.scenario).payout else None,
         value_time=sampled["time"].to_numpy() / 1e9 if has_value else None,
         value=sampled["value"].to_numpy().astype(float) if has_value else None,
-        labels=(labels or {}) | {"seed": job.seed})
+        labels=(labels or {}) | {"seed": job.seed} | outcomes(result))
+
+
+def outcomes(result: dict) -> dict:
+    """What each group of a run made after fees, valued at the true value where the run has one,
+    and how many lots it traded: labels for who profited in a simulated market."""
+    found = {}
+    for group in result["groups"]:
+        name = group["name"].replace(" ", "_")
+        pnl = group.get("pnl_at_value", group["pnl"])
+        found[f"pnl_{name}"] = float(pnl) - float(group.get("fees", 0.0))
+        found[f"traded_{name}"] = int(group["traded"])
+    return found
 
 
 def simulate(tool: Path, scenario: str, seeds, *, labels: dict | None = None,

@@ -1,0 +1,58 @@
+# What crowdbook-calibrate fits, or crowdbook-generate draws, in game.toml.
+template = "game.toml"
+seeds = 30
+generations = 60
+held_out = 200
+
+# With 1.5 scores expected and a draw paying nothing, the home side wins at most 78% of the time
+# however strong it is, so a higher chance at kickoff could not be reached.
+[parameters.probability]
+low = 0.15
+high = 0.75
+start = 0.5
+log = false
+
+[parameters.scores]
+low = 1.5
+high = 4.5
+start = 2.7
+
+[parameters.pregame_drift]
+low = 0.02
+high = 0.5
+start = 0.15
+
+[parameters.maker_intensity]
+low = 0.2
+high = 3.0
+start = 0.8
+
+[parameters.maker_lag]
+low = 0.1
+high = 10.0
+start = 1.0
+kind = "duration"
+
+[parameters.sharp_lag]
+low = 0.2
+high = 10.0
+start = 1.5
+kind = "duration"
+
+[parameters.bettors]
+low = 5
+high = 200
+start = 60
+whole = true
+
+[parameters.tilt]
+low = -0.2
+high = 0.6
+start = 0.3
+log = false
+
+[parameters.bias]
+low = -5.0
+high = 5.0
+start = 2.0
+log = false
