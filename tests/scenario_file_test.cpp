@@ -318,6 +318,8 @@ type = "zero_intelligence"
     const std::string agent = "[[agents]]\ntype = \"momentum\"\n";
     for (const auto& [text, message] : std::vector<std::pair<std::string, std::string>>{
              {"[prediction]\npath = 3\n" + agent, "'path' must be a list"},
+             {"[prediction]\npath = []\n" + agent, "'path' is empty"},
+             {"[prediction]\npath = [[1e10, 50]]\n" + agent, "within 1000000000s"},
              {"[prediction]\npath = [[1, 2, 3]]\n" + agent, "a pair: [seconds, cents]"},
              {"[prediction]\npath = [[-1, 50]]\n" + agent, "must not come before the start"},
              {"[prediction]\npath = [[1, 150]]\n" + agent, "from 0 to 100 cents"},

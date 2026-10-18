@@ -15,7 +15,7 @@ duration = "${duration}s"
 [prediction]
 probability = ${opening_probability}   # where the recorded market opened
 path = ${value_path}                   # the recorded reference, [seconds, cents] pairs
-outcome = ${outcome:50}                # where it settled; 50 where the recording does not say
+outcome = ${outcome}                # where it settled, or where its value ended
 
 [exchange]
 depth_levels = 10

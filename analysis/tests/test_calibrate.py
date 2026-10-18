@@ -136,6 +136,11 @@ class ConditionTest(unittest.TestCase):
         [bare] = calibrate.with_openings(tapes.Tape([bare], tapes.Options(payout=100.0)))
         self.assertEqual(calibrate.market_texts(bare)["value_path"], "[]")
         self.assertNotIn("outcome", bare.labels)
+        unsettled = market("unsettled", duration=60.0)
+        unsettled.value_time, unsettled.value = np.array([0.0, 30.0]), np.array([40.0, 70.0])
+        [unsettled] = calibrate.with_openings(tapes.Tape([unsettled],
+                                                         tapes.Options(payout=100.0)))
+        self.assertEqual(unsettled.labels["outcome"], 70.0)
 
     def test_writes_the_twin_of_every_recorded_market(self):
         from test_validate import market
@@ -241,10 +246,12 @@ class CalibrateTest(unittest.TestCase):
         self.assertIn("count =", scenario)
         self.assertEqual(data["calibration"]["compared"], ["spread_mean", "maker_at_trade"])
         self.assertIn("reached", data["calibration"])
-        refitted, _, _ = calibrate.calibrate(spec, evaluator, real, truth=truth,
-                                             log=lambda line: None, refits=2,
-                                             refit_generations=1)
+        self.assertEqual(data["calibration"]["refits"], 0)
+        refitted, refit_data, _ = calibrate.calibrate(spec, evaluator, real, truth=truth,
+                                                      log=lambda line: None, refits=2,
+                                                      refit_generations=1)
         self.assertIn("searches again on fresh seeds", refitted)
+        self.assertEqual(refit_data["calibration"]["refits"], 2)
 
     def test_a_conditioned_fit_writes_the_twin_of_its_first_market(self):
         from crowdbook_analysis import validate

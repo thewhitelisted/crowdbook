@@ -368,6 +368,60 @@ TEST(GameTest, TotalsAndSpreadsOpenAtTheirPriceAndSettleOnTheirLine) {
     }
 }
 
+// Before kickoff a total's price moves with the drift and the news, which scale how much is
+// expected to be scored, and it stays fair: over many games, what the total pays matches its
+// price at the opening and at kickoff. A win, whose strength drifts the same way, too.
+TEST(GameTest, ATotalDriftsBeforeKickoffAndStaysFair) {
+    for (const GameSide side : {GameSide::Over, GameSide::Home}) {
+        const GameConfig game{.side = side,
+                              .line = side == GameSide::Over ? 2.5 : 0.0,
+                              .start = 60 * kSecond,
+                              .length = 60 * kSecond,
+                              .scores = 2.5,
+                              .pregameDrift = 0.5,
+                              .news = 2.0,
+                              .newsSize = 0.3};
+        double paid = 0.0;
+        double atKickoff = 0.0;
+        bool moved = false;
+        constexpr int kGames = 4000;
+        for (int run = 0; run < kGames; ++run) {
+            Fundamental value{PredictionConfig{.probability = 0.45, .game = game}, 130 * kSecond,
+                              Random{11, static_cast<std::uint64_t>(run)}};
+            EXPECT_NEAR(value.valueAt(0), 45.0, 1e-6);
+            const double kickoff = value.valueAt(60 * kSecond);
+            moved |= std::abs(kickoff - 45.0) > 1.0;
+            atKickoff += kickoff;
+            paid += value.valueAt(130 * kSecond);
+        }
+        EXPECT_TRUE(moved);
+        // The price at kickoff averages the opening one, and the payout the price: within about
+        // three standard errors of 4000 games.
+        EXPECT_NEAR(atKickoff / kGames, 45.0, 1.5);
+        EXPECT_NEAR(paid / kGames, 45.0, 2.5);
+    }
+}
+
+// A total so high that the chance of no score underflows is priced all the same, its points to
+// come taken as normal, and settles on its line.
+TEST(GameTest, AVeryHighTotalIsPriced) {
+    const GameConfig game{.side = GameSide::Over,
+                          .line = 1000.5,
+                          .length = 60 * kSecond,
+                          .scores = 10.0,
+                          .points = {1, 2, 3},
+                          .pointWeights = {0.2, 0.6, 0.2}};
+    Fundamental value{PredictionConfig{.probability = 0.5, .game = game}, 80 * kSecond,
+                      Random{5, 0}};
+    EXPECT_NEAR(value.valueAt(0), 50.0, 1e-6);
+    for (Timestamp time = kSecond; time <= 60 * kSecond; time += 5 * kSecond) {
+        const double price = value.valueAt(time);
+        EXPECT_TRUE(price >= 0.0 && price <= 100.0) << price;
+    }
+    const double outcome = value.valueAt(80 * kSecond);
+    EXPECT_TRUE(outcome == 0.0 || outcome == 100.0);
+}
+
 // A whole-number line can be met exactly: then the contract pays its tie.
 TEST(GameTest, AResultOnTheLinePaysTheTie) {
     GameConfig game{.length = 20 * kSecond,
@@ -563,6 +617,7 @@ TEST(GameTest, SettingsAreChecked) {
           with([](GameConfig& g) { g.pregameDrift = -1.0; }),
           with([](GameConfig& g) { g.lateScoring = 0.0; }),
           with([](GameConfig& g) { g.script = {{.at = 30 * kSecond}, {.at = 20 * kSecond}}; }),
+          with([](GameConfig& g) { g.line = 1.5; }), // a line on a win
           PredictionConfig{.newsRate = 0.1, .game = smallGame()},
           // With 0.1 scores expected, the home side wins at most about one time in ten.
           PredictionConfig{.probability = 0.5,

@@ -1,10 +1,10 @@
 #include "crowdbook/fundamental.hpp"
 
 #include <algorithm>
-#include <iterator>
 #include <array>
 #include <cmath>
 #include <format>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -78,6 +78,11 @@ void checkGame(const GameConfig& game, const PredictionConfig& config) {
     }
     if (!(game.lateScoring > 0.0 && game.lateScoring <= 100.0)) {
         throw std::invalid_argument("late scoring must be above 0 and at most 100");
+    }
+    const bool lined = game.side == GameSide::Over || game.side == GameSide::Under ||
+                       game.side == GameSide::HomeSpread || game.side == GameSide::AwaySpread;
+    if (!lined && game.line != 0.0) {
+        throw std::invalid_argument("a line goes with a total or a spread, not a win or a draw");
     }
     if (!std::isfinite(game.line)) {
         throw std::invalid_argument("a game's line must be a number");
@@ -185,9 +190,11 @@ Fundamental::Fundamental(const PredictionConfig& config, Duration resolution, Ra
         // A home win's chance rises with the home side's strength and an away win's falls; a
         // draw's falls as either side grows stronger, so for a draw the home side is taken to be
         // the stronger, its strength not negative.
-        // A total's price does not move with the strength, which only shares the scoring out: its
-        // price at kickoff sets how much is expected to be scored instead, in proportion to
-        // `scores`, a total over the line rising with it.
+        // For a total the strength does not share the scoring out, which a total does not see,
+        // but scales how much is scored, by e^strength: the drift and the news before kickoff
+        // move what is expected. It starts at 0, and the price at kickoff sets how much is
+        // expected to be scored instead, in proportion to `scores`, a total over the line rising
+        // with it.
         const GameSide side = game_->side;
         const bool total = side == GameSide::Over || side == GameSide::Under;
         const double sign =
@@ -203,7 +210,9 @@ Fundamental::Fundamental(const PredictionConfig& config, Duration resolution, Ra
         const double target = sign * 100.0 * config.probability;
         double low = side == GameSide::Draw ? 0.0 : (total ? -8.0 : -30.0);
         double high = total ? 5.0 : 30.0;
-        if (rising(low) > target || rising(high) < target) {
+        // Written to fail on a price that is not a number too, as one is where so much is
+        // expected to be scored that the chance of none underflows.
+        if (!(rising(low) <= target && rising(high) >= target)) {
             throw std::invalid_argument(std::format(
                 "no {} gives the contract a price of {} at kickoff with {} scores expected",
                 total ? "scoring" : "strength", config.probability, game_->scores));
@@ -317,15 +326,21 @@ void Fundamental::moveGame(Timestamp from, Timestamp to) {
     const auto share = [](Duration part, Duration whole) {
         return static_cast<double>(part) / static_cast<double>(whole);
     };
+    // For a total the strength scales the scoring by e^strength, so each move gives up half its
+    // variance, keeping the scoring expected where it was: e^strength stays a fair multiplier.
+    const bool onTotal = game.side == GameSide::Over || game.side == GameSide::Under;
+    const auto drift = [&](double sd) {
+        strength_ += sd * random_.normal(0.0, 1.0) - (onTotal ? sd * sd / 2.0 : 0.0);
+    };
     if (from < game.start) {
         const double before = share(std::min(to, game.start) - from, game.start);
         if (game.pregameDrift > 0.0) {
-            strength_ += game.pregameDrift * std::sqrt(before) * random_.normal(0.0, 1.0);
+            drift(game.pregameDrift * std::sqrt(before));
         }
         if (game.news > 0.0) {
             const std::int64_t pieces = poisson(game.news * before);
             for (std::int64_t piece = 0; piece < pieces; ++piece) {
-                strength_ += random_.normal(0.0, game.newsSize);
+                drift(game.newsSize);
             }
             jumps_ += pieces;
         }
@@ -345,9 +360,9 @@ void Fundamental::moveGame(Timestamp from, Timestamp to) {
     }
     const double part = share(played, game.length);
     if (game.inPlayDrift > 0.0) {
-        strength_ += game.inPlayDrift * std::sqrt(part) * random_.normal(0.0, 1.0);
+        drift(game.inPlayDrift * std::sqrt(part));
     }
-    const double homeShare = 1.0 / (1.0 + math::exp(-strength_));
+    const double homeShare = onTotal ? 0.5 : 1.0 / (1.0 + math::exp(-strength_));
     double total = 0.0;
     for (const double weight : game.pointWeights) {
         total += weight;
@@ -368,7 +383,8 @@ void Fundamental::moveGame(Timestamp from, Timestamp to) {
     if (!game.script.empty()) {
         return;
     }
-    const double expected = expectedScores(playedBy(from), playedBy(to));
+    const double expected =
+        expectedScores(playedBy(from), playedBy(to)) * (onTotal ? math::exp(strength_) : 1.0);
     const std::int64_t home = poisson(expected * homeShare);
     const std::int64_t away = poisson(expected * (1.0 - homeShare));
     const std::int64_t homePoints = pointsOf(home);
@@ -377,6 +393,12 @@ void Fundamental::moveGame(Timestamp from, Timestamp to) {
     points_ += static_cast<double>(homePoints + awayPoints);
     jumps_ += home + away;
 }
+
+namespace {
+// Above this many scoring events expected, e^−λ comes near the smallest double and points to come
+// are taken as normal.
+constexpr double kNormalEvents = 600.0;
+} // namespace
 
 void Fundamental::pointsToCome(double expectedEvents, std::vector<double>& pmf) const {
     // A compound Poisson distribution, by Panjer's recursion: g(0) = e^−λ and
@@ -399,6 +421,18 @@ void Fundamental::pointsToCome(double expectedEvents, std::vector<double>& pmf) 
     const double reach =
         expectedEvents * mean + 12.0 * std::sqrt(expectedEvents * square) + 3.0 * largest;
     pmf.assign(static_cast<std::size_t>(std::ceil(reach)) + 1, 0.0);
+    if (expectedEvents > kNormalEvents) {
+        // So many events that e^−λ underflows: the count is normal to a very good
+        // approximation, with mean λ·E[j] and variance λ·E[j²], spread over whole points.
+        const double centre = expectedEvents * mean;
+        const double sd = std::sqrt(expectedEvents * square);
+        for (std::size_t k = 0; k < pmf.size(); ++k) {
+            const auto at = static_cast<double>(k);
+            pmf[k] = math::normalCdf((at + 0.5 - centre) / sd) -
+                     math::normalCdf((at - 0.5 - centre) / sd);
+        }
+        return;
+    }
     pmf[0] = math::exp(-expectedEvents);
     for (std::size_t k = 1; k < pmf.size(); ++k) {
         double sum = 0.0;
@@ -423,8 +457,53 @@ double Fundamental::expectedScores(Duration from, Duration to) const noexcept {
     return scoreScale_ * game.scores * (start * (u1 - u0) + slope / 2.0 * (u1 * u1 - u0 * u0));
 }
 
+double Fundamental::strengthVarianceLeft(Timestamp time) const noexcept {
+    const GameConfig& game = *game_;
+    double variance = 0.0;
+    if (time < game.start) {
+        const double before =
+            static_cast<double>(game.start - time) / static_cast<double>(game.start);
+        variance +=
+            (game.pregameDrift * game.pregameDrift + game.news * game.newsSize * game.newsSize) *
+            before;
+    }
+    const Duration left = game.length - playedBy(time);
+    if (left > 0) {
+        variance += game.inPlayDrift * game.inPlayDrift * static_cast<double>(left) /
+                    static_cast<double>(game.length);
+    }
+    return variance;
+}
+
 double Fundamental::gameProbability(Timestamp time, double lead, double points,
                                     double strength) const {
+    // The strength still moves before the game ends, and the price is not a straight line in
+    // it, so the price is its average over where the strength may go: normal, with the variance
+    // left, and for a total, whose scoring scales by e^strength, centred so that e^strength
+    // keeps its mean. Gauss–Hermite quadrature with nine points does the average.
+    static constexpr std::array<double, 9> kNodes{
+        -4.512745863399783, -3.20542900285647, -2.07684797867783, -1.0232556637891326, 0.0,
+        1.0232556637891326, 2.07684797867783,  3.20542900285647,  4.512745863399783};
+    static constexpr std::array<double, 9> kWeights{
+        2.2345844007746607e-05, 0.0027891413212317692, 0.04991640676521782,
+        0.24409750289493953,    0.40634920634920635,   0.24409750289493953,
+        0.04991640676521782,    0.0027891413212317692, 2.2345844007746607e-05};
+    const double variance = strengthVarianceLeft(time);
+    if (variance <= 0.0) {
+        return probabilityAtStrength(time, lead, points, strength);
+    }
+    const bool total = game_->side == GameSide::Over || game_->side == GameSide::Under;
+    const double sd = std::sqrt(variance);
+    const double centre = strength - (total ? variance / 2.0 : 0.0);
+    double price = 0.0;
+    for (std::size_t i = 0; i < kNodes.size(); ++i) {
+        price += kWeights[i] * probabilityAtStrength(time, lead, points, centre + sd * kNodes[i]);
+    }
+    return price;
+}
+
+double Fundamental::probabilityAtStrength(Timestamp time, double lead, double points,
+                                          double strength) const {
     const GameConfig& game = *game_;
     // What the contract pays on each result, its chances of being above, on and below the mark
     // it is about: the lead against 0 or the line, or the total against the line.
@@ -456,7 +535,7 @@ double Fundamental::gameProbability(Timestamp time, double lead, double points,
         // Both sides' points together are one compound Poisson count, at both rates together,
         // which ends above the line when more than `needed` points are still to come. The
         // distribution is cut off far out, so it is divided by its mass.
-        pointsToCome(events, homePoints_);
+        pointsToCome(events * math::exp(strength), homePoints_);
         const double needed = mark - now;
         double mass = 0.0;
         double above = 0.0;

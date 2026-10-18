@@ -188,7 +188,13 @@ held-out seeds the fit is within 2 tolerances on 35 of 40 statistics, a distance
 - **The intervals are too narrow**: they cover the truth for 2 of 5 settings where 68% would be
   3 or 4, the misses 1.3 to 2 standard errors out. The search picks its best point on the same
   40 seeds it is scored on, and fits their noise as well, which the sandwich formula does not
-  count. Read the intervals as about half the real uncertainty.
+  count. Read the intervals as about half the real uncertainty, or run the fit with `--refits`.
+- **`--refits 4` closes most of the gap.** The same fit, searched again 4 times for 15
+  generations from its result on fresh seeds, the spread of where the searches land added to the
+  sandwich covariance: the intervals then cover the truth for 4 of 5 settings (maker intensity
+  0.779 to 0.822, followers 19.8 to 22.3, follower lag 9.0 to 10.9 s), the miss the noise traders'
+  rate at 0.275 to 0.295 against 0.3. The refits measure the simulation's noise again beside the
+  search's own, so these intervals lean wide; `crowdbook-draws` does not double them.
 - **It takes a long search.** Stopped at 25 generations, the same fit was at a distance of 749 on
   held-out seeds, on a compensating point (30 followers 5 s late instead of 20 at 10 s) with
   intervals just as confident. That is why the report states whether the fit reaches the target
@@ -291,7 +297,8 @@ result = evaluate(policy, scenarios, seeds=range(1, 401), scales=(1, 2, 4))
 
 `crowdbook-draws` writes scenarios whose settings are drawn about the fit, each normal in the unit
 box with its 68% interval's half width, doubled, as its spread; doubled because the intervals were
-found about half as wide as they should be. The policy answers each decision with explicit orders
+found about half as wide as they should be, except for a fit run with `--refits`, whose intervals
+are used as they are (`--widen` sets it either way). The policy answers each decision with explicit orders
 (`Pool.step_orders`: a bid, an offer, a quantity to take), so a strategy written for a real venue,
 which names its prices, runs unchanged. The report: what it made a market, with its interval,
 across the draws; its lots, as a maker and a taker; what it made a lot; its quotes' place in the queue, the share
