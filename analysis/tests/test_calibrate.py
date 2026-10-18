@@ -86,6 +86,15 @@ class SpecTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "logarithmic range needs low > 0"):
             spec_from(SPEC.replace('kind = "duration"', 'kind = "duration"\nlog = true'))
 
+    def test_a_search_can_start_from_an_earlier_fit(self):
+        spec = spec_from()
+        started = calibrate.started_from(spec, {"rate": 0.5, "lag": 9.0, "elsewhere": 1.0})
+        starts = {p.name: p.start for p in started.parameters}
+        self.assertEqual(starts["rate"], 0.5)
+        self.assertEqual(starts["lag"], 0.01)  # kept within its range
+        self.assertEqual(starts["traders"], spec.start()["traders"])
+        self.assertEqual(spec.start()["rate"], 0.1)  # the spec itself is left as it was
+
     def test_chi_squared_percentile(self):
         # Known values: 3.84 for one degree of freedom, 55.76 for forty.
         self.assertAlmostEqual(calibrate.chi_squared_95(1), 3.84, delta=0.1)
