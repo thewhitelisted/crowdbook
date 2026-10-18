@@ -27,6 +27,12 @@ statistics, measured alike on both:
 - **What resting orders earn**: for every print, what the resting side made per unit, from the mid
   just before (the effective half spread) and marked to the mid one, ten and sixty seconds later,
   and at settlement where the market settled: the markouts of makers' fills, size-weighted.
+- **What a standing quote would earn**: a lot bid and offered 1, 3 and 8 ticks from the mid,
+  filled by any aggressive order that reaches it, marked sixty seconds later and at settlement,
+  and how often it fills. It is the real counterpart of the no-false-edge check's makers: where the
+  synthetic market pays a quote the real one does not, the fit offers an edge the real market
+  lacks. A fit leaves these out of its target unless its spec names them, so that they stay a
+  check on it.
 - **How fast the mid follows the value**, where there is one: of a move of the value over one
   second, the share the mid has made 0, 0.5, 1, 2 and 5 seconds after it ends; the delay at which
   the mid is closest to the value as it was; and how far it is from the value.
@@ -68,6 +74,8 @@ class Config:
     max_delay: float = 60.0  # seconds: the longest lag behind the value looked for
     delay_step: float = 0.5
     levels: int = 5  # book levels counted for depth
+    # Ticks from the mid of the standing quotes whose earnings the report measures.
+    quote_offsets: tuple = (1, 3, 8)
     tail: float = 0.1  # the share of the largest counted as a tail
     bootstrap: int = 200
 
@@ -121,6 +129,14 @@ def statistic_names(config: Config = Config()) -> list[tuple[str, str, bool]]:
     for h in config.markouts:
         names.append((f"maker_after_{h:g}", f"resting orders earn, marked {h:g}s later", False))
     names.append(("maker_at_settlement", "resting orders earn, at settlement", False))
+    last = config.markouts[-1]
+    for k in config.quote_offsets:
+        names.append((f"quote_{k}_fills", f"a quote {k} ticks from the mid: fills an hour a side",
+                      True))
+        names.append((f"quote_{k}_after_{last:g}", f"a quote {k} ticks from the mid earns, marked "
+                      f"{last:g}s later (ticks a fill)", False))
+        names.append((f"quote_{k}_settlement", f"a quote {k} ticks from the mid earns, at "
+                      "settlement (ticks a fill)", False))
     for lag in config.follow_lags:
         names.append((f"follow_{lag:g}", f"mid's share of a {config.move:g}s value move, "
                       f"{lag:g}s after", False))
@@ -228,6 +244,39 @@ def _orders(m: tapes.Market) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nda
     with np.errstate(invalid="ignore", divide="ignore"):
         prices = notional / sizes
     return m.trade_time[new], sizes, m.trade_sign[new], prices
+
+
+def _standing_quotes(m: tapes.Market, mid_at, config: Config) -> dict:
+    """What a lot quoted `k` ticks either side of the mid would have earned: a bid at the mid less
+    k and an offer at the mid plus k, rounded away from the mid to a tick, standing always. An
+    aggressive order whose prints reach the quote fills it, a lot at the quote's price, marked to
+    the mid later and to the settlement. It ignores the queue and the quote's own effect, alike for
+    a recording and a simulation, so that the two compare. For each k: [fills, earned and fills
+    marked later, earned and fills at settlement]."""
+    out = {}
+    if len(m.trade_time) == 0:
+        return {k: np.zeros(5) for k in config.quote_offsets}
+    new = np.ones(len(m.trade_time), dtype=bool)
+    new[1:] = (m.trade_time[1:] != m.trade_time[:-1]) | (m.trade_sign[1:] != m.trade_sign[:-1])
+    starts = np.flatnonzero(new)
+    sign = m.trade_sign[starts]
+    time = m.trade_time[starts]
+    # How far each order reached: its highest price for a buyer, its lowest for a seller.
+    reach = np.where(sign > 0, np.maximum.reduceat(m.trade_price, starts),
+                     np.minimum.reduceat(m.trade_price, starts))
+    before = mid_at(time, True)
+    later = mid_at(np.minimum(time + config.markouts[-1], m.duration), False)
+    for k in config.quote_offsets:
+        quote = np.where(sign > 0, np.ceil(before + k - 1e-9), np.floor(before - k + 1e-9))
+        filled = np.isfinite(before) & (sign * (reach - quote) >= 0)
+        marked = filled & np.isfinite(later)
+        row = [filled.sum(), float(np.sum((sign * (quote - later))[marked])), marked.sum(),
+               0.0, 0.0]
+        if m.outcome is not None:
+            row[3] = float(np.sum((sign * (quote - m.outcome))[filled]))
+            row[4] = filled.sum()
+        out[k] = np.array(row, dtype=float)
+    return out
 
 
 def _mid(m: tapes.Market) -> np.ndarray:
@@ -342,6 +391,7 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
         earned["settlement"] = s * (price - m.outcome)
     p["maker"] = {k: np.array([np.nansum(v * size * np.isfinite(v)),
                                np.sum(size * np.isfinite(v))]) for k, v in earned.items()}
+    p["quotes"] = _standing_quotes(m, mid_at, config)
 
     # How the mid follows the value.
     if m.value is not None and len(m.value):
@@ -485,6 +535,16 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
         rows = [p["maker"][name] for p in ps if name in p["maker"]]
         total = np.sum(rows, axis=0) if rows else np.zeros(2)
         out[key] = total[0] / total[1] if total[1] > 0 else np.nan
+
+    hours = sum(p["duration"] for p in ps) / 3600.0
+    last = config.markouts[-1]
+    for k in config.quote_offsets:
+        rows = [p["quotes"][k] for p in ps if "quotes" in p]
+        total = np.sum(rows, axis=0) if rows else np.zeros(5)
+        # Two quotes stand, a bid and an offer: fills an hour a side.
+        out[f"quote_{k}_fills"] = total[0] / hours / 2 if hours > 0 else np.nan
+        out[f"quote_{k}_after_{last:g}"] = total[1] / total[2] if total[2] > 0 else np.nan
+        out[f"quote_{k}_settlement"] = total[3] / total[4] if total[4] > 0 else np.nan
 
     follow = _stack(ps, "follow")
     if follow is not None:

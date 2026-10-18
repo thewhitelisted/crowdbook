@@ -129,6 +129,28 @@ class StatisticsTest(unittest.TestCase):
         self.assertAlmostEqual(found["maker_after_1"], 1.0)
         self.assertAlmostEqual(found["maker_at_settlement"], 51.0)
 
+    def test_what_a_standing_quote_would_earn(self):
+        # Every second a buyer takes at 51, a tick above the mid of 50; at second 10.5 the buyer
+        # sweeps on to 54 in the same order. The market settles at 100.
+        m = market(spread=2.0, outcome=100.0)
+        at = 11
+        m = tape.Market(**{**m.__dict__,
+                           "trade_time": np.insert(m.trade_time, at, 10.5),
+                           "trade_price": np.insert(m.trade_price, at, 54.0),
+                           "trade_size": np.insert(m.trade_size, at, 1.0),
+                           "trade_sign": np.insert(m.trade_sign, at, 1.0)})
+        found = self.measure(m)
+        # A tick out the offer is at 51: every order fills it, a lot each, 100 in 100 seconds.
+        self.assertAlmostEqual(found["quote_1_fills"], 100 / (100 / 3600) / 2)
+        self.assertAlmostEqual(found["quote_1_after_60"], 1.0)
+        self.assertAlmostEqual(found["quote_1_settlement"], 51.0 - 100.0)
+        # Three out, at 53, only the sweep reaches it; eight out, at 58, nothing does.
+        self.assertAlmostEqual(found["quote_3_fills"], 1 / (100 / 3600) / 2)
+        self.assertAlmostEqual(found["quote_3_after_60"], 3.0)
+        self.assertEqual(found["quote_8_fills"], 0.0)
+        self.assertTrue(np.isnan(found["quote_8_after_60"]))
+        self.assertTrue(np.isnan(self.measure(market())["quote_1_settlement"]))
+
     def test_how_the_mid_follows_a_value_that_steps_away(self):
         # The value steps from 50 to 60 at second 50; the mid never moves.
         value = np.where(np.arange(100) < 50, 50.0, 60.0)
