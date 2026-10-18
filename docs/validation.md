@@ -57,6 +57,9 @@ Kolmogorov–Smirnov distance between the pooled distributions of the spread, th
 order sizes and 1 s changes, beside the distance between two random halves of the real markets,
 which is what chance alone gives at that many markets.
 
+`--window START:END` measures only that part of each market, in seconds from its start, with the
+book as it stood at `START`: before kickoff and during play, say, or the part a recording covers.
+
 How far the mid follows the value is measured on the book's own snapshots, so the shortest lags
 need snapshots at least that often: a tape sampled every second shows the same share at 0 and
 0.5 s.
@@ -89,6 +92,7 @@ statistics = ["spread_mean", "orders_per_minute"]   # optional: default, every o
 seeds = 40            # markets each candidate is judged on, the same for every candidate
 generations = 80
 held_out = 200        # markets the fit is judged on afterwards, on other seeds
+window = [0, 1800]    # optional: compare only this part of each market, in seconds
 
 [parameters.follower_lag]
 low = 0.5

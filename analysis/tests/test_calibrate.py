@@ -62,6 +62,11 @@ class SpecTest(unittest.TestCase):
         self.assertEqual(parsed["agents"][0]["market_rate"], 0.25)
         self.assertEqual(parsed["agents"][0]["latency"]["to_exchange"], "2500us")
 
+    def test_reads_a_window(self):
+        self.assertIsNone(spec_from().window)
+        self.assertEqual(spec_from("window = [600, 900]\n" + SPEC).window, (600.0, 900.0))
+        self.assertEqual(spec_from("window = [600]\n" + SPEC).window, (600.0, None))
+
     def test_the_unit_box_maps_back_and_forth(self):
         spec = spec_from()
         values = {"traders": 12.0, "rate": 0.3, "lag": 0.004}
@@ -101,3 +106,38 @@ class DrawTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeEvaluator(calibrate.Evaluator):
+    """Markets whose spread is the setting `traders` / 5 ticks and whose orders come at `rate`,
+    with a little noise from the seed, so that a fit has something to find."""
+
+    def tape(self, values, seeds):
+        from test_validate import market
+
+        from crowdbook_analysis import tape as tapes
+        self.runs += len(seeds)
+        made = []
+        for seed in seeds:
+            rng = np.random.default_rng(seed)
+            spread = values["traders"] / 5 + rng.normal(0, 0.05)
+            made.append(market(str(seed), spread=spread))
+        return tapes.Tape(made)
+
+
+class CalibrateTest(unittest.TestCase):
+    def test_a_whole_fit_runs_and_reports(self):
+        from crowdbook_analysis import validate
+        spec = spec_from(SPEC.replace("seeds = 10", "seeds = 6\ngenerations = 3\nheld_out = 6"))
+        spec.statistics = ["spread_mean", "maker_at_trade"]
+        config = validate.Config(bootstrap=10)
+        evaluator = FakeEvaluator(None, spec, config)
+        truth = spec.start() | {"traders": 20.0}
+        real = validate.summarize("truth", evaluator.tape(truth, range(900, 912)), config)
+        text, data, scenario = calibrate.calibrate(spec, evaluator, real, truth=truth,
+                                                   log=lambda line: None)
+        self.assertIn("## Settings", text)
+        self.assertIn("Distance on the held-out seeds", text)
+        self.assertIn("count =", scenario)
+        self.assertEqual(data["calibration"]["compared"], ["spread_mean", "maker_at_trade"])
+        self.assertIn("reached", data["calibration"])

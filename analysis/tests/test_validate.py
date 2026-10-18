@@ -54,6 +54,18 @@ class TapeTest(unittest.TestCase):
             book_time=np.array([0.0]), bid=np.array([49.0]), ask=np.array([51.0]))
         np.testing.assert_array_equal(signs, [1, -1, -1, 1])
 
+    def test_a_window_keeps_the_part_asked_for_with_the_book_as_it_stood(self):
+        whole = tape.Tape([market(value=np.arange(100.0), outcome=100.0)])
+        cut = tape.window(whole, 10.5, 20.0).markets[0]
+        self.assertEqual(cut.duration, 9.5)
+        self.assertEqual(cut.book_time[0], 0.0)  # the snapshot of second 10, as it stood
+        self.assertEqual(len(cut.book_time), 11)
+        np.testing.assert_allclose(cut.trade_time, np.arange(0.0, 9.5, 1.0))
+        self.assertEqual(cut.value[0], 10.0)
+        self.assertEqual(cut.outcome, 100.0)
+        self.assertEqual(tape.window(whole, 50.0).markets[0].duration, 50.0)
+        self.assertEqual(tape.window(whole, 200.0).markets, [])
+
     def test_reads_a_tape_with_no_sides_and_no_optional_tables(self):
         with tempfile.TemporaryDirectory() as scratch:
             path = Path(scratch)

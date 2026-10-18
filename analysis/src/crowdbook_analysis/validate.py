@@ -637,6 +637,8 @@ def main() -> None:
     parser.add_argument("--grid", type=float, default=Config.grid,
                         help="seconds between samples of the mid (default 1)")
     parser.add_argument("--bootstrap", type=int, default=Config.bootstrap)
+    parser.add_argument("--window", help="measure only from START to END seconds of each market, "
+                        "START:END, or START: to its end")
     parser.add_argument("--crowdbook", help="the crowdbook executable")
     parser.add_argument("--out", type=Path, help="write the Markdown here, not to standard output")
     parser.add_argument("--json", type=Path, help="also write the numbers as JSON")
@@ -644,14 +646,21 @@ def main() -> None:
     if not args.sim and not args.scenario:
         parser.error("give at least one --sim or --scenario")
     config = Config(grid=args.grid, bootstrap=args.bootstrap)
-    real = summarize(args.real.name, tapes.read_tape(args.real), config, seed=1)
-    simulated = [summarize(path.name, tapes.read_tape(path), config, seed=2 + i)
+
+    def cut(t: tapes.Tape) -> tapes.Tape:
+        if not args.window:
+            return t
+        start, _, end = args.window.partition(":")
+        return tapes.window(t, float(start or 0), float(end) if end else None)
+
+    real = summarize(args.real.name, cut(tapes.read_tape(args.real)), config, seed=1)
+    simulated = [summarize(path.name, cut(tapes.read_tape(path)), config, seed=2 + i)
                  for i, path in enumerate(args.sim)]
     if args.scenario:
         tool = find_tool(args.crowdbook)
         for i, path in enumerate(args.scenario):
             t = tapes.simulate(tool, path.read_text(), _seeds(args.seeds))
-            simulated.append(summarize(path.stem, t, config, seed=100 + i))
+            simulated.append(summarize(path.stem, cut(t), config, seed=100 + i))
     text, data = report(real, simulated, config)
     if args.out:
         args.out.write_text(text)

@@ -11,6 +11,7 @@ A spec names a scenario template and the settings to fit:
     seeds = 60                      # markets each candidate is judged on, the same for all
     generations = 30
     held_out = 200                  # markets the fit is judged on afterwards, on other seeds
+    window = [0, 1800]              # optional: compare only this part of each market, in seconds
 
     [parameters.noise_rate]
     low = 0.001
@@ -102,6 +103,11 @@ class Spec:
     seeds: int = 60
     generations: int = 30
     held_out: int = 200
+    # The part of each market compared, from and to seconds (to its end where None), or all of it.
+    window: tuple[float, float | None] | None = None
+
+    def cut(self, t: tapes.Tape) -> tapes.Tape:
+        return t if self.window is None else tapes.window(t, *self.window)
 
     def scenario(self, values: dict[str, float]) -> str:
         texts = {p.name: p.text(values[p.name]) for p in self.parameters}
@@ -146,8 +152,14 @@ def read_spec(path: Path) -> Spec:
     unused = {p.name for p in parameters} - used
     if unused:
         raise ValueError(f"the template never uses {', '.join(sorted(unused))}")
+    window = None
+    if "window" in spec:
+        bounds = spec["window"]
+        if not (isinstance(bounds, list) and 1 <= len(bounds) <= 2):
+            raise ValueError("window is [start] or [start, end], in seconds")
+        window = (float(bounds[0]), float(bounds[1]) if len(bounds) == 2 else None)
     return Spec(template, parameters, spec.get("statistics"), int(spec.get("seeds", 60)),
-                int(spec.get("generations", 30)), int(spec.get("held_out", 200)))
+                int(spec.get("generations", 30)), int(spec.get("held_out", 200)), window)
 
 
 class Target:
@@ -176,8 +188,8 @@ class Evaluator:
 
     def tape(self, values: dict[str, float], seeds) -> tapes.Tape:
         self.runs += len(seeds)
-        return tapes.simulate(self.tool, self.spec.scenario(values), seeds,
-                              labels={k: float(v) for k, v in values.items()})
+        return self.spec.cut(tapes.simulate(self.tool, self.spec.scenario(values), seeds,
+                                            labels={k: float(v) for k, v in values.items()}))
 
     def point(self, values: dict[str, float], seeds) -> dict[str, float]:
         t = self.tape(values, seeds)
@@ -339,7 +351,7 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     target = make_target(real, start_summary, spec.statistics, config)
     log(f"{real.markets} target markets; {len(target.keys)} statistics compared")
     fitted, score = search(evaluator, target, fit_seeds, spec.generations, log)
-    log(f"fitted, distance {score:.1f} on the fit's seeds")
+    log(f"fitted, distance {score:.1f} on the fit's seeds: {fitted}")
     jacobian = derivatives(evaluator, target, fitted,
                            range(JACOBIAN_SEED, JACOBIAN_SEED + max(spec.seeds, 100)))
     fitted_fit_seeds = evaluator.summary("fitted", fitted, fit_seeds, seed=3)
@@ -351,15 +363,6 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     judged = [evaluator.summary("start", spec.start(), held_out, seed=4),
               evaluator.summary("fitted", fitted, held_out, seed=5)]
     text, data = validate.report(real, judged, config)
-    lines = [f"# Calibration against {real.name}", "",
-             f"{len(spec.parameters)} settings fitted to {len(target.keys)} statistics by CMA-ES, "
-             f"{spec.generations} generations on {spec.seeds} common seeds; distance "
-             f"{score:.1f} on those seeds. Judged below on {spec.held_out} seeds the search "
-             f"never used. {evaluator.runs} markets run in all.", "",
-             verdict, "", "## Settings", "", settings_table(rows, truth), "",
-             "68% intervals from the sandwich formula of simulated moments: they count sampling "
-             "error and the simulation's noise, not the ways the model differs from the market.",
-             "", "## Held-out seeds", "", text.split("\n", 2)[2]]
     held_distance = target.distance(judged[1].point)
     # At the true settings each compared statistic is off by chance alone, so the distance is
     # about chi-squared with one degree of freedom a statistic, or less on the held-out seeds,
@@ -372,6 +375,15 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
                                "**The fit does not reach the target within chance**: the model, "
                                "or the search, falls short, and the intervals below are too "
                                "narrow to trust."))
+    lines = [f"# Calibration against {real.name}", "",
+             f"{len(spec.parameters)} settings fitted to {len(target.keys)} statistics by CMA-ES, "
+             f"{spec.generations} generations on {spec.seeds} common seeds; distance "
+             f"{score:.1f} on those seeds. Judged below on {spec.held_out} seeds the search "
+             f"never used. {evaluator.runs} markets run in all.", "",
+             verdict, "", "## Settings", "", settings_table(rows, truth), "",
+             "68% intervals from the sandwich formula of simulated moments: they count sampling "
+             "error and the simulation's noise, not the ways the model differs from the market.",
+             "", "## Held-out seeds", "", text.split("\n", 2)[2]]
     data["calibration"] = {"settings": rows, "distance_fit_seeds": score,
                            "distance_held_out": held_distance, "reached": reached,
                            "compared": target.keys,
@@ -408,7 +420,8 @@ def main() -> None:
         seeds = range(TRUTH_SEED, TRUTH_SEED + args.truth_markets)
         real = validate.summarize("truth", evaluator.tape(truth, seeds), config, seed=1)
     else:
-        real = validate.summarize(args.real.name, tapes.read_tape(args.real), config, seed=1)
+        real = validate.summarize(args.real.name, spec.cut(tapes.read_tape(args.real)), config,
+                                  seed=1)
     text, data, scenario = calibrate(spec, evaluator, real, truth=truth,
                                      log=lambda line: print(line, flush=True))
     args.output.mkdir(parents=True, exist_ok=True)
