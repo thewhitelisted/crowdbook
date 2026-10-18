@@ -11,6 +11,7 @@
 #include "crowdbook/agents/informed.hpp"
 #include "crowdbook/agents/market_maker.hpp"
 #include "crowdbook/agents/momentum.hpp"
+#include "crowdbook/agents/probe.hpp"
 #include "crowdbook/agents/zero_intelligence.hpp"
 
 namespace crowdbook {
@@ -143,6 +144,37 @@ std::unique_ptr<Agent> makeMomentum(const Parameters& parameters,
         environment.referencePrice);
 }
 
+std::unique_ptr<Agent> makeProbe(const Parameters& parameters, const Environment& environment) {
+    const ProbeConfig defaults;
+    const std::string style = parameters.text("style", "maker");
+    ProbeStyle chosen = ProbeStyle::Maker;
+    if (style == "trend") {
+        chosen = ProbeStyle::Trend;
+    } else if (style == "reversal") {
+        chosen = ProbeStyle::Reversal;
+    } else if (style == "flow") {
+        chosen = ProbeStyle::Flow;
+    } else if (style != "maker") {
+        throw std::invalid_argument(std::format(
+            "probe style must be \"maker\", \"trend\", \"reversal\" or \"flow\", not \"{}\"",
+            style));
+    }
+    return std::make_unique<Probe>(
+        ProbeConfig{
+            .style = chosen,
+            .interval = parameters.duration("interval", defaults.interval),
+            .size = parameters.integer("size", defaults.size),
+            .maxPosition = parameters.integer("max_position", defaults.maxPosition),
+            .offset = parameters.number("offset", defaults.offset),
+            .fastHalfLife = parameters.duration("fast_half_life", defaults.fastHalfLife),
+            .slowHalfLife = parameters.duration("slow_half_life", defaults.slowHalfLife),
+            .threshold = parameters.number("threshold", defaults.threshold),
+            .window = parameters.duration("window", defaults.window),
+            .imbalance = parameters.number("imbalance", defaults.imbalance),
+        },
+        environment.referencePrice);
+}
+
 std::unique_ptr<Agent> makeInformed(const Parameters& parameters,
                                     const Environment& environment) {
     const InformedConfig defaults;
@@ -168,6 +200,7 @@ AgentRegistry AgentRegistry::withBuiltIns() {
     registry.add("market_maker", makeMarketMaker);
     registry.add("momentum", makeMomentum);
     registry.add("informed", makeInformed);
+    registry.add("probe", makeProbe);
     return registry;
 }
 

@@ -207,6 +207,42 @@ kickoff. So a game is fitted as twins, each opening where its game opened and re
 scores, with the scoring settings set from the recorded scores rather than fitted, and the fit
 left to the traders.
 
+## The no-false-edge check
+
+A market can match the real one statistic by statistic and still pay a strategy the real one does
+not: a book a little wider and thinner than the real one pays a patient maker, a price a little
+slower pays whoever follows it. `crowdbook-sweep SCENARIO`
+([sweep.py](../analysis/src/crowdbook_analysis/sweep.py)) runs generic strategies, the
+[`probe`](scenarios.md#probe) agent at a lot an order, alone in the market, one at a time:
+
+- makers at half widths of 0.5 to 8 ticks around the mid;
+- trend followers and reversal traders on moving averages of 2 to 600 seconds;
+- flow followers on the imbalance of the last 5 to 120 seconds' taker volume.
+
+Each runs on 200 markets; each family's best is judged on 800 fresh ones, valued at the true value
+or settlement after fees, so that picking the luckiest of 37 is not taken for an edge. A probe whose
+95% interval lies wholly above zero is flagged, and the command exits with 1. Where the real
+market is shown to pay nothing (its resting orders' markouts in the validation report, a real
+strategy's test), a flag means the fit offers an edge the real market lacks, and nothing learned
+in it should be trusted until the fit is corrected. `--latency` runs the probes at a slower seat,
+`--families maker,trend` runs only some.
+
+On the fitted fifteen-minute question ([up_or_down.toml](../examples/scenarios/up_or_down.toml)),
+100 markets a probe and 400 fresh ones, 18 seconds on four cores:
+
+| each family's best, on fresh markets | made a market (tick-lots) | per lot traded |
+|---|---:|---:|
+| maker, 8 ticks either side | **+29.8 [+11.7, +47.9], flagged** | +1.47 |
+| trend, 60 s against 600 s | −43.0 [−93.0, +7.0] | −1.24 |
+| flow, 120 s at 80% | −46.9 [−93.7, −0.1] | −1.49 |
+| reversal, 60 s against 600 s | −106.4 [−147.5, −65.2] | −3.91 |
+
+That market was fitted to trades alone, with one market maker quoting around the average of trades,
+and a maker quoting 8 cents either side of the mid catches the noise traders' large orders as they
+sweep its thin book; the real questions' makers, on the chain, lost money as a whole. It is the
+false edge this check exists for: the fitted market should not be used to judge a maker until its
+book is fitted too.
+
 ## Datasets
 
 `crowdbook-generate` ([generate.py](../analysis/src/crowdbook_analysis/generate.py)) makes many
@@ -255,6 +291,9 @@ to fit, not a fit.
   drift: exact where nothing drifts (tested for calibration) and close otherwise.
 - **The bettors' tilt is in log-odds.** Why: a favourite–longshot bias is a pull toward even that
   vanishes at 50 and cannot cross 0 or 100; a constant `bias` cannot express it.
+- **The no-false-edge check runs each probe alone, at a lot an order.** Why: a probe that moves
+  the market measures itself; alone and small, it measures the market. Each family's best is
+  judged on fresh seeds because the best of many on the same seeds is partly luck.
 - **Datasets are made by the Python package, not a new command.** Why: at about 80 ms a market on
   one core, half of it the simulation itself, a native writer would at most double the rate, and
   the spec, the labels and the format already live in Python. To change it: a `crowdbook run`

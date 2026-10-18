@@ -478,6 +478,27 @@ few experts, quick and close to right, with a larger crowd of followers who see 
 minute or more late with views of their own, and in the prediction markets partisans, so that the
 price earns its accuracy instead of having it by construction.
 
+### `probe`
+
+A small, simple strategy that measures a market rather than moves it: a maker at a set width, a
+trend follower, a reversal trader or a flow follower. Run alone and small in a market fitted to a
+real one, any that makes money after fees is an edge the fitted market offers; `crowdbook-sweep`
+runs them ([validation.md](validation.md#the-no-false-edge-check)). Takers take only at the touch,
+with immediate-or-cancel orders, and a probe keeps its position within `max_position` even if all
+its orders in flight fill.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `style` | `"maker"` | `"maker"` quotes a bid and an ask `offset` ticks either side of the mid, rounded away from it, requoting a side when its price moves; `"trend"` takes toward its limit when a fast moving average of the mid leads a slow one by `threshold`, the other way when it trails; `"reversal"` the opposite; `"flow"` takes toward its limit on the side that took at least `imbalance` of the volume traded in the last `window` |
+| `interval` | `"1s"` | How often it looks |
+| `size` | `1` | Lots an order |
+| `max_position` | `10` | The largest position it builds |
+| `offset` | `1.0` | A maker's half width, in ticks from the mid |
+| `fast_half_life`, `slow_half_life` | `"10s"`, `"60s"` | A trend's or a reversal's moving averages |
+| `threshold` | `1.0` | Ticks the fast average must lead the slow one by |
+| `window` | `"20s"` | The recent volume a flow follower weighs |
+| `imbalance` | `0.6` | Its share on one side before it follows, from 0.5 to below 1 |
+
 ### `execution`
 
 A broker's algorithm working large orders, one at a time. After a pause, exponential with mean
