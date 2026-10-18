@@ -37,7 +37,7 @@ import numpy as np
 import polars as pl
 
 from crowdbook_analysis.log import read_log, read_prices, trades
-from crowdbook_analysis.runner import Run, run
+from crowdbook_analysis.runner import Run, pnl_at_value, run
 
 # How often a simulated market's book and value are sampled into its tape, in seconds.
 SAMPLE_INTERVAL = 0.1
@@ -363,10 +363,13 @@ def outcomes(result: dict) -> dict:
     """What each group of a run made after fees, valued at the true value where the run has one,
     and how many lots it traded: labels for who profited in a simulated market."""
     found = {}
+    value = result.get("final_value")
     for group in result["groups"]:
         name = group["name"].replace(" ", "_")
-        pnl = group.get("pnl_at_value", group["pnl"])
-        found[f"pnl_{name}"] = float(pnl) - float(group.get("fees", 0.0))
+        if value is not None:
+            found[f"pnl_{name}"] = float(pnl_at_value(group, value))
+        else:
+            found[f"pnl_{name}"] = float(group["pnl"]) - float(group.get("fees", 0.0))
         found[f"traded_{name}"] = int(group["traded"])
     return found
 

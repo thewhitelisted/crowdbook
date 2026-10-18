@@ -40,8 +40,8 @@ struct ProbeConfig {
 // ±maxPosition even if all its orders in flight fill.
 class Probe final : public Agent {
 public:
-    // Throws std::invalid_argument for a non-positive interval, size or half-life, a fast half
-    // life not below the slow one, a negative offset or threshold, an imbalance outside [0.5, 1)
+    // Throws std::invalid_argument for a non-positive interval, size, half-life or offset, a fast
+    // half life not below the slow one, a negative threshold, an imbalance outside [0.5, 1)
     // or a size above the position limit.
     Probe(const ProbeConfig& config, Price referencePrice);
 
@@ -73,6 +73,7 @@ private:
     std::optional<Quote> bid_;
     std::optional<Quote> ask_;
     std::deque<std::pair<Timestamp, Quantity>> flow_; // recent trades, signed by the taker's side
+    std::deque<std::pair<Timestamp, Quantity>> own_;  // its own takes among them
 };
 
 } // namespace crowdbook

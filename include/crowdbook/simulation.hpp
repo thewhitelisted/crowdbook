@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -59,7 +60,8 @@ struct AgentOptions {
 // New orders and amendments held at the exchange before they reach the book, for a stretch of the
 // run, as betting exchanges hold bets while an event is in play: one that arrives from `from` until
 // `until` waits `delay` more, and is accepted, or rejected, only then. Cancels are not held, so a
-// resting order can still be cancelled at once, unless `cancels` holds them too.
+// resting order can still be cancelled at once, unless `cancels` holds them too. A cancel or an
+// amendment of an order still held waits for it, so that it never overtakes the order.
 struct OrderDelay {
     Timestamp from = 0;
     Timestamp until = 0;
@@ -229,6 +231,9 @@ private:
     bool interrupted_ = false; // asked to stop after the current time
     EventSink* sink_ = nullptr;
     OrderDelay orderDelay_{};
+    // Orders and amendments being held, by sender and client order id, with when they reach the
+    // book: requests about them wait until then. Ordered, so nothing depends on hashing.
+    std::map<std::pair<AgentId, ClientOrderId>, Timestamp> heldOrders_;
     std::vector<Event> events_; // reused for every request
 
     std::vector<AgentId> streamed_; // agents sent every public update

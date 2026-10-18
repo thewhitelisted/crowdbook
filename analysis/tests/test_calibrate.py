@@ -102,6 +102,10 @@ class ConditionTest(unittest.TestCase):
         texts = calibrate.market_texts(m)
         self.assertEqual(texts["duration"], "7200")
         self.assertEqual(texts["kickoff"], "1800")
+        long = market("long", duration=1036800.0)
+        long.labels = {"kickoff": 5432.1234}
+        self.assertEqual(calibrate.market_texts(long)["duration"], "1036800")
+        self.assertEqual(calibrate.market_texts(long)["kickoff"], "5432.1234")
         self.assertEqual(texts["competition"], '"a league"')
         self.assertNotIn("missing", texts)
         script = tomllib.loads("script = " + texts["script"])["script"]

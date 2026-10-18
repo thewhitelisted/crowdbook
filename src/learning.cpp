@@ -870,7 +870,8 @@ struct LearningMarket::Episode {
                 if (orders.take != 0 && side == opposite(taken)) {
                     continue; // cancelled to take from; not placed again until the next decision
                 }
-                if (size < 1 || price < 1) {
+                // No quote at a price the exchange would not take: any there is pulled.
+                if (size < 1 || price < 1 || price > context_.maxPrice()) {
                     cancelQuote(side);
                 } else {
                     quoteAtPrice(side, price, size);

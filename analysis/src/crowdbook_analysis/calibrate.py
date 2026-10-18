@@ -175,17 +175,23 @@ def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[t
     return t.markets
 
 
+def _plain(value: float) -> str:
+    """A number as a scenario file and a duration both read it: positional, never with an
+    exponent, to full precision."""
+    return np.format_float_positional(float(value), trim="-")
+
+
 def market_texts(market: tapes.Market) -> dict[str, str]:
     """What a target market fills into a template for its twins: `${duration}` in seconds, each
     label by its name, numbers as they are and text in quotes, and `${script}`, its scores as a
     game's script, every change of the score from the market's start on."""
-    texts = {"duration": f"{market.duration:.6g}"}
+    texts = {"duration": _plain(market.duration)}
     for name, value in market.labels.items():
         if isinstance(value, bool) or value is None:
             continue
         if isinstance(value, (int, float)):
             if np.isfinite(value):
-                texts[name] = f"{value:.10g}"
+                texts[name] = _plain(value)
         else:
             texts[name] = json.dumps(str(value))
     entries = []
