@@ -68,6 +68,12 @@ class FindToolTest(unittest.TestCase):
             find_tool(None)
         self.assertEqual(find_tool(str(self.installed)), self.installed)
 
+    def test_a_directory_given_stands_for_the_crowdbook_in_it(self):
+        # As build/release/apps/crowdbook is a directory holding the executable crowdbook.
+        self.assertEqual(find_tool(str(self.installed.parent)), self.installed)
+        with self.assertRaisesRegex(SystemExit, "not found at .*scripts/crowdbook"):
+            find_tool(str(self.scripts))
+
     def test_nothing_found_says_how_to_get_it(self):
         with mock.patch.dict(os.environ, {"PATH": str(self.scratch)}):
             with self.assertRaisesRegex(SystemExit, "pip install crowdbook-engine"):
