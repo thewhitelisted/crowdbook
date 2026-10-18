@@ -704,9 +704,14 @@ def _scaled(values, logarithmic: bool):
 
 
 def spread_of(draws: np.ndarray, logarithmic: bool) -> float:
+    """The spread of a statistic's resampled draws, on the scale it is compared on; 0 where they
+    all agree, though rounding leaves a spread of 1e-16, as where one market alone measures it."""
     scaled = _scaled(draws, logarithmic)
     scaled = scaled[np.isfinite(scaled)]
-    return float(np.std(scaled)) if len(scaled) > 2 else np.nan
+    if len(scaled) <= 2:
+        return np.nan
+    spread = float(np.std(scaled))
+    return 0.0 if spread <= 1e-9 * max(1.0, float(np.abs(scaled).mean())) else spread
 
 
 def distance(real: Summary, simulated: Summary, key: str, logarithmic: bool) -> float:

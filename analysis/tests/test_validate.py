@@ -174,6 +174,15 @@ class StatisticsTest(unittest.TestCase):
         # Counted print by print, as before, they would be five orders.
         self.assertEqual(len(validate._orders(m, same_order=0.0)[0]), 5)
 
+    def test_draws_that_all_agree_have_no_spread(self):
+        # The mean of draws all 589 is not exactly 589, so their spread rounds to about 1e-16,
+        # which as a tolerance made any miss a distance of 1e16.
+        same = np.full(200, 589.0)
+        self.assertEqual(validate.spread_of(same, True), 0.0)
+        self.assertEqual(validate.spread_of(same, False), 0.0)
+        self.assertGreater(validate.spread_of(np.array([1.0, 2.0, 3.0]), False), 0.5)
+        self.assertTrue(np.isnan(validate.spread_of(np.array([1.0, 2.0]), False)))
+
     def test_what_resting_orders_earn(self):
         # Every print a buy at the ask, a tick above the mid, in a market that settles at 0.
         found = self.measure(market(spread=2.0, outcome=0.0))
