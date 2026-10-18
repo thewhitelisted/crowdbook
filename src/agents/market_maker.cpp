@@ -34,15 +34,15 @@ Quotes avellanedaStoikovQuotes(const MarketMakerConfig& config, double fairPrice
 MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
                          std::shared_ptr<Fundamental> fundamental)
     : config_(config), market_(referencePrice) {
-    if (!(config.riskAversion > 0.0) || !(config.intensity > 0.0) || !(config.volatility >= 0.0) ||
-        config.horizon < 0) {
+    if (!(config.riskAversion > 0.0) || !(config.intensity > 0.0) ||
+        !(config.volatility >= 0.0) || config.horizon < 0) {
         throw std::invalid_argument("market_maker needs risk_aversion > 0, intensity > 0, "
                                     "volatility >= 0 and a horizon that is not negative");
     }
     if (config.quoteSize < 1 || config.maxInventory < config.quoteSize ||
         config.maxInventory > kMaxQuantity) {
-        throw std::invalid_argument(
-            std::format("market_maker needs 1 <= quote_size <= max_inventory <= {}", kMaxQuantity));
+        throw std::invalid_argument(std::format(
+            "market_maker needs 1 <= quote_size <= max_inventory <= {}", kMaxQuantity));
     }
     if (config.requoteInterval <= 0) {
         throw std::invalid_argument("market_maker requote_interval must be positive");
@@ -154,9 +154,9 @@ void MarketMaker::maintain(AgentContext& context, std::optional<Quote>& quote, S
     } else if (!quote) {
         const TimeInForce timeInForce =
             config_.postOnly ? TimeInForce::PostOnly : TimeInForce::GoodTillCancel;
-        quote = Quote{.clientOrderId =
-                          context.submitLimit(side, *price, config_.quoteSize, timeInForce),
-                      .price = *price};
+        quote = Quote{
+            .clientOrderId = context.submitLimit(side, *price, config_.quoteSize, timeInForce),
+            .price = *price};
     } else if (quote->price != *price || live->leaves != config_.quoteSize) {
         context.modify(quote->clientOrderId, *price, config_.quoteSize);
         quote->price = *price;
