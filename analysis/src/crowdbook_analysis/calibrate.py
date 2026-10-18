@@ -12,6 +12,7 @@ A spec names a scenario template and the settings to fit:
     generations = 30
     held_out = 200                  # markets the fit is judged on afterwards, on other seeds
     window = [0, 1800]              # optional: compare only this part of each market, in seconds
+    phase = "from kickoff"          # optional: or the part of each from (or "before") a label
     sample_interval = 0.1           # optional: seconds between samples of the simulated book
     condition = true                # optional: twins of each target market (see below)
 
@@ -124,9 +125,16 @@ class Spec:
     # Each target market gets synthetic twins of its own, made from the template with its
     # duration, labels and scores; `seeds` and `held_out` then count twins of each.
     condition: bool = False
+    # The part of each market compared, cut at a time a label of its own gives, such as a game's
+    # kickoff: (label, True) from it on, (label, False) before it; or all of it.
+    phase: tuple[str, bool] | None = None
 
     def cut(self, t: tapes.Tape) -> tapes.Tape:
-        return t if self.window is None else tapes.window(t, *self.window)
+        if self.window is not None:
+            t = tapes.window(t, *self.window)
+        if self.phase is not None:
+            t = tapes.phase(t, self.phase[0], self.phase[1])
+        return t
 
     def scenario(self, values: dict[str, float], market: tapes.Market | None = None) -> str:
         texts = {p.name: p.text(values[p.name]) for p in self.parameters}
@@ -281,10 +289,16 @@ def read_spec(path: Path) -> Spec:
         if not (isinstance(bounds, list) and 1 <= len(bounds) <= 2):
             raise ValueError("window is [start] or [start, end], in seconds")
         window = (float(bounds[0]), float(bounds[1]) if len(bounds) == 2 else None)
+    phase = None
+    if "phase" in spec:
+        words = str(spec["phase"]).split()
+        if len(words) != 2 or words[0] not in ("from", "before"):
+            raise ValueError('phase is "from LABEL" or "before LABEL", such as "from kickoff"')
+        phase = (words[1], words[0] == "from")
     return Spec(template, parameters, spec.get("statistics"), int(spec.get("seeds", 60)),
                 int(spec.get("generations", 30)), int(spec.get("held_out", 200)), window,
                 float(spec.get("sample_interval", tapes.SAMPLE_INTERVAL)),
-                bool(spec.get("condition", False)))
+                bool(spec.get("condition", False)), phase)
 
 
 class Target:
@@ -336,8 +350,19 @@ class Evaluator:
         labels = {k: float(v) for k, v in values.items()}
         runs = self._runs(values, seeds)
         self.runs += len(runs)
-        return self.spec.cut(tapes.simulate_runs(self.tool, runs, labels=labels,
-                                                 sample_interval=self.spec.sample_interval))
+        t = tapes.simulate_runs(self.tool, runs, labels=labels,
+                                sample_interval=self.spec.sample_interval)
+        for index, market in enumerate(t.markets):
+            self._label_twin(index, market)
+        return self.spec.cut(t)
+
+    def _label_twin(self, index: int, market: tapes.Market) -> None:
+        """A twin's run carries its recorded market's labels, such as its kickoff, so that it is
+        cut where its recorded market is; the run's own labels win."""
+        if self.spec.condition:
+            target = self.targets[index % len(self.targets)]
+            own = {k: v for k, v in target.labels.items() if not isinstance(v, list)}
+            market.labels = own | market.labels
 
     def point(self, values: dict[str, float], seeds) -> dict[str, float]:
         return self.points([values], seeds)[0]
@@ -362,7 +387,8 @@ class Evaluator:
         self.runs += len(runs)
         options = tapes.options_for(runs[0].scenario)
 
-        def measured(market: tapes.Market) -> list[dict]:
+        def measured(index: int, market: tapes.Market) -> list[dict]:
+            self._label_twin(index, market)
             cut = self.spec.cut(tapes.Tape([market], options)).markets
             pieces = [validate.market_pieces(m, options, self.config) for m in cut]
             for p in pieces:  # samples kept only for the report's distributions and charts
