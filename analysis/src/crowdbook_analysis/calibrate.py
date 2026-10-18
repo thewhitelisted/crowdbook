@@ -39,7 +39,9 @@ compared with each other, and the luck of a game's result is taken out of the co
 that cannot find settings it knows the answer to should not be trusted with ones it does not.
 
 It writes the fitted scenario, the validation report of the start and the fit against the target,
-and the settings with their intervals, as Markdown and as JSON.
+and the settings with their intervals, as Markdown and as JSON; with `condition = true`, also
+`twins/`, the fitted twin of every recorded market, which `crowdbook-sweep` and the strategy
+harness take as they are.
 """
 
 import argparse
@@ -644,12 +646,33 @@ def main() -> None:
                                      refit_generations=args.refit_generations)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "scenario.toml").write_text(scenario)
-    fitted = {row["name"]: row["fitted"] for row in data["calibration"]["settings"]}
-    (args.output / "settings.toml").write_text(
-        "".join(f"{name} = {value!r}\n" for name, value in fitted.items()))
+    fitted = {row["name"]: float(row["fitted"]) for row in data["calibration"]["settings"]}
+    (args.output / "settings.toml").write_text(settings_text(fitted))
     (args.output / "report.md").write_text(text)
     (args.output / "report.json").write_text(json.dumps(data, indent=1, default=float))
+    if spec.condition:
+        write_twins(spec, fitted, evaluator.targets, args.output / "twins")
     print(text)
+
+
+def settings_text(values: dict[str, float]) -> str:
+    """Settings as TOML, one `name = value` a line, numbers in full."""
+    return "".join(f"{name} = {float(value)!r}\n" for name, value in values.items())
+
+
+def write_twins(spec: Spec, values: dict[str, float], targets: list[tapes.Market],
+                out: Path) -> list[Path]:
+    """The twin of every recorded market at these settings, one scenario file each, named by its
+    market; returns the files in the order of the markets."""
+    out.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for index, market in enumerate(targets):
+        name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(market.name)).strip("._") or "market"
+        path = out / f"{index:04d}_{name}.toml"
+        path.write_text(f"# The fitted settings, in the twin of the recorded market "
+                        f"{market.name}.\n" + spec.scenario(values, market))
+        paths.append(path)
+    return paths
 
 
 if __name__ == "__main__":
