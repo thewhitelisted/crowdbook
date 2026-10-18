@@ -13,8 +13,8 @@ step = "100ms"
 
 [exchange]
 depth_levels = 5
-maker_fee = 1.0           # ticks a lot, paid by every trader
-taker_fee = 1.0
+maker_fee = 2.0           # ticks a lot, paid by every trader
+taker_fee = 2.0
 
 # The strategy's seat: a millisecond from the exchange, and at most 50 lots either way.
 [participant]

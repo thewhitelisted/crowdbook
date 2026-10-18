@@ -120,7 +120,7 @@ crowdbook-assess SPEC --real RECORDING --output assessed
 
 A recording in crowdbook's tape format, a scenario with blanks for the settings to fit, and their
 ranges: the fit, whether it reaches the recording within chance, whether the fitted market pays
-any generic strategy, and a verdict on whether it can be trusted for testing strategies.
+any strategy of the check, generic or learned, and a verdict on whether it can be trusted for testing strategies.
 [tutorial.md](tutorial.md) walks through it on a recording whose answer you can check, and
 [validation.md](validation.md) is the reference.
 
