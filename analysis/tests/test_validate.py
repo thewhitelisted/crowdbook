@@ -51,6 +51,18 @@ class TapeTest(unittest.TestCase):
             np.testing.assert_allclose(second.ask_price, original.markets[1].ask_price)
             np.testing.assert_allclose(second.trade_sign, original.markets[1].trade_sign)
 
+    def test_a_csv_column_whole_for_a_while_then_not_reads_as_numbers(self):
+        m = market("a", value=np.append(np.full(99, 52.0), 25.5))
+        with tempfile.TemporaryDirectory() as scratch:
+            tape.write_tape(tape.Tape([m]), scratch, parquet=False)
+            path = Path(scratch) / "value.csv"
+            path.write_text(path.read_text().replace("52.0", "52"))
+            for _ in range(5):  # far more whole rows before the fraction than are sampled
+                lines = path.read_text().splitlines()
+                path.write_text("\n".join(lines[:1] + lines[1:-1] * 3 + lines[-1:]) + "\n")
+            read = tape.read_tape(scratch).markets[0]
+        self.assertEqual(read.value[-1], 25.5)
+
     def test_labels_value_what_each_group_made_at_the_true_value(self):
         group = {"name": "big makers", "cash": -950, "initial_cash": 0, "position": 10,
                  "initial_position": 0, "fees": 2.5, "pnl": 30, "traded": 12}

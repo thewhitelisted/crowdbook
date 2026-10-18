@@ -116,9 +116,12 @@ def parent_orders(log: pl.DataFrame) -> pl.DataFrame:
 def read_prices(path: Path) -> pl.DataFrame:
     """Reads a price file written by `crowdbook run --prices`, adding the mid where both sides
     are quoted. A scenario with a true value has it in a `value` column too."""
+    # The whole file decides each column's type: a value that is whole for hours and then is
+    # not would otherwise be taken for an integer.
     prices = pl.read_csv(
         path,
         schema_overrides={"time": _NUMBER, "bid": _NUMBER, "ask": _NUMBER,
                           "last_trade": _NUMBER},
+        infer_schema_length=None,
     )
     return prices.with_columns(mid=(pl.col("bid") + pl.col("ask")) / 2)
