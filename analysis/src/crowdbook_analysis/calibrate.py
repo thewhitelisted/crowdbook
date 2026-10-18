@@ -441,10 +441,18 @@ class Evaluator:
         return validate.summarize(name, self.tape(values, seeds), self.config, seed)
 
 
+# The most of a recording's resamples that may leave a statistic unmeasured, for it to be fitted:
+# one measured in only a market or two of many, such as trades where nearly none were recorded,
+# is unmeasured in a third of them, and its value is that market's alone.
+MOST_UNMEASURED = 0.1
+
+
 def make_target(real: validate.Summary, start: validate.Summary, wanted: list[str] | None,
                 config: validate.Config) -> Target:
-    """The statistics both sides have, each with a tolerance from the two resampling spreads."""
+    """The statistics both sides have, each with a tolerance from the two resampling spreads,
+    and that the recording measures in enough of its markets."""
     keys, logs, tolerance = [], [], []
+    few = []
     for key, _, log in validate.statistic_names(config):
         if wanted is not None and key not in wanted:
             continue
@@ -455,13 +463,19 @@ def make_target(real: validate.Summary, start: validate.Summary, wanted: list[st
         if not (np.isfinite(real.point.get(key, np.nan))
                 and np.isfinite(start.point.get(key, np.nan))):
             continue
+        draws = np.asarray(real.draws[key], dtype=float)
+        if len(draws) and np.mean(~np.isfinite(draws)) > MOST_UNMEASURED:
+            few.append(key)
+            continue
         spread = math.hypot(validate.spread_of(real.draws[key], log),
                             validate.spread_of(start.draws[key], log))
         if np.isfinite(spread) and spread > 0:
             keys.append(key)
             logs.append(log)
             tolerance.append(spread)
-    if wanted is not None and set(wanted) - set(keys):
+    if few:
+        print(f"left out, as too few recorded markets measure them: {', '.join(few)}")
+    if wanted is not None and set(wanted) - set(keys) - set(few):
         print(f"left out, as one side cannot measure them: {sorted(set(wanted) - set(keys))}")
     return Target(real, keys, logs, np.array(tolerance))
 

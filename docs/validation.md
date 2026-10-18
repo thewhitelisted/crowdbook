@@ -213,6 +213,11 @@ A recorded game that sat for eight hours before a two-hour game would otherwise 
 on its quiet hours, when in play is where its order delay, its makers' absence and its reaction to
 scores show.
 
+A statistic the recording measures in too few of its markets is left out of the target, and the
+fit says so: one that more than a tenth of the recording's resamples leave unmeasured, such as the
+size of aggressive orders where one game of thirty-four had one before kickoff. Its value would be
+that one market's, and its spread across resamples no measure of how far a twin may stray from it.
+
 Two checks guard the fit:
 
 - **Does it reach the target?** At the true settings every compared statistic is off by chance
