@@ -23,7 +23,8 @@ uv run --project analysis crowdbook-assess my_spec.toml --real RECORDED --output
 recording, runs [the no-false-edge check](#the-no-false-edge-check) on every fitted market (each
 recorded market's twin, for a twin fit), and writes `verdict.md` beside the fit's report:
 - **Usable or not:** a fit is usable for testing strategies only when it reaches the recording
-  within chance and no generic strategy makes money in it.
+  within chance and no strategy of the check, the generic probes or
+  [a learner trained in it](#a-learner-in-the-check), makes money in it.
 - **Why not:** the statistics furthest from the recording, any strategy the fitted market pays,
   and what a standing quote earns in the recording against the fit.
 
@@ -305,6 +306,52 @@ in it should be trusted until the fit is corrected. `--latency` runs the probes 
 `--families maker,trend` runs only some. Given several scenarios, or a directory such as a twin
 fit's `twins/`, the markets take them in turn, so that the check covers every recorded market's
 twin and not one alone.
+
+### A learner in the check
+
+Each probe follows one rule. A fitted market can pay what no one rule takes, but a strategy
+trained there would find: a price that follows the value a few seconds late pays whoever reads,
+from the fast traders' orders and the mid's path together, where it is going. So beside the
+probes the sweep trains a small learner in the market itself
+([learner.py](../analysis/src/crowdbook_analysis/learner.py)) and judges it the same way:
+
+- **What it sees**, each decision, a second apart: the signed share of the volume that took over
+  2, 20 and 120 seconds; the mid against its own averages over the same; the touch's imbalance;
+  the spread; its position; the last trade against the mid. Anything a seat hearing the market
+  could compute, and never the true value: the scenario's `[participant]` and `[learning]` are
+  replaced by the probe's own seat, the probes' latency and limits, with no feed.
+- **What it does**: three linear scores of those numbers. While the first is past 1 it takes
+  toward its limit on that side, at the touch, as the probes' takers do, and holds what it has
+  between; the second and third rest a bid and an offer at the best prices when above 0. It acts on
+  its schedule only, leaving its quotes as they are at the decisions its own fills bring.
+- **How it learns**: CMA-ES over the weights, from all of them 0, a strategy that never trades;
+  each candidate plays 16 markets a generation, the same for every candidate of a generation and
+  fresh each generation, for 20 generations, scored on what it made after fees, valued as the
+  probes are. The search's mean at the end is judged on as many fresh markets as each family's
+  best and flagged the same way; the report shows its weights, which say what the market pays.
+
+It trades through `crowdbook_learn`'s pool, the engine's Python module, found installed or in the
+Release build beside the engine (`-DCROWDBOOK_BUILD_PYTHON=ON`, on by default where Python is
+found). `--no-learner` leaves it out; `--learner-generations` and `--learner-markets` train it
+harder, and a stronger learner finds more: a check that passes says the market pays nothing this
+learner finds in this many markets, not nothing at all.
+
+It has a known answer ([test_learner_probe.py](../python/tests/test_learner_probe.py)): a value
+that wanders, one maker quoting it, and three sharp traders who take when the book is two ticks off
+it. With the maker 10 seconds behind the value (100 markets a probe and 400
+fresh ones):
+
+| on fresh markets | made a market (tick-lots) | lots a market |
+|---|---:|---:|
+| flow, 5 s at 60% | **+32.0 [+23.1, +40.9], flagged** | 53.1 |
+| learner, 20 generations of 16 markets | **+23.6 [+14.0, +33.3], flagged** | 42.0 |
+
+It follows the flow of the last 2 and 20 seconds, as the best probe does. With the maker quoting the
+value as it is, it learns to stay out and makes nothing. In
+[the learning example](../examples/learning/market.toml), a market of a crowd with a lot of room
+and makers who quote the trades, the best probe, a maker half a tick from the mid, makes +80 a
+market and the learner +293 [+284, +302]: it quotes the touch on both sides and leans against its
+position, which no probe does.
 
 The validation report carries the real side of the makers' check: what a lot quoted 1, 3 and 8
 ticks from the mid would have earned, measured alike on the recording and on the fit. A fit

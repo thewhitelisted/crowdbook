@@ -63,7 +63,7 @@ import numpy as np
 
 from crowdbook_analysis import tape as tapes
 from crowdbook_analysis import validate
-from crowdbook_analysis.fit import Cma
+from crowdbook_analysis.cma import Cma
 from crowdbook_analysis.runner import Run, find_tool
 
 # A setting's place in a template; comment lines are left as they are.

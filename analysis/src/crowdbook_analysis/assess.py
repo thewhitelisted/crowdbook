@@ -8,7 +8,7 @@ testing strategies, and if not, why not.
 It runs `crowdbook-calibrate` (the fit, its validation report and, for twins, every recorded
 market's fitted twin), then `crowdbook-sweep` on the fitted markets, and writes `verdict.md`
 beside their outputs. A fit is usable when it reaches the recording within chance and no generic
-strategy makes money in it; the verdict lists the statistics furthest from the recording, any
+strategy, nor a small learner trained in it, makes money in it; the verdict lists the statistics furthest from the recording, any
 strategy the fitted market pays, and what a standing quote earns in the recording against the
 fit, the real side of a maker's flag. The command exits with 0 for a usable fit and 1 otherwise.
 """
@@ -49,14 +49,14 @@ def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[
         reasons.append(f"the fit does not reach the recording within chance (held-out distance "
                        f"{fit['distance_held_out']:,.1f} against {chance:,.1f})")
     if flagged:
-        reasons.append("the fitted market pays a generic strategy: "
+        reasons.append("the fitted market pays a strategy: "
                        + ", ".join(p.name for p in flagged))
     if not judged:
         reasons.append("the no-false-edge check judged no strategy with an interval")
     usable = not reasons
     lines = ["# Verdict", "",
              ("**Usable for testing strategies**: the fit reaches the recording within chance "
-              "and no generic strategy makes money in it." if usable else
+              "and no strategy of the check makes money in it." if usable else
               "**Not yet usable for testing strategies**: " + "; ".join(reasons) + "."), "",
              "## The fit", "",
              f"- Held-out distance {fit['distance_held_out']:,.1f}, against {chance:,.1f} that "
@@ -77,12 +77,18 @@ def verdict(data: dict, swept: dict | None, search: int, confirm: int) -> tuple[
         lines.append("Not checked: no strategy was judged on enough fresh markets for an "
                      "interval.")
     else:
-        lines.append(f"Each family's best of {search} markets, judged on {confirm} fresh ones; "
-                     "tick-lots a market after fees, with 95% intervals.")
+        learned = "learner" in swept
+        lines.append(f"Each family's best of {search} markets"
+                     + (", and a learner trained in the fitted markets," if learned else "")
+                     + f" judged on {confirm} fresh ones; tick-lots a market after fees, with "
+                     "95% intervals.")
         lines += ["", "| strategy | made a market | flagged |", "|---|---:|---|"]
         for probe, s in swept["judged"].items():
             lines.append(f"| {probe.name} | {s['mean']:+,.1f} [{s['low']:+,.1f}, "
                          f"{s['high']:+,.1f}] | {'**edge**' if s['low'] > 0 else ''} |")
+        if learned:
+            lines += ["", *("#" + line if line.startswith("## ") else line
+                            for line in sweep.learner_section(swept["learner"]))]
     by_key = {entry["key"]: entry for entry in data["statistics"]}
     quote_rows = []
     for k in QUOTES:
@@ -122,6 +128,7 @@ def main() -> None:
     parser.add_argument("--confirm", type=int, default=400,
                         help="fresh markets for each family's best (400)")
     parser.add_argument("--families", help="only these strategy families, such as maker,trend")
+    sweep.add_learner_arguments(parser)
     args = parser.parse_args()
     tool = find_tool(args.crowdbook)
 
@@ -153,7 +160,8 @@ def main() -> None:
     # Every fitted market at least once in the search and twice on the fresh markets.
     search = max(args.sweep_seeds, len(files))
     confirm = max(args.confirm, 2 * len(files))
-    swept = sweep.sweep(tool, [f.read_text() for f in files], probes, search, confirm)
+    swept = sweep.sweep(tool, [f.read_text() for f in files], probes, search, confirm,
+                        learner=sweep.learner_settings(args))
     text, _ = sweep.report(f"{len(files)} fitted markets", swept, search, confirm)
     (args.output / "sweep.md").write_text(text)
 

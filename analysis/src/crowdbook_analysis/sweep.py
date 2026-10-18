@@ -15,6 +15,11 @@ judged on fresh ones, so that picking the luckiest of many does not count as an 
 whose interval on the fresh seeds lies above zero is flagged: the market pays it, and unless the
 real market is shown to pay it too, the fit has an edge the real one lacks. Given several
 scenarios, or a directory of them such as a twin fit's `twins/`, the seeds take them in turn.
+
+Beside the fixed rules, a small learner is trained in the market itself and judged the same way
+(learner.py): a fitted market can pay what no single rule takes but a learner finds, such as how
+slowly its price follows the value, read from several signals at once. `--no-learner` leaves it
+out; it needs `crowdbook_learn`, the engine's Python module.
 """
 
 import argparse
@@ -30,6 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
+from crowdbook_analysis import learner as learning
 from crowdbook_analysis.runner import find_tool, pnl_at_value
 
 SEARCH_SEED = 500_001
@@ -128,8 +134,11 @@ def summary(rows: np.ndarray) -> dict:
 
 
 def sweep(tool: Path, scenario: str | list[str], probes: list[Probe], search: int, confirm: int, *,
-          latency: str = "1ms", size: int = 1, max_position: int = 10, log=print) -> dict:
-    """Every probe on the search seeds; each family's best on the confirming seeds."""
+          latency: str = "1ms", size: int = 1, max_position: int = 10,
+          learner: learning.Settings | None = None, log=print) -> dict:
+    """Every probe on the search seeds; each family's best on the confirming seeds. With
+    `learner`, the learning probe too, trained at the same seat and judged on as many fresh
+    markets; its own settings of latency, size and position are replaced by the sweep's."""
     found = {}
     for probe in probes:
         found[probe] = summary(run_probe(tool, scenario, probe,
@@ -142,7 +151,31 @@ def sweep(tool: Path, scenario: str | list[str], probes: list[Probe], search: in
         judged[best] = summary(run_probe(tool, scenario, best,
                                          range(CONFIRM_SEED, CONFIRM_SEED + confirm),
                                          latency=latency, size=size, max_position=max_position))
-    return {"searched": found, "judged": judged}
+    results = {"searched": found, "judged": judged}
+    if learner is not None:
+        results.update(learn(scenario, learner, confirm, latency=latency, size=size,
+                             max_position=max_position, log=log))
+        judged.update(results.pop("learner_judged"))
+    return results
+
+
+def learn(scenario: str | list[str], settings: learning.Settings, confirm: int, *, latency: str,
+          size: int, max_position: int, log=print) -> dict:
+    """The learning probe trained in the scenarios and judged on `confirm` fresh markets: its
+    judged summary keyed by a probe that names it, its weights and its training."""
+    settings = learning.Settings(**{**settings.__dict__, "latency": latency, "size": size,
+                                    "max_position": max_position})
+    texts = [learning.seat(text, latency=latency, size=size, max_position=max_position,
+                           interval=settings.interval)
+             for text in ([scenario] if isinstance(scenario, str) else scenario)]
+    module = learning.learn_module()
+    weights, history = learning.train(module, texts, settings, log=log)
+    judged = learning.summary(learning.judge(module, texts, weights, confirm, settings))
+    log(f"learner, on fresh markets: {judged['mean']:+.1f} a market")
+    probe = Probe.of("learner", {"generations": settings.generations,
+                                 "markets": settings.markets})
+    return {"learner_judged": {probe: judged},
+            "learner": {"weights": weights, "history": history, "settings": settings}}
 
 
 def _cell(s: dict) -> str:
@@ -163,12 +196,28 @@ def report(name: str, results: dict, search: int, confirm: int) -> tuple[str, bo
         flagged |= edge
         lines.append(f"| {probe.name} | {_cell(s)} | {s['per_lot']:+.3f} | {s['lots']:.1f} | "
                      f"{'**edge**' if edge else ''} |")
-    lines += ["", f"**{'An edge: the market pays a generic strategy.' if flagged else 'No probe makes money after fees.'}**",
+    lines += ["", f"**{'An edge: the market pays a strategy that should make nothing.' if flagged else 'No probe makes money after fees.'}**",
               "", "## Every probe, on the search's markets", "",
               "| probe | made a market | per lot traded | lots a market |", "|---|---:|---:|---:|"]
     for probe, s in results["searched"].items():
         lines.append(f"| {probe.name} | {_cell(s)} | {s['per_lot']:+.3f} | {s['lots']:.1f} |")
+    if "learner" in results:
+        lines += ["", *learner_section(results["learner"])]
     return "\n".join(lines) + "\n", flagged
+
+
+def learner_section(trained: dict) -> list[str]:
+    """How the learner trained, and the weights it trades on, as Markdown lines."""
+    settings, history = trained["settings"], trained["history"]
+    shown = ", ".join(f"{made:+.1f}" for made in history)
+    return ["## The learner", "",
+            f"Trained by CMA-ES for {settings.generations} generations, each candidate on "
+            f"{settings.markets} markets, from weights of 0, a strategy that never trades. What "
+            f"each generation's candidates made a market on average: {shown}.", "",
+            "Its weights: a take toward its limit on the side the target's score is past 1 on, "
+            "and a bid or an offer at the best price where theirs is above 0. Signals with large "
+            "weights are what the market pays it for.", "",
+            learning.weights_table(trained["weights"]).rstrip()]
 
 
 def scenario_files(paths: list[Path]) -> list[Path]:
@@ -183,6 +232,25 @@ def scenario_files(paths: list[Path]) -> list[Path]:
     return files
 
 
+def add_learner_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--no-learner", action="store_true",
+                        help="leave out the learning probe")
+    parser.add_argument("--learner-generations", type=int, default=learning.Settings.generations,
+                        help="the learner's generations of training "
+                             f"({learning.Settings.generations})")
+    parser.add_argument("--learner-markets", type=int, default=learning.Settings.markets,
+                        help="markets for each of its candidates, each generation "
+                             f"({learning.Settings.markets})")
+
+
+def learner_settings(args) -> learning.Settings | None:
+    if args.no_learner:
+        return None
+    if args.learner_generations < 1 or args.learner_markets < 1:
+        raise SystemExit("the learner needs at least a generation and a market")
+    return learning.Settings(generations=args.learner_generations, markets=args.learner_markets)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("scenario", type=Path, nargs="+",
@@ -195,6 +263,7 @@ def main() -> None:
     parser.add_argument("--size", type=int, default=1, help="lots an order (1)")
     parser.add_argument("--max-position", type=int, default=10)
     parser.add_argument("--families", help="only these, such as maker,trend")
+    add_learner_arguments(parser)
     parser.add_argument("--crowdbook", help="the crowdbook executable")
     parser.add_argument("--out", type=Path, help="write the Markdown here")
     args = parser.parse_args()
@@ -207,7 +276,8 @@ def main() -> None:
         wanted = set(args.families.split(","))
         probes = [p for p in probes if p.family in wanted]
     results = sweep(find_tool(args.crowdbook), scenarios, probes, args.seeds, args.confirm,
-                    latency=args.latency, size=args.size, max_position=args.max_position)
+                    latency=args.latency, size=args.size, max_position=args.max_position,
+                    learner=learner_settings(args))
     name = files[0].name if len(files) == 1 else f"{len(files)} scenarios from {args.scenario[0]}"
     text, flagged = report(name, results, args.seeds, args.confirm)
     if args.out:
