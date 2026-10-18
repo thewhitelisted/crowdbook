@@ -17,7 +17,8 @@ uv run --project analysis crowdbook-generate my_spec.toml --markets 10000 --out 
 
 A tape is a directory of tables, CSV or Parquet, holding one market or many
 ([tape.py](../analysis/src/crowdbook_analysis/tape.py)). Times are seconds from each market's
-start; prices are in any one unit, the same throughout.
+start; prices are in any one unit, the same throughout, and the report counts them in ticks, so
+that markets priced in dollars and in cents compare.
 
 | table | columns | |
 |---|---|---|

@@ -33,7 +33,8 @@ statistics, measured alike on both:
 - **Calibration**, for a binary contract that settled: the Brier score of the mid as a
   probability, and how often markets priced 10 to 20% and 80 to 90% of the payout paid out.
 
-Every statistic is pooled over markets, and its interval comes from resampling markets with
+Prices are counted in ticks, the tape's `tick`, so that a market priced in dollars and one in
+cents compare. Every statistic is pooled over markets, and its interval comes from resampling markets with
 replacement (200 times by default), the unit that is independent. The distance of a synthetic
 statistic from the real one is their difference over the two resampling spreads together, in
 those tolerances, so that 2 is about the edge of chance; rates, sizes and spreads are compared as
@@ -45,7 +46,7 @@ random halves of the real markets, which is what chance alone gives.
 import argparse
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -111,7 +112,7 @@ def statistic_names(config: Config = Config()) -> list[tuple[str, str, bool]]:
     names += [
         ("bounce", "successive trade-price changes, autocorrelation", False),
         ("roll_spread", "spread implied by the bounce (ticks)", True),
-        ("maker_at_trade", "resting orders earn, at the trade (price units)", False),
+        ("maker_at_trade", "resting orders earn, at the trade (ticks)", False),
     ]
     for h in config.markouts:
         names.append((f"maker_after_{h:g}", f"resting orders earn, marked {h:g}s later", False))
@@ -121,7 +122,7 @@ def statistic_names(config: Config = Config()) -> list[tuple[str, str, bool]]:
                       f"{lag:g}s after", False))
     names += [
         ("delay", "mid closest to the value as it was (seconds before)", False),
-        ("value_distance", "mean distance from the value (price units)", True),
+        ("value_distance", "mean distance from the value (ticks)", True),
         ("brier", "Brier score of the mid", False),
         ("priced_low", "priced 10 to 20%: paid out", False),
         ("priced_high", "priced 80 to 90%: paid out", False),
@@ -231,14 +232,23 @@ def _changes(x: np.ndarray, returns: str) -> np.ndarray:
 
 
 def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> dict:
-    """Everything one market adds to the pooled statistics."""
+    """Everything one market adds to the pooled statistics. Prices are counted in ticks, so that
+    markets priced in dollars and in cents compare."""
+    if options.tick != 1.0:
+        scale = 1.0 / options.tick
+        m = replace(m, bid_price=m.bid_price * scale, ask_price=m.ask_price * scale,
+                    trade_price=m.trade_price * scale,
+                    outcome=None if m.outcome is None else m.outcome * scale,
+                    value=None if m.value is None else m.value * scale)
+        options = replace(options, tick=1.0,
+                          payout=None if options.payout is None else options.payout * scale)
     p: dict = {"duration": m.duration}
     mid = _mid(m)
     # The book: each snapshot holds until the next or the end.
     held = np.diff(np.append(m.book_time, max(m.duration, m.book_time[-1] if len(m.book_time)
                                               else 0.0)))
     held = np.clip(held, 0.0, None)
-    spread = (m.ask_price[:, 0] - m.bid_price[:, 0]) / options.tick
+    spread = m.ask_price[:, 0] - m.bid_price[:, 0]
     both = np.isfinite(spread)
     p["spread"], p["spread_weight"] = spread[both], held[both]
     p["one_sided"] = np.array([held[~both].sum(), held.sum()])
@@ -403,8 +413,7 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
     # Roll (1984): successive changes have covariance −s²/4 for a spread s.
     sd, _ = _pooled_kurtosis(_stack(ps, "bounce_moments"))
     covariance = bounce * sd * sd if np.isfinite(bounce) else np.nan
-    tick = ps[0].get("tick", 1.0) if ps else 1.0
-    out["roll_spread"] = (2 * math.sqrt(-covariance) / tick
+    out["roll_spread"] = (2 * math.sqrt(-covariance)
                           if np.isfinite(covariance) and covariance < 0 else np.nan)
 
     names = ["at_trade"] + [f"after_{h:g}" for h in config.markouts] + ["settlement"]
@@ -468,8 +477,6 @@ class Summary:
 
 def summarize(name: str, t: tapes.Tape, config: Config = Config(), seed: int = 1) -> Summary:
     ps = pieces(t, config)
-    for p in ps:
-        p["tick"] = t.options.tick
     return Summary(name, len(ps), measure(ps, config), bootstrap(ps, config, seed), ps)
 
 
@@ -670,7 +677,7 @@ def plot(real: Summary, simulated: list[Summary], config: Config, directory: Pat
     horizons = [0.0] + list(config.markouts)
     keys = ["maker_at_trade"] + [f"maker_after_{h:g}" for h in config.markouts]
     fig, ax = style.figure("What resting orders earn, by horizon", "seconds after the fill",
-                           "earned per unit (price units)")
+                           "earned per unit (ticks)")
     for slot, s in enumerate(summaries[:4]):
         values = [s.point.get(k, np.nan) for k in keys]
         errors = [spread_of(s.draws[k], False) for k in keys]

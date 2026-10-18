@@ -116,6 +116,18 @@ class StatisticsTest(unittest.TestCase):
         self.assertAlmostEqual(found["follow_1"], 0.0)
         self.assertGreater(found["value_distance"], 0.0)
 
+    def test_prices_count_in_ticks_whatever_their_unit(self):
+        cents = market(spread=2.0, outcome=100.0, value=np.full(100, 60.0))
+        dollars = market(spread=2.0, outcome=100.0, value=np.full(100, 60.0))
+        for field in ("bid_price", "ask_price", "trade_price", "value"):
+            setattr(dollars, field, getattr(dollars, field) / 100)
+        dollars.outcome = 1.0
+        in_cents = self.measure(cents, options=tape.Options(tick=1.0, payout=100.0))
+        in_dollars = self.measure(dollars, options=tape.Options(tick=0.01, payout=1.0))
+        for key in ("spread_mean", "maker_at_trade", "maker_at_settlement", "value_distance",
+                    "return_sd_1", "brier"):
+            self.assertAlmostEqual(in_cents[key], in_dollars[key], places=6, msg=key)
+
     def test_pooled_autocorrelation_matches_the_direct_one_for_a_single_series(self):
         rng = np.random.default_rng(3)
         x = np.cumsum(rng.standard_normal(500)) * 0.1 + rng.standard_normal(500)
