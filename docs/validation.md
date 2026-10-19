@@ -298,6 +298,12 @@ Two checks guard the fit:
   of its own model (75 against 64). The report's table below compares each statistic by the
   first and last noises alone, so its distances can sum to more than the held-out distance. A
   twin spec takes `--real` beside `--truth`, its known twins copying the recorded markets.
+- **What a recording without a value can pin down.** Without a value series nothing measures how
+  late or how well informed the traders are, so settings such as a follower's lag are not
+  identified. On a sample of the tutorial's own market without one, a fit settled at a lag of
+  1.2 s against the true 10 s and failed the reach check, 661 against 52; with the value every
+  second it was usable, 50.5 against 62.8. Fix such settings from what is known, or fit a
+  template without them.
 - **Can it find what it should?** `--truth name=value,...` fits markets the engine made itself, at
   settings it knows, from the spec's starting point, and reports whether each interval covers
   the truth. A fit that cannot find a known answer should not be trusted with an unknown one.
