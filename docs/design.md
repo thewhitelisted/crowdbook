@@ -1020,13 +1020,37 @@ takes through stale quotes is a price-setter: the book moves because it moves.
    after `flow_memory`. With no memory, nothing decays. With `take_through`, a fair price that
    moves past the far side by more than the threshold takes the stale quotes and no more.
 2. **Glosten–Milgrom.** Against informed takers, a flow-reading maker loses less per fill than
-   the same maker with `flow_impact` 0. Against uninformed takers, it earns no less, within
-   intervals over seeds.
+   the same maker with `flow_impact` 0. Against uninformed takers, it gives up little.
 3. **Reversion.** A finite `flow_memory` gives the mid negative autocorrelation of its changes at
    the memory's timescale. A permanent impact gives none.
 4. **Recovery.** Index twins whose maker reads flow, fitted to markets made at known
    `flow_impact` and `flow_memory`, find both to within 10%, within chance on held-out seeds, as
    the index twins without it already do.
+
+**Where they stand (19 October).**
+1. **Units: pass** (market_maker_test.cpp).
+2. **Glosten–Milgrom: pass, with a caveat** (market_maker_test.cpp). Over 40 paired seeds, a
+   maker anchored on the value 20 s late gains significantly against informed takers at an
+   impact of 0.1 and a memory of 20 s. Against uninformed ones it gives up under 5%, +1.444
+   against +1.491 a lot: a cost, not "no less".
+   - A permanent impact on a trade-average anchor counts the flow twice, since the average
+     already moves with it. Measured, not tested: at an impact of 0.2 it lost 2.36 a lot to
+     informed takers against 1.48 without, and 7.4 to noise against a gain of 1.1. So templates
+     anchor on the value.
+3. **Reversion: pass** (flow_reversion_test.cpp). With the value still, so that the mid moves
+   only as flow moves the maker:
+   - a 20 s memory gives a 60 s variance ratio of about 0.35;
+   - a permanent impact gives about 1, a random walk of the flow;
+   - a maker that reads no flow leaves the mid still.
+4. **Recovery: half a pass.** Index twins with `flow_impact` and `flow_memory` were fitted to
+   markets made at 0.05 and 20 s and five other settings, by
+   `examples/calibration/index_flow_spec.toml`. They ran 30 generations, then 30 more
+   with the tolerances remade at the fit.
+   - They reach the target within chance, 17.6 against 60.5.
+   - Five settings land within 2% and the impact within 7%, at 0.047.
+   - The memory lands at 30 s against 20 s. The statistics, whose horizons are 1, 10 and 60 s,
+     barely tell a 20 s memory from a 30 s one. Read a fitted `flow_memory` as known to about
+     half, and `flow_impact` to about a tenth.
 
 **The real fits it must improve,** both recorded books that lead their reference:
 - a prediction-market book before its event, now at 232 against 47;
