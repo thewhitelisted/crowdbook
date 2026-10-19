@@ -153,6 +153,26 @@ crowdbook-tape --quotes quotes.csv --trades trades.csv --market 3600 --tick 0.01
 - `--same-order 0.002` for a venue that stamps each fill of one order on its own: prints within
   that many seconds of the one before count as one order.
 
+[examples/recording](../examples/recording) is such a recording to try it on: twelve of the
+tutorial's five-minute markets laid end to end into an hour, each one's five best levels, trades
+and a reference price once a second, gzipped CSV as data feeds often come, with prices in dollars
+at a cent a tick. `--market 300` cuts it back into those markets; each starts afresh at $100. It
+is new since 0.13.0, so until the next release it is in a checkout of `main`:
+
+```bash
+crowdbook-tape --quotes examples/recording/quotes.csv.gz --trades examples/recording/trades.csv.gz \
+    --value examples/recording/value.csv.gz --market 300 --tick 0.01 --returns log --out recording
+crowdbook-assess examples/tutorial/spec.toml --real recording --output assessed
+```
+
+It was made by the tutorial's market at the tutorial's settings, 0.8, 0.3 and 10 s, and the fit
+comes close (maker intensity 0.84, noise traders 0.33, followers 9.0 s late) and judges it usable,
+in about five minutes. Without `--value` the same fit is judged not usable, far from the
+recording: the tutorial's followers trade toward the value, and only the statistics of how the
+price follows it tell how late they are. A model whose traders follow a value needs a recording
+with one, such as an index or a fair price; for a recording without, fit a model whose traders
+need none.
+
 The tape goes wherever `--real` does: `crowdbook-validate`, `crowdbook-calibrate` and
 `crowdbook-assess`. [validation.md](validation.md#tapes-one-format-for-every-market) describes the
 format, for recordings that need a converter of their own.
