@@ -86,7 +86,8 @@ struct Quotes {
 // reservation price that leans against its inventory: when long it lowers both quotes, so it sells
 // more and buys less, and when short it raises them. The fair price is a running average of trade
 // prices (the mid before the first trade), not the mid itself, because the mid is often the market
-// maker's own quotes; or, with a value belief, the value as it sees it at each requote. It quotes
+// maker's own quotes; or, with a value belief, the value as it sees it at each requote; to which,
+// with a flow impact, it adds what the order flow it has seen says. It quotes
 // on start, then requotes on a timer (whose first tick falls at a random point in the first
 // interval) and straight after each of its own fills, moving a live quote with modify. A modify the
 // exchange rejects is sent again at the next requote.
@@ -100,6 +101,7 @@ public:
     void onStart(AgentContext& context) override;
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
     void onFilled(AgentContext& context, const OrderFilled& event) override;
+    void onCancelled(AgentContext& context, const OrderCancelled& event) override;
     void onRejected(AgentContext& context, const OrderRejected& event) override;
     // Its quotes stand through an auction, but it sends no new ones until trading is
     // continuous again.
@@ -146,6 +148,9 @@ private:
     // Its quotes a side, a level each, the touch first.
     std::vector<std::optional<Quote>> bids_;
     std::vector<std::optional<Quote>> asks_;
+    // Where each level's quote goes at a requote, kept to save allocating them each time.
+    std::vector<std::optional<Price>> targetBids_;
+    std::vector<std::optional<Price>> targetAsks_;
 };
 
 } // namespace crowdbook

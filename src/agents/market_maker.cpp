@@ -83,6 +83,8 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
     }
     bids_.resize(static_cast<std::size_t>(config.levels));
     asks_.resize(static_cast<std::size_t>(config.levels));
+    targetBids_.resize(static_cast<std::size_t>(config.levels));
+    targetAsks_.resize(static_cast<std::size_t>(config.levels));
 }
 
 Quantity MarketMaker::levelSize(int level) const noexcept {
@@ -104,8 +106,23 @@ void MarketMaker::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     context.wakeAfter(config_.requoteInterval);
 }
 
-void MarketMaker::onFilled(AgentContext& context, const OrderFilled& /*event*/) {
+void MarketMaker::onFilled(AgentContext& context, const OrderFilled& event) {
+    // Its own takes print as aggressive volume too; it learns nothing from them, so their fills
+    // take back what their trades added.
+    if (config_.flowImpact > 0.0 && std::ranges::contains(takes_, event.clientOrderId)) {
+        impact_ = flowImpact(context.now()) -
+                  config_.flowImpact * static_cast<double>(event.quantity) *
+                      (event.side == Side::Buy ? 1.0 : -1.0);
+        impactAt_ = context.now();
+    }
     requote(context, /*afterFill=*/true);
+}
+
+void MarketMaker::onCancelled(AgentContext& context, const OrderCancelled& event) {
+    // The rest of a take is done: it quoted as if all of it would fill, so it quotes afresh.
+    if (std::ranges::contains(takes_, event.clientOrderId)) {
+        requote(context, /*afterFill=*/true);
+    }
 }
 
 void MarketMaker::onRejected(AgentContext& context, const OrderRejected& event) {
@@ -220,24 +237,47 @@ void MarketMaker::requote(AgentContext& context, bool afterFill) {
     // nearer would keep the position within max_inventory.
     Quantity bought = 0;
     Quantity sold = 0;
+    std::vector<std::optional<Price>>& bids = targetBids_;
+    std::vector<std::optional<Price>>& asks = targetAsks_;
     for (int level = 0; level < config_.levels; ++level) {
         const auto at = static_cast<std::size_t>(level);
         const Quantity size = levelSize(level);
         const Price behind = static_cast<Price>(level) * config_.levelSpacing;
         bought += size;
         sold += size;
-        std::optional<Price> bid;
+        bids[at].reset();
+        asks[at].reset();
         if (target.bid && *target.bid - behind >= 1 &&
             position + bought <= config_.maxInventory) {
-            bid = *target.bid - behind;
+            bids[at] = *target.bid - behind;
         }
-        std::optional<Price> ask;
         if (target.ask && *target.ask + behind <= highest &&
             position - sold >= -config_.maxInventory) {
-            ask = *target.ask + behind;
+            asks[at] = *target.ask + behind;
         }
-        maintain(context, bids_[at], Side::Buy, bid, size);
-        maintain(context, asks_[at], Side::Sell, ask, size);
+    }
+    // Requests reach the exchange in the order sent, and one that meets its own quote there is
+    // cancelled: when its new bid would reach one of its asks as they stand, the asks move
+    // first, and the bids after. Only a maker that reads flow, whose price jumps by whole
+    // spreads, does this, so that every other runs as it always has.
+    bool asksFirst = false;
+    if (bids[0] && (config_.flowImpact > 0.0 || config_.takeThrough)) {
+        for (const std::optional<Quote>& quote : asks_) {
+            asksFirst = asksFirst || (quote && quote->price <= *bids[0]);
+        }
+    }
+    if (asksFirst) {
+        for (int level = 0; level < config_.levels; ++level) {
+            const auto at = static_cast<std::size_t>(level);
+            maintain(context, asks_[at], Side::Sell, asks[at], levelSize(level));
+        }
+    }
+    for (int level = 0; level < config_.levels; ++level) {
+        const auto at = static_cast<std::size_t>(level);
+        maintain(context, bids_[at], Side::Buy, bids[at], levelSize(level));
+        if (!asksFirst) {
+            maintain(context, asks_[at], Side::Sell, asks[at], levelSize(level));
+        }
     }
 }
 
@@ -261,22 +301,34 @@ Quantity MarketMaker::takeThrough(AgentContext& context, double fair) {
     const double through = *config_.takeThrough;
     const Price highest = context.maxPrice();
     // Room as the exchange counts it: the position were every open order on that side to fill.
+    // The exchange stops a take at the first of its own quotes it reaches, so it first cancels
+    // those the take could reach; they arrive first, as messages on a link never overtake. Room is
+    // as the exchange counts it: the position were every open order on that side to fill.
+    const auto take = [&](Side side, Price price, Quantity room) {
+        if (room <= 0) {
+            return;
+        }
+        for (std::optional<Quote>& quote : side == Side::Buy ? asks_ : bids_) {
+            const OwnOrder* live = quote ? ledger.find(quote->clientOrderId) : nullptr;
+            // At its price in the book or the one a modify still on its way asks for.
+            const auto reaches = [&](Price at) {
+                return side == Side::Buy ? at <= price : at >= price;
+            };
+            if (live != nullptr && !live->cancelRequested &&
+                (reaches(live->price) || reaches(quote->price))) {
+                context.cancel(quote->clientOrderId);
+                quote.reset();
+            }
+        }
+        takes_.push_back(context.submitLimit(side, price, room, TimeInForce::ImmediateOrCancel));
+        quotedFair_.reset(); // whatever its threshold, it quotes afresh around the take
+    };
     if (market_.bestAsk() && fair - through > static_cast<double>(*market_.bestAsk())) {
-        const Quantity room =
-            config_.maxInventory - ledger.position() - ledger.openQuantity(Side::Buy);
-        if (room > 0) {
-            takes_.push_back(context.submitLimit(Side::Buy,
-                                                 clampPrice(std::floor(fair - through), highest),
-                                                 room, TimeInForce::ImmediateOrCancel));
-        }
+        take(Side::Buy, clampPrice(std::floor(fair - through), highest),
+             config_.maxInventory - ledger.position() - ledger.openQuantity(Side::Buy));
     } else if (market_.bestBid() && fair + through < static_cast<double>(*market_.bestBid())) {
-        const Quantity room =
-            config_.maxInventory + ledger.position() - ledger.openQuantity(Side::Sell);
-        if (room > 0) {
-            takes_.push_back(context.submitLimit(Side::Sell,
-                                                 clampPrice(std::ceil(fair + through), highest),
-                                                 room, TimeInForce::ImmediateOrCancel));
-        }
+        take(Side::Sell, clampPrice(std::ceil(fair + through), highest),
+             config_.maxInventory + ledger.position() - ledger.openQuantity(Side::Sell));
     }
     return ledger.position() + open(Side::Buy) - open(Side::Sell);
 }
