@@ -126,6 +126,8 @@ each setting's range ([book_spec.toml](../examples/calibration/book_spec.toml) a
 ```toml
 template = "book.toml"
 statistics = ["spread_mean", "orders_per_minute"]   # optional: default, every one both have
+exclude = ["delay", "follow_1"]  # optional, instead: every one both have but these, as for a
+                                 # reference polled seconds apart, too coarse to time the book by
 seeds = 40            # markets each candidate is judged on, the same for every candidate
 generations = 80
 held_out = 200        # markets the fit is judged on afterwards, on other seeds

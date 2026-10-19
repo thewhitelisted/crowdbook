@@ -8,6 +8,7 @@ A spec names a scenario template and the settings to fit:
 
     template = "my_market.toml"     # a scenario, with ${name} wherever a setting goes
     statistics = ["spread_mean", "orders_per_minute"]   # optional: default, every one both have
+    exclude = ["delay", "follow_1"]  # optional, instead: every one both have but these
     seeds = 60                      # markets each candidate is judged on, the same for all
     generations = 30
     held_out = 200                  # markets the fit is judged on afterwards, on other seeds
@@ -359,7 +360,19 @@ def read_spec(path: Path) -> Spec:
                              "after optional")
         around = (str(entry["label"]), float(entry["before"]),
                   float(entry["after"]) if "after" in entry else None)
-    return Spec(template, parameters, spec.get("statistics"), int(spec.get("seeds", 60)),
+    statistics = spec.get("statistics")
+    if "exclude" in spec:
+        # Every statistic but these, as the default would choose them: a recording's value
+        # polled seconds apart, say, cannot time how fast the book follows it.
+        if statistics is not None:
+            raise ValueError("a spec gives statistics or exclude, not both")
+        names = [key for key, _, _ in validate.statistic_names(validate.Config())]
+        unknown = sorted(set(spec["exclude"]) - set(names))
+        if unknown:
+            raise ValueError(f"exclude names statistics the report does not have: {unknown}")
+        statistics = [key for key in names
+                      if key not in spec["exclude"] and not key.startswith("quote_")]
+    return Spec(template, parameters, statistics, int(spec.get("seeds", 60)),
                 int(spec.get("generations", 30)), int(spec.get("held_out", 200)), window,
                 float(spec.get("sample_interval", tapes.SAMPLE_INTERVAL)),
                 bool(spec.get("condition", False)), phase, around)
