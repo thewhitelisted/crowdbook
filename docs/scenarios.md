@@ -487,6 +487,7 @@ of its own that can smother effects that need the book to thin
 | Parameter | Default | Meaning |
 |---|---|---|
 | `interval` | `"100ms"` | How often it looks at the value |
+| `random_interval` | `false` | `true` waits an exponential draw of mean `interval` between looks, the first included, instead of `interval` itself: its looks come as a Poisson process, rare and bunched as a few large traders' decisions are, rather than like clockwork |
 | `noise`, `error`, `error_memory`, `bias`, `tilt`, `lag` | `1.0`, `0`, `"60s"`, `0`, `0`, `"0s"` | How it sees the value; see below |
 | `threshold` | `3.0` | Ticks of edge needed before trading: half the width of its range of fair values, inside which it does nothing |
 | `order_size` | `5` | Lots per order |

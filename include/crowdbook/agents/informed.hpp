@@ -13,6 +13,9 @@ namespace crowdbook {
 
 struct InformedConfig {
     Duration interval = 100 * kMillisecond; // how often it looks at the value
+    // Each wait an exponential draw of mean `interval` instead of `interval` itself: looks that
+    // come as a Poisson process, rare and bunched as a few large traders' decisions are.
+    bool randomInterval = false;
     BeliefConfig belief{};  // how it sees the value: noise, a lasting error, a bias, a delay
     // Ticks of edge required before trading: half the width of the range of values it thinks
     // possible, inside which it does nothing.
@@ -26,7 +29,8 @@ struct InformedConfig {
 };
 
 // A trader with information about the asset's value. Every interval, starting at a random point in
-// the first one so that a group of them does not act in lockstep, it looks at the value as its
+// the first one so that a group of them does not act in lockstep (or after exponential waits of
+// that mean, with randomInterval), it looks at the value as its
 // belief sees it: late, with errors of its own, perhaps tilted. When the best ask it knows of is at least `threshold`
 // below its estimate it buys with an immediate-or-cancel limit order priced `threshold` below the
 // estimate, so it never gives its edge away by sweeping the book; symmetrically, it sells to bids
@@ -48,6 +52,7 @@ public:
 private:
     // The size of an order on one side, given the room its position limit leaves there.
     [[nodiscard]] Quantity orderSize(AgentContext& context, Quantity room) const;
+    void wait(AgentContext& context);  // the next look, after an exponential wait
 
     InformedConfig config_;
     Belief belief_;

@@ -53,6 +53,9 @@ TEST(AgentRegistryTest, CreatesBuiltInAgentsFromParameters) {
     Environment withValue;
     withValue.fundamental = std::make_shared<Fundamental>(FundamentalConfig{}, Random{1, 0});
     EXPECT_NE(registry.create("informed", Parameters{}, withValue), nullptr);
+    Parameters poisson;
+    poisson.set("random_interval", true);
+    EXPECT_NE(registry.create("informed", poisson, withValue), nullptr);
 }
 
 TEST(AgentRegistryTest, AMarketMakerSeesTheValueOnlyWhenItQuotesOffIt) {
