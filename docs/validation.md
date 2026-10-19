@@ -557,8 +557,8 @@ a draw as time runs out and settles when the game ends.
 [game.toml](../examples/scenarios/game.toml) puts makers who quote off the probability, sharp
 traders who see it a second or two late, and recreational bettors who see it late, lean to the home
 side and rate long shots too high (`tilt`), in one such market. Over 200 of its markets the makers
-made 0.88 cents a lot traded, the bettors lost 0.92 and the sharps nothing clear; it is an example
-to fit, not a fit.
+made 0.77 cents a lot traded, the bettors lost 0.75 and the sharps 0.67; it is an example to fit,
+not a fit.
 
 ## Decisions
 
