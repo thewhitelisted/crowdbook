@@ -146,6 +146,8 @@ crowdbook-tape --quotes quotes.csv --trades trades.csv --market 3600 --tick 0.01
   ends at the recording's last event.
 - `--returns log` for prices like a stock's or a coin's; the default, `difference`, for bounded
   prices such as a probability's.
+- `--same-order 0.002` for a venue that stamps each fill of one order on its own: prints within
+  that many seconds of the one before count as one order.
 
 The tape goes wherever `--real` does: `crowdbook-validate`, `crowdbook-calibrate` and
 `crowdbook-assess`. [validation.md](validation.md#tapes-one-format-for-every-market) describes the
