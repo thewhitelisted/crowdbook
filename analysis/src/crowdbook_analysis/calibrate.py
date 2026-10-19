@@ -734,9 +734,9 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
               evaluator.summary("fitted", fitted, held_out, seed=5)]
     text, data = validate.report(real, judged, config)
     held_distance = target.judged(judged[1])
-    # At the true settings each compared statistic is off by chance alone, so the distance is
-    # about chi-squared with one degree of freedom a statistic, or less on the held-out seeds,
-    # which are more than the fit's. Beyond its 95th percentile the model does not reach the
+    # At the true settings each compared statistic is off by chance alone, so the distance, each
+    # gap over the recording's and the held-out markets' own spreads, is about chi-squared with
+    # one degree of freedom a statistic. Beyond its 95th percentile the model does not reach the
     # target, and the sandwich formula, which assumes it does, says too little.
     reached = held_distance <= chi_squared_95(len(target.keys))
     verdict = (f"Distance on the held-out seeds: {held_distance:.1f}, against "
@@ -748,7 +748,7 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     lines = [f"# Calibration against {real.name}", "",
              f"{len(spec.parameters)} settings fitted to {len(target.keys)} statistics by CMA-ES, "
              f"{spec.generations} generations on {spec.seeds} common seeds; distance "
-             f"{score:.1f} on those seeds. Judged below on {spec.held_out} seeds the search "
+             f"{score:.1f} on those seeds, in the tolerances the search kept. Judged below on {spec.held_out} seeds the search "
              f"never used. {evaluator.runs} markets run in all.", "",
              verdict, "", "## Settings", "", settings_table(rows, truth), "",
              ("68% intervals from the sandwich formula of simulated moments, with the spread of "
@@ -807,6 +807,8 @@ def main() -> None:
         parser.error("--step is a share of each setting's range, above 0 and at most 1")
     if args.refits < 0 or args.refits == 1:
         parser.error("--refits is 0, for none, or 2 or more: one search alone has no spread")
+    if args.truth and args.truth_markets < 1:
+        parser.error("--truth-markets must be 1 or more")
     if not (args.real or args.truth):
         parser.error("give --real, --truth, or for a twin spec both")
     spec = read_spec(args.spec)
