@@ -438,6 +438,40 @@ second, ten and a minute on, its adverse selection; and all of these at larger s
 seeds, its capacity. Set beside a paper trader's numbers on the real market, they say whether the
 fitted market predicts it.
 
+### Paper fills against the fit
+
+A paper trader runs a strategy on a real book without sending orders, recording the quotes it would
+have placed and the fills it would have had. Run the same strategy in the fitted market and
+[fills.py](../analysis/src/crowdbook_analysis/fills.py) sets the two side by side, each figure
+measured the same way, by the harness's own summary, with a 95% interval from resampling markets:
+the share of quoted lots that filled, the lots ahead of a quote, the wait to fill, the share of
+fills made resting, the lots a market, and a fill's worth 1, 10 and 60 seconds on. Figures whose
+intervals do not overlap are where the fit trades the strategy unlike the real market.
+
+```python
+from crowdbook_analysis import fills
+from crowdbook_learn.evaluate import run
+text, apart = fills.compare(fills.read_paper("paper/"), run(policy, Path("fit/twins"), seeds=range(1, 401)))
+```
+
+A paper record is a tape of the book the strategy watched, with two more tables: `quotes`
+(`market`, `time`, `side`, `price`, `size`, optionally `ahead`, the size shown at that price before
+the quote joined it) and `fills` (`market`, `time`, `side`, `price`, `quantity`, `liquidity`,
+`maker` or `taker`), times in seconds from each market's start, prices in the tape's units and
+sizes in whole lots. Without `ahead`, the size ahead is read from the record's own book: the size
+at the quote's price on its side in the last snapshot before it, as the harness counts it. A
+record with fractional or missing sizes, or rows for markets its tape does not have, is refused.
+`crowdbook-fills PAPER` prints a record's figures alone. Lots a market compare only where paper
+markets and twins last alike, as twins of the recorded markets do.
+
+Overlapping intervals are a weak test: the comparison names what is apart, and names what it
+could not compare (a figure one side has no interval for), but it does not certify agreement.
+Its known answers, on the learning example with 2-minute markets, 60 a side: a maker's record in
+engine markets, written out as a paper record and read back, overlaps the same maker on fresh
+seeds of those markets in every figure; set against the same maker where a quarter of the noise
+traders trade, six of the eight figures are apart, among them the fill rate, the queue, the wait
+and the markouts at 1 and 10 seconds.
+
 ## Datasets
 
 `crowdbook-generate` ([generate.py](../analysis/src/crowdbook_analysis/generate.py)) makes many
