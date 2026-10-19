@@ -4,7 +4,7 @@ Trade in a market served by `crowdbook serve`, from Python, by hand or with a bo
 uses only the standard library and needs Python 3.11 or later.
 
 ```bash
-pip install ./clients/python
+pip install crowdbook             # or, from crowdbook's checkout, pip install ./clients/python
 ```
 
 A bot overrides the callbacks it needs and acts through its methods:
