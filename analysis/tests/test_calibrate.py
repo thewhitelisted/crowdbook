@@ -364,3 +364,19 @@ class TargetTest(unittest.TestCase):
         real = self.summary({"spread_mean": spread, "order_size_median": size})
         target = calibrate.make_target(real, start, None, validate.Config())
         self.assertEqual(target.keys, ["spread_mean", "order_size_median"])
+
+    def test_a_rate_of_events_counts_as_a_count_in_the_fit(self):
+        rng = np.random.default_rng(2)
+        draws = {"orders_per_minute": np.exp(rng.normal(np.log(0.01), 1.0, 200))}
+        real = self.summary(draws)
+        real.point.update(_orders=1.0, _minutes=100.0)
+        target = calibrate.make_target(real, self.summary(draws), None, validate.Config())
+        self.assertEqual(target.keys, ["orders_per_minute"])
+        busy = {"orders_per_minute": 1.0, "_orders": 1000.0, "_minutes": 1000.0}
+        expected = validate.count_distance(real.point, busy, "orders_per_minute") ** 2
+        self.assertAlmostEqual(target.distance(busy), expected)
+        # Without the counts, the tolerance of the resamples, as before.
+        bare = {"orders_per_minute": 1.0}
+        gap = (np.log(1.0) - np.log(real.point["orders_per_minute"])) / target.tolerance[0]
+        self.assertAlmostEqual(target.distance(bare), gap**2)
+        self.assertGreater(target.distance(busy), target.distance(bare))
