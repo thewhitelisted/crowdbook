@@ -28,7 +28,9 @@ def project_version() -> str:
 
 
 class DocsTest(unittest.TestCase):
-    def test_the_install_instructions_name_one_published_release(self):
+    def test_the_install_instructions_name_one_release_with_notes(self):
+        # Whether that release is published yet, the repository cannot tell: step 3 of
+        # docs/releases/README.md is when the pages move to it.
         found = {page: named((ROOT / page).read_text()) for page in PAGES}
         for page, releases in found.items():
             self.assertTrue(releases, f"{page} names no release")
