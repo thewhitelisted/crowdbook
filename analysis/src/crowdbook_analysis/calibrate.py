@@ -8,7 +8,7 @@ A spec names a scenario template and the settings to fit:
 
     template = "my_market.toml"     # a scenario, with ${name} wherever a setting goes
     statistics = ["spread_mean", "orders_per_minute"]   # optional: default, every one both have
-    exclude = ["delay", "follow_1"]  # optional, instead: every one both have but these
+    # exclude = ["delay", "follow_1"]  # or instead: every one both have but these
     seeds = 60                      # markets each candidate is judged on, the same for all
     generations = 30
     held_out = 200                  # markets the fit is judged on afterwards, on other seeds
