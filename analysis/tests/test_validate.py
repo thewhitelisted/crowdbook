@@ -32,6 +32,16 @@ def market(name="m", *, spread=2.0, signs=None, prices=None, outcome=None, value
                        outcome=outcome, value_time=value_time, value=value)
 
 
+def deep_market(levels: int = 5, gap: float = 1.0, **kwargs) -> tape.Market:
+    """market(), its book `levels` deep a side, each 10 lots, `gap` ticks behind the one before."""
+    m = market(**kwargs)
+    steps = np.arange(levels) * gap
+    bid = m.bid_price[:, :1] - steps
+    ask = m.ask_price[:, :1] + steps
+    sizes = np.full(bid.shape, 10.0)
+    return replace(m, bid_price=bid, ask_price=ask, bid_size=sizes, ask_size=sizes.copy())
+
+
 class TapeTest(unittest.TestCase):
     def test_a_tape_reads_back_as_it_was_written(self):
         original = tape.Tape([market("a", outcome=100.0, value=np.full(100, 60.0)),
@@ -140,8 +150,8 @@ class StatisticsTest(unittest.TestCase):
         self.assertAlmostEqual(found["spread_mean"], 2.0)
         self.assertEqual(found["spread_one_tick"], 0.0)
         self.assertAlmostEqual(found["touch_size_median"], 10.0)
-        self.assertAlmostEqual(found["depth_mean"], 20.0)
         self.assertEqual(found["one_sided"], 0.0)
+        self.assertAlmostEqual(self.measure(deep_market())["depth_mean"], 50.0)
 
     def test_orders_and_their_signs(self):
         alternating = np.where(np.arange(100) % 2 == 0, 1.0, -1.0)
@@ -359,9 +369,14 @@ class StatisticsTest(unittest.TestCase):
 
     def test_depth_near_the_mid_turnover_and_gaps(self):
         found = self.measure(market(spread=2.0))
-        self.assertAlmostEqual(found["depth_near_3"], 20.0)  # both levels within 2 ticks
-        self.assertAlmostEqual(found["depth_near_10"], 20.0)
         self.assertAlmostEqual(found["touch_turnover"], 60 * 3 / 10)  # 3 lots a second
+        # Five levels a tick apart from 1 tick off the mid: three within 3 ticks; the last at
+        # 5 ticks cannot see 10.
+        deep = self.measure(deep_market())
+        self.assertAlmostEqual(deep["depth_near_3"], 30.0)
+        self.assertTrue(np.isnan(deep["depth_near_10"]))
+        # Eleven levels: the last exactly 11 ticks out sees 10, and the 10 within it count.
+        self.assertAlmostEqual(self.measure(deep_market(11))["depth_near_10"], 100.0)
         self.assertAlmostEqual(found["order_gap_median"], 1.0)
 
     def test_depth_is_unmeasured_beyond_what_the_tape_recorded(self):
@@ -386,6 +401,28 @@ class StatisticsTest(unittest.TestCase):
         found = self.measure(wide)
         self.assertAlmostEqual(found["depth_near_3"], 10.0)  # the touch, seen whole within 3
         self.assertTrue(np.isnan(found["depth_near_10"]))
+        # A last level exactly 3 ticks out is far enough, and counts: prices are whole ticks, so
+        # nothing within 3 is missed behind it.
+        exact = replace(both, bid_price=both.bid_price - [0, 1], ask_price=both.ask_price + [0, 1])
+        self.assertAlmostEqual(self.measure(exact)["depth_near_3"], 20.0)
+        # Padded to a deeper market's columns, as a tape of several markets is, a touch-only
+        # market still measures no depth.
+        padded = tape.Tape([top, deep_market(name="deep")], tape.Options())
+        with tempfile.TemporaryDirectory() as scratch:
+            tape.write_tape(padded, scratch)
+            back = tape.read_tape(scratch)
+        found = validate.measure(validate.pieces(tape.Tape(back.markets[:1], back.options),
+                                                 validate.Config()), validate.Config())
+        self.assertTrue(np.isnan(found["depth_mean"]))
+        # A market that saw 10 ticks for most of its time is measured over all of it; one that
+        # saw it only sometimes, not at all, rather than over its thin moments alone.
+        mostly = deep_market(11)
+        mostly.bid_price[:5, 10] = mostly.bid_price[:5, 8]  # 5 s of 100, the last 9 ticks out
+        # Those 5 s count too, the deepest bid then within 10: 105 lots for 5% of the time.
+        self.assertAlmostEqual(self.measure(mostly)["depth_near_10"], 100.0 + 5 * 5 / 100)
+        sometimes = deep_market(11)
+        sometimes.bid_price[:50, 10] = sometimes.bid_price[:50, 8]  # the last 9 ticks out
+        self.assertTrue(np.isnan(self.measure(sometimes)["depth_near_10"]))
 
     def test_the_touch_against_the_value(self):
         # The value sits 2.5 ticks above the mid, so 1.5 above the ask: the ask is through it.
