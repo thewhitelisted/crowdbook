@@ -21,8 +21,9 @@ tested strategy in about fifteen minutes.
 
 ## Install
 
-Python 3.12 or later, on Linux (x86-64 or arm64) or macOS (Apple silicon), from the latest
-release's ready-built wheels, with the repository at that release for the examples:
+Python 3.12 or later, on Linux (x86-64 or arm64, glibc 2.28 or later) or macOS 14 or later on
+Apple silicon, from the latest release's ready-built wheels, with the repository at that release
+for the examples:
 
 ```bash
 git clone --branch v0.13.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
@@ -34,8 +35,9 @@ pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0 \
 That installs the `crowdbook` command and the learning pool `crowdbook_learn` (the
 `crowdbook-engine` package), and the analysis commands, `crowdbook-assess`,
 `crowdbook-calibrate`, `crowdbook-validate` and the rest (`crowdbook-analysis`), in under a
-minute. Elsewhere, or from a checkout of `main`, `pip install . ./analysis` builds the engine
-from source with CMake 3.25+ and a C++23 compiler ([docs/quickstart.md](docs/quickstart.md#install));
+minute. On any other platform the same command builds the engine from source, as does
+`pip install . ./analysis` from a checkout of `main`, with CMake 3.25+ and a C++23 compiler
+([docs/quickstart.md](docs/quickstart.md#install));
 [Building](#building) covers the C++ build with its tests.
 
 ## Quick start
