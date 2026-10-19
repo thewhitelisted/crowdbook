@@ -28,11 +28,10 @@ later on Apple silicon, and the repository at the release for the tutorial's fil
 ```bash
 git clone --branch v0.13.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
 python3 -m venv .venv && . .venv/bin/activate
-pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0 \
-    --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/v0.13.0
+pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0
 ```
 
-That installs two packages from the release's ready-built wheels, in under a minute:
+That installs two packages from PyPI's ready-built wheels, in under a minute:
 `crowdbook-engine`, the `crowdbook` command and the learning pool `crowdbook_learn`, and
 `crowdbook-analysis`, the commands that fit and check markets. On any other platform the same
 command builds the engine from source instead, which needs CMake 3.25+ and a C++23 compiler
