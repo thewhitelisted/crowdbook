@@ -1,8 +1,9 @@
 # crowdbook-analysis
 
 The commands that fit [crowdbook](https://github.com/thewhitelisted/crowdbook)'s simulated markets
-to a recorded one and say whether the fit can be trusted for testing strategies. They run the
-`crowdbook` command from `crowdbook-engine`, installed alongside.
+to a recorded one and say whether the fit can be trusted for testing strategies. All but
+`crowdbook-tape` run the `crowdbook` command, which comes with `crowdbook-engine`:
+`pip install crowdbook-engine crowdbook-analysis`.
 
 | command | does |
 |---|---|
