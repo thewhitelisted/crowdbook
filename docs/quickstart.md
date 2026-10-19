@@ -141,9 +141,9 @@ crowdbook-tape --quotes quotes.csv --trades trades.csv --market 3600 --tick 0.01
 - Times are seconds, or another unit with `--time-unit ms`, or dates and times as text.
 - `--market 3600` cuts a long recording into markets an hour long, each opening with the book and
   the value as they stood. A recording is judged over its markets, its intervals from resampling
-  them, so a day of one market is better read as many shorter ones. An hour with no quotes,
-  trades or values of its own, such as one the venue was closed, is left out, and the last market
-  ends at the recording's last event.
+  them, so a day of one market is better read as many shorter ones. An hour with no quotes or
+  trades of its own, such as one the venue was closed, is left out, and the last market ends at
+  the recording's last quote or trade.
 - `--returns log` for prices like a stock's or a coin's; the default, `difference`, for bounded
   prices such as a probability's.
 - `--same-order 0.002` for a venue that stamps each fill of one order on its own: prints within

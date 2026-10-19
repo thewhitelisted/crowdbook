@@ -128,9 +128,9 @@ class ConvertTest(unittest.TestCase):
             convert.write(tables, Path(scratch))
             back = read_tape(scratch).markets
         self.assertEqual(len(back), 3)
-        # The recording's end is its last event, which ends the last market.
+        # The recording's end is its last quote or trade, which ends the last market.
         last = markets[-1]
-        ends = [300.0, 300.0, max(last.book_time[-1], last.trade_time[-1], last.value_time[-1])]
+        ends = [300.0, 300.0, max(last.book_time[-1], last.trade_time[-1])]
         for original, got, end in zip(markets, back, ends, strict=True):
             self.assertAlmostEqual(got.duration, end, delta=1e-6)
             np.testing.assert_allclose(got.book_time, original.book_time, atol=1e-6)
@@ -138,21 +138,43 @@ class ConvertTest(unittest.TestCase):
             np.testing.assert_array_equal(got.ask_size, original.ask_size)
             np.testing.assert_allclose(got.trade_time, original.trade_time, atol=1e-6)
             np.testing.assert_array_equal(got.trade_sign, original.trade_sign)
-            np.testing.assert_array_equal(got.value, original.value)
+            np.testing.assert_array_equal(got.value, original.value[original.value_time <= end])
 
-    def test_the_value_is_carried_in_and_counts_toward_the_recordings_span(self):
-        q = quotes([10, 100, 250])
+    def test_the_value_is_carried_in_and_kept_within_the_quotes_and_trades(self):
+        q = quotes([10, 100, 160, 250])
         t = pl.DataFrame({"time": [20.0], "price": [101.0], "size": [1.0], "side": ["buy"]})
         v = pl.DataFrame({"time": [0.0, 150.0, 330.0], "value": [1.0, 2.0, 3.0]})
         tables = convert.convert(q, t, market=100, value=v)
-        self.assertEqual(tables["markets"]["duration"].to_list(), [100.0, 100.0, 100.0, 30.0])
+        self.assertEqual(tables["markets"]["duration"].to_list(), [100.0, 100.0, 40.0])
         value = tables["value"]
+        # The value of 0 s as it stood at the start, 10 s; that of 330 s after the last quote.
         self.assertEqual(value["market"].to_list(), ["market-0000", "market-0001", "market-0001",
-                                                     "market-0002", "market-0003", "market-0003"])
-        self.assertEqual(value["time"].to_list(), [0.0, 0.0, 50.0, 0.0, 0.0, 30.0])
-        self.assertEqual(value["value"].to_list(), [1.0, 1.0, 2.0, 2.0, 2.0, 3.0])
-        self.assertEqual(tables["book"].filter(pl.col("market") == "market-0000")["time"]
-                         .to_list(), [10.0])
+                                                     "market-0002"])
+        self.assertEqual(value["time"].to_list(), [0.0, 0.0, 40.0, 0.0])
+        self.assertEqual(value["value"].to_list(), [1.0, 1.0, 2.0, 2.0])
+
+    def test_a_value_through_the_night_keeps_no_market_of_its_own(self):
+        q = quotes([7_300, 7_400, 18_000])
+        t = pl.DataFrame({"time": [7_350.0], "price": [101.0], "size": [1.0], "side": ["buy"]})
+        v = pl.DataFrame({"time": np.arange(0.0, 20_000.0, 60.0),
+                          "value": np.arange(0.0, 20_000.0, 60.0)})
+        tables = convert.convert(q, t, market=3_600, value=v)
+        # From the first quote, 7,300 s: its hour, then 18,000 s three hours on.
+        self.assertEqual(tables["markets"]["market"].to_list(), ["market-0000", "market-0002"])
+        self.assertEqual(tables["value"]["market"].unique().sort().to_list(),
+                         ["market-0000", "market-0002"])
+        self.assertEqual(tables["value"]["time"].min(), 0.0)
+
+    def test_a_last_event_on_a_boundary_opens_no_market_of_no_length(self):
+        start, length = 1_704_097_352.3936195, 0.1
+        q = pl.DataFrame({"time": [start + d for d in (0.0, 0.05, 0.1, 0.15, 0.2)],
+                          "bid_price": [1.0] * 5, "bid_size": [1.0] * 5,
+                          "ask_price": [5.0] * 5, "ask_size": [1.0] * 5})
+        t = pl.DataFrame({"time": [start + 0.01, start + 0.12], "price": [5.0, 5.0],
+                          "size": [1.0, 1.0], "side": ["buy", "buy"]})
+        markets = convert.convert(q, t, market=length)["markets"]
+        self.assertEqual(len(markets), 2)
+        np.testing.assert_allclose(markets["duration"].to_list(), [0.1, 0.1], atol=1e-6)
 
     def test_a_stretch_with_nothing_of_its_own_is_left_out(self):
         q = quotes([0, 30, 7_250])
