@@ -340,20 +340,38 @@ class Target:
         return np.array([float(validate._scaled(point.get(k, np.nan), log))
                          for k, log in zip(self.keys, self.logs, strict=True)])
 
-    def judged(self, judged: validate.Summary) -> float:
-        """The distance of a summary judged on its own markets, each statistic's tolerance from
-        the recording's resamples and its own, as the report measures it: what the reach check
-        reads. The search keeps the tolerances fixed at the start, which steadies it, but a
-        statistic of rare events, such as a share of time the touch is two ticks through the
-        value, can be all but unseen at the start and seen in the markets judged, and a
-        tolerance from the start alone would count that chance as a miss."""
+    def judged(self, judged: validate.Summary, searched: validate.Summary | None = None) -> float:
+        """The distance of a fitted summary judged on fresh markets: what the reach check reads.
+        A fit's statistics on fresh seeds stray from the recording by three noises: the
+        recording's own; that of the seeds the search scored on, which the fitted settings
+        partly chased, measured at the fit by `searched`, those settings on those seeds; and
+        the fresh markets', which the markets judged give. The last matters for a statistic of
+        rare events, such as a share of time the touch is two ticks through the value, all but
+        unseen at the start and seen in the markets judged; the second for a fit on few seeds,
+        whose settings carry their noise. A rate of events is compared by its count, with all
+        three counts' noise. Without `searched`, or where it has no spread, the search's noise
+        is the start's, from the tolerances the search kept."""
         gaps = []
         for index, (key, log) in enumerate(zip(self.keys, self.logs, strict=True)):
-            gap = validate.distance(self.real, judged, key, log)
-            if not np.isfinite(gap):
-                gap = (float(validate._scaled(judged.point.get(key, np.nan), log))
-                       - self.vector[index]) / self.tolerance[index]
-            gaps.append(gap)
+            if key in validate.COUNTED:
+                gap = validate.count_distance(self.real.point, judged.point, key,
+                                              searched.point if searched is not None else None)
+                if np.isfinite(gap):
+                    gaps.append(gap)
+                    continue
+            tolerance = self.tolerance[index]
+            if searched is not None:
+                # A statistic the fit's seeds hardly measure has no spread there: the
+                # recording's stands alone, and the markets judged add theirs below.
+                chased = validate.spread_of(searched.draws[key], log)
+                at_fit = math.hypot(validate.spread_of(self.real.draws[key], log),
+                                    chased if np.isfinite(chased) else 0.0)
+                if np.isfinite(at_fit) and at_fit > 0:
+                    tolerance = at_fit
+            own = validate.spread_of(judged.draws[key], log)
+            tolerance = math.hypot(tolerance, own if np.isfinite(own) else 0.0)
+            gaps.append((float(validate._scaled(judged.point.get(key, np.nan), log))
+                         - self.vector[index]) / tolerance)
         gaps = np.array(gaps)
         return float(np.sum(np.where(np.isfinite(gaps), gaps**2, 1e6)))
 
@@ -733,11 +751,12 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     judged = [evaluator.summary("start", spec.start(), held_out, seed=4),
               evaluator.summary("fitted", fitted, held_out, seed=5)]
     text, data = validate.report(real, judged, config)
-    held_distance = target.judged(judged[1])
+    held_distance = target.judged(judged[1], fitted_fit_seeds)
     # At the true settings each compared statistic is off by chance alone, so the distance, each
-    # gap over the recording's and the held-out markets' own spreads, is about chi-squared with
-    # one degree of freedom a statistic. Beyond its 95th percentile the model does not reach the
-    # target, and the sandwich formula, which assumes it does, says too little.
+    # gap over the recording's, the search seeds' and the held-out markets' spreads, is about
+    # chi-squared with one degree of freedom a statistic. Beyond its 95th percentile the model
+    # does not reach the target, and the sandwich formula, which assumes it does, says too
+    # little.
     reached = held_distance <= chi_squared_95(len(target.keys))
     verdict = (f"Distance on the held-out seeds: {held_distance:.1f}, against "
                f"{chi_squared_95(len(target.keys)):.1f} that chance alone would stay under 95% of "
