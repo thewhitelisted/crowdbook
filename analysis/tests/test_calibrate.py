@@ -168,6 +168,26 @@ class ConditionTest(unittest.TestCase):
         self.assertEqual(calibrate.market_texts(tapes.Market(
             **{**m.__dict__, "scores": None}))["script"], "[]")
 
+    def test_a_market_that_is_no_contract_gives_its_twins_its_value_in_ticks(self):
+        from crowdbook_analysis import tape as tapes
+        from test_validate import market
+        index = market("perp", duration=120.0)
+        index.value_time = np.array([0.0, 10.0, 20.0, 30.0])
+        index.value = np.array([60125.5, 60125.5, np.nan, 60131.0])
+        [index] = calibrate.with_openings(tapes.Tape([index], tapes.Options(tick=0.5)))
+        self.assertEqual(index.labels["value_path"], [(0.0, 120251.0), (30.0, 120262.0)])
+        self.assertEqual(index.labels["opening_value"], 120251.0)
+        self.assertEqual(index.labels["opening_price"], 120251)
+        self.assertNotIn("outcome", index.labels)
+        texts = calibrate.market_texts(index)
+        parsed = tomllib.loads(f"initial = {texts['opening_value']}\n"
+                               f"path = {texts['value_path']}")
+        self.assertEqual(parsed, {"initial": 120251, "path": [[0, 120251], [30, 120262]]})
+        # A market without a value table gets neither.
+        bare = market("bare", duration=60.0)
+        [bare] = calibrate.with_openings(tapes.Tape([bare], tapes.Options(tick=0.5)))
+        self.assertNotIn("value_path", bare.labels)
+
     def test_a_target_market_gives_its_twins_its_value_path_and_outcome(self):
         from crowdbook_analysis import tape as tapes
         from test_validate import market

@@ -216,7 +216,7 @@ def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[t
     has them. A `kickoff` label outside the market's run is moved to its nearer end.
     """
     if not t.options.payout:
-        return t.markets
+        return with_value_paths(t)
     for m in t.markets:
         # A twin's kickoff falls within its run: a game already under way when the recording
         # began kicks off at its opening, and one after the recording ended at its close. The
@@ -243,6 +243,29 @@ def with_openings(t: tapes.Tape, low: float = 0.05, high: float = 0.9) -> list[t
             # 27% with the 2.5 scores the game twins expect at least.
             top = DRAW_HIGHEST if m.labels.get("side") == "draw" else high
             m.labels["opening_probability"] = float(np.clip(first / t.options.payout, low, top))
+    return t.markets
+
+
+def with_value_paths(t: tapes.Tape) -> list[tapes.Market]:
+    """Markets that are not binary contracts, each with a reference value, labelled
+    `value_path`, that value as (seconds, ticks) pairs where it changed, `opening_value`, its
+    first, in ticks, and `opening_price`, that to the nearest tick: for twins whose
+    `[fundamental]` follows it."""
+    tick = t.options.tick
+    for m in t.markets:
+        if m.value is None or m.value_time is None:
+            continue
+        path: list[tuple[float, float]] = []
+        for time, value in zip(m.value_time, m.value, strict=True):
+            if not (np.isfinite(value) and np.isfinite(time)):
+                continue
+            ticks = round(float(value) / tick, 6)
+            if not path or ticks != path[-1][1]:
+                path.append((round(max(float(time), 0.0), 6), ticks))
+        if path:
+            m.labels["value_path"] = path
+            m.labels["opening_value"] = path[0][1]
+            m.labels["opening_price"] = int(round(path[0][1]))  # a whole tick, to anchor at
     return t.markets
 
 
@@ -487,10 +510,11 @@ class Evaluator:
             # A twin whose value runs ahead of its recorded reference is measured against that
             # reference, as its recorded market is: how its book trails or leads it.
             path = target.labels.get("value_path")
-            if any(p.name == VALUE_LEAD for p in self.spec.parameters) and path and payout:
+            if any(p.name == VALUE_LEAD for p in self.spec.parameters) and path:
+                # In cents of a binary contract's payout, else in ticks, a twin's own unit.
+                scale = payout / 100.0 if payout else 1.0
                 market.value_time = np.array([time for time, _ in path], dtype=float)
-                market.value = np.array([cents for _, cents in path], dtype=float) \
-                    * payout / 100.0
+                market.value = np.array([value for _, value in path], dtype=float) * scale
             # A twin is cut where its recorded market is, or left out with it.
             if self.spec.phase is not None:
                 label = self.spec.phase[0]

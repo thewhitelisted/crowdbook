@@ -1,0 +1,34 @@
+# What crowdbook-calibrate fits in index_twins.toml: each recorded market gets `seeds` twins for
+# every candidate and `held_out` for the verdict, its value the recorded reference.
+template = "index_twins.toml"
+condition = true
+seeds = 4
+generations = 60
+held_out = 20
+
+[parameters.maker_intensity]
+low = 0.1
+high = 2.0
+start = 0.4
+
+[parameters.noise_market_rate]
+low = 0.02
+high = 1.0
+start = 0.1
+
+[parameters.size_tail]
+low = 0.8
+high = 3.0
+start = 1.5
+
+[parameters.followers]
+low = 1
+high = 40
+start = 10
+whole = true
+
+[parameters.follower_lag]
+low = 0.5
+high = 30.0
+start = 5.0
+kind = "duration"

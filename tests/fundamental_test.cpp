@@ -280,6 +280,29 @@ TEST(PredictionTest, ARecordedPathIsFollowedAndSettles) {
     EXPECT_NEAR(pathless.valueAt(100 * kSecond), 0.0, 1e-12);
 }
 
+// Outside a prediction market a recorded path is in ticks, `initial` until its first point,
+// and holds its last value: there is nothing to settle.
+TEST(FundamentalTest, ARecordedPathIsFollowedInTicks) {
+    Fundamental value{FundamentalConfig{.initial = 6000.0,
+                                        .volatility = 0.0,
+                                        .path = {{.at = 10 * kSecond, .value = 6012.5},
+                                                 {.at = 30 * kSecond, .value = 5990.0}}},
+                      Random{1, 0}};
+    EXPECT_NEAR(value.valueAt(0), 6000.0, 1e-12);
+    EXPECT_NEAR(value.valueAt(10 * kSecond), 6012.5, 1e-12);
+    EXPECT_NEAR(value.valueAt(31 * kSecond), 5990.0, 1e-12);
+    EXPECT_NEAR(value.valueAt(15 * kSecond), 6012.5, 1e-12); // read late
+    EXPECT_NEAR(value.valueAt(1000 * kSecond), 5990.0, 1e-12);
+    for (const FundamentalConfig& config :
+         {FundamentalConfig{.volatility = 1.0, .path = {{.at = 0, .value = 1.0}}},
+          FundamentalConfig{.volatility = 0.0, .jumpRate = 0.1, .path = {{.at = 0, .value = 1.0}}},
+          FundamentalConfig{.volatility = 0.0,
+                            .path = {{.at = 2 * kSecond, .value = 1.0}, {.at = kSecond, .value = 1.0}}},
+          FundamentalConfig{.volatility = 0.0, .path = {{.at = -1, .value = 1.0}}}}) {
+        EXPECT_THROW(Fundamental(config, Random{1, 0}), std::invalid_argument);
+    }
+}
+
 TEST(PredictionTest, ARecordedPathIsChecked) {
     const std::vector<ValuePoint> path{{.at = kSecond, .value = 50.0}};
     for (const PredictionConfig& config :

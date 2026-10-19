@@ -331,6 +331,37 @@ type = "zero_intelligence"
     }
 }
 
+// Any market's value can follow a recording too, in ticks: an index's price, say.
+TEST(ScenarioFileTest, ReadsARecordedFundamentalPath) {
+    const Scenario scenario = parseScenario(R"(duration = "120s"
+[fundamental]
+initial = 60125
+path = [[0, 60125.5], [30.5, 60131], [90, 60118]]
+[[agents]]
+type = "zero_intelligence"
+)");
+    EXPECT_EQ(scenario.fundamental->path,
+              (std::vector<ValuePoint>{{.at = 0, .value = 60'125.5},
+                                       {.at = 30'500 * kMillisecond, .value = 60'131.0},
+                                       {.at = 90 * kSecond, .value = 60'118.0}}));
+    EXPECT_EQ(scenario.fundamental->volatility, 0.0);
+    const auto value = makeFundamental(scenario);
+    ASSERT_TRUE(value);
+    EXPECT_NEAR(value->valueAt(31 * kSecond), 60'131.0, 1e-9);
+    EXPECT_NEAR(value->valueAt(120 * kSecond), 60'118.0, 1e-9); // no settlement: it holds
+
+    const std::string agent = "[[agents]]\ntype = \"momentum\"\n";
+    for (const auto& [text, message] : std::vector<std::pair<std::string, std::string>>{
+             {"[fundamental]\npath = []\n" + agent, "'path' must be a list"},
+             {"[fundamental]\npath = [[1, 2, 3]]\n" + agent, "a pair: [seconds, ticks]"},
+             {"[fundamental]\npath = [[-1, 50]]\n" + agent, "from the start"},
+             {"[fundamental]\npath = [[2, 50], [1, 50]]\n" + agent, "in order of time"},
+             {"[fundamental]\nvolatility = 2\npath = [[1, 50]]\n" + agent,
+              "a recorded 'path' replaces the walk"}}) {
+        EXPECT_NE(parseError(text).find(message), std::string::npos) << parseError(text);
+    }
+}
+
 TEST(ScenarioFileTest, ReadsAGame) {
     const Scenario scenario = parseScenario(R"(duration = "3h"
 [prediction]

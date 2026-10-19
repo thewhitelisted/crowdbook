@@ -10,6 +10,15 @@
 
 namespace crowdbook {
 
+// A point of a recorded value path: from `at` on, until the next point, the value is `value`, in
+// cents of the payout for a prediction market and in ticks for any other.
+struct ValuePoint {
+    Duration at = 0;
+    double value = 0.0;
+
+    friend bool operator==(const ValuePoint&, const ValuePoint&) = default;
+};
+
 struct FundamentalConfig {
     double initial = 10'000.0;           // ticks; also the level the value reverts to
     double meanReversion = 0.0;          // per second; 0 makes the value a random walk
@@ -19,6 +28,11 @@ struct FundamentalConfig {
     // normally distributed with standard deviation jumpSize ticks. 0 means no news.
     double jumpRate = 0.0;
     double jumpSize = 0.0;
+    // A recorded value instead of the walk, in ticks: the price of the same asset elsewhere, such
+    // as an index, so that a market can be made to see the moves a recorded one saw. The value is
+    // `initial` until the first point and each point's from its time until the next. It takes no
+    // mean reversion, volatility or jumps.
+    std::vector<ValuePoint> path{};
 };
 
 // A prediction market's share pays this many cents if the answer is yes, and nothing if it is no,
@@ -81,15 +95,6 @@ struct GameConfig {
     }
 
     friend bool operator==(const GameConfig&, const GameConfig&) = default;
-};
-
-// A point of a recorded value path: from `at` on, until the next point, the value is `value`, in
-// cents of the payout.
-struct ValuePoint {
-    Duration at = 0;
-    double value = 0.0;
-
-    friend bool operator==(const ValuePoint&, const ValuePoint&) = default;
 };
 
 // A prediction market's question, decided at the end of the run by whether a hidden quantity ends
