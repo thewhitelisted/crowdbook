@@ -64,7 +64,7 @@ same statistics on a real tape and on one or more synthetic ones:
 
 | family | statistics |
 |---|---|
-| the book | the spread, time-weighted, its median and the share of time at one tick; size at the best quotes, within five levels, and within 3 and 10 ticks of the mid; how often a side is empty; how often the best prices change, seen once a grid step alike for a recording and a simulation |
+| the book | the spread, time-weighted, its median and the share of time at one tick; size at the best quotes, within five levels, and within 3 and 10 ticks of the mid (each measured only in markets whose tape saw that deep: within five levels where a market records five, within 3 or 10 ticks where its last recorded level reaches that far for nine tenths of its time, else not at all, so a tape of the touch alone measures no depth and a fit leaves depth out of its target; a simulated book needs `depth_levels` of 10 or more to measure 10 ticks); how often a side is empty; how often the best prices change, seen once a grid step alike for a recording and a simulation |
 | trades | aggressive orders a minute (the prints one order makes at one time count once, or with the tape's `same_order` each within that of the one before), prints per order, order sizes (median, the largest tenth against the median, the tail's Hill exponent), the gaps between orders (median, and how bursty), the share in the first and last tenth of the market, and lots traded a minute over the size at the touch, how fast the touch is filled |
 | returns | the mid's changes over 1, 10 and 60 s: standard deviation, excess kurtosis, the tail exponent, variance ratios, successive changes' autocorrelation |
 | volatility clustering | the autocorrelation of the size of 1 s changes, 1 and 10 s apart |
@@ -298,6 +298,12 @@ Two checks guard the fit:
   of its own model (75 against 64). The report's table below compares each statistic by the
   first and last noises alone, so its distances can sum to more than the held-out distance. A
   twin spec takes `--real` beside `--truth`, its known twins copying the recorded markets.
+- **What a recording without a value can pin down.** Without a value series nothing measures how
+  late or how well informed the traders are, so settings such as a follower's lag are not
+  identified. On a sample of the tutorial's own market without one, a fit settled at a lag of
+  1.2 s against the true 10 s and failed the reach check, 661 against 52; with the value every
+  second it was usable, 50.5 against 62.8. Fix such settings from what is known, or fit a
+  template without them.
 - **Can it find what it should?** `--truth name=value,...` fits markets the engine made itself, at
   settings it knows, from the spec's starting point, and reports whether each interval covers
   the truth. A fit that cannot find a known answer should not be trusted with an unknown one.

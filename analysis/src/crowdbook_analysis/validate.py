@@ -350,6 +350,11 @@ def _reactions(events: np.ndarray, times: np.ndarray, series: np.ndarray,
     return out
 
 
+# The share of a market's two-sided time its recorded levels must reach a distance from the mid
+# for the depth within it to be measured.
+MOSTLY_SEEN = 0.9
+
+
 def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> dict:
     """Everything one market adds to the pooled statistics. Prices are counted in ticks, so that
     markets priced in dollars and in cents compare."""
@@ -376,14 +381,35 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     levels = min(config.levels, m.bid_size.shape[1])
     depth = (np.nansum(m.bid_size[:, :levels], axis=1)
              + np.nansum(m.ask_size[:, :levels], axis=1)) / 2
-    p["depth"] = np.array([float(depth[both] @ held[both]), float(held[both].sum())])
+    # Depth is measured only where the tape saw it, market by market: a tape of the touch alone
+    # measures no depth, rather than depth that is all touch. A market records as many levels as
+    # it ever fills, so a tape padded to a deeper market's columns does not pass for deep.
+    # A book always thinner than the levels counted cannot be told from one recorded thinner, and
+    # measures no depth within levels; within ticks, a book seen to end counts as seen.
+    filled = np.isfinite(m.bid_price).any(axis=0) | np.isfinite(m.ask_price).any(axis=0)
+    recorded = int(np.flatnonzero(filled)[-1]) + 1 if filled.any() else 0
+    quoted = both & (spread > 0)  # a crossed book, as in an auction, has no depth to speak of
+    deep = recorded >= config.levels
+    p["depth"] = (np.array([float(depth[quoted] @ held[quoted]), float(held[quoted].sum())])
+                  if deep else np.zeros(2))
+    last_bid = m.bid_price[:, recorded - 1] if recorded else np.full(len(spread), np.nan)
+    last_ask = m.ask_price[:, recorded - 1] if recorded else np.full(len(spread), np.nan)
     for ticks in (3, 10):
         near = (np.nansum(np.where(np.abs(m.bid_price - mid[:, None]) <= ticks, m.bid_size, 0.0),
                           axis=1)
                 + np.nansum(np.where(np.abs(m.ask_price - mid[:, None]) <= ticks, m.ask_size,
                                      0.0), axis=1)) / 2
-        p[f"near_{ticks}"] = np.array([float(near[both] @ held[both]),
-                                       float(held[both].sum())])
+        # Within `ticks` of the mid is seen where each side's last level recorded lies more than
+        # `ticks` - 1 out, as the next price behind it, a whole tick further, is beyond `ticks`
+        # whether the mid sits on a tick or half way between, or where its book ended sooner. A market is measured over all its time if it saw that far for most of it, and
+        # not at all otherwise: keeping only the moments it saw would keep only thin books.
+        with np.errstate(invalid="ignore"):
+            reach = ((np.isnan(last_bid) | (mid - last_bid > ticks - 1 + 1e-9))
+                     & (np.isnan(last_ask) | (last_ask - mid > ticks - 1 + 1e-9)))
+        total = float(held[quoted].sum())
+        sees = total > 0 and float(held[quoted & reach].sum()) >= MOSTLY_SEEN * total
+        p[f"near_{ticks}"] = (np.array([float(near[quoted] @ held[quoted]), total]) if sees
+                              else np.zeros(2))
     p["volume"] = float(m.trade_size.sum())
 
     # Orders.

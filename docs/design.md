@@ -989,6 +989,61 @@ kinds of guard keep it fast.
   if anything is more than 10% slower. `--update` records a new baseline when a change is meant to
   move it.
 
+## A maker that sets the price (plan, 19 October 2026)
+
+**The gap.** Every maker in the engine follows a price: the value as its belief sees it, or the
+average of trades. That one gap explains three failures.
+- **Recordings where the book makes the price.** Some books lead their reference by a minute or
+  more, trade rarely, and have a mid that reverts. No fit within chance has been found for them:
+  held-out distances 5× chance.
+- **Planted errors.** A post-only follower whose fair price strays cannot move the price through
+  resting orders, so the book absorbs the error. Its mid moved a sixth of the error's own movement.
+- **Venue design.** Studying a venue's rules needs makers who can misprice and move the price.
+
+**The model.** A market maker reads order flow and moves its own price, as in Glosten and Milgrom
+(1985) and Kyle (1985): a buy is evidence the value is higher. Three settings on `market_maker`,
+each off by default, so every scenario runs as it does today:
+
+| setting | meaning |
+|---|---|
+| `flow_impact` | ticks its fair price moves for each lot of aggressive volume printed, up for buys and down for sells |
+| `flow_memory` | how long that impact lasts. The impact decays exponentially, falling to 1/e after this long. Unset, it is permanent: Kyle's informed flow. Finite, it is transient: flow the maker learns to discount, which makes the mid revert. |
+| `take_through` | when its fair price has moved past the far side of the book by more than this many ticks, the maker trades against the stale quotes up to its inventory limit, rather than waiting behind them. |
+
+The fair price is then the maker's anchor plus the flow impact, and its inventory skew and ladder
+apply as now. The anchor is its value belief, which a twin can lead ahead of the reference
+(`value_lead`), or else the trade average. A maker that sees the value early, reads flow and
+takes through stale quotes is a price-setter: the book moves because it moves.
+
+**Known-answer tests, before any real fit.**
+1. **Units.** A lone buy of q lots moves the fair price by `flow_impact`·q, and by 1/e of that
+   after `flow_memory`. With no memory, nothing decays. With `take_through`, a fair price that
+   moves past the far side by more than the threshold takes the stale quotes and no more.
+2. **Glosten–Milgrom.** Against informed takers, a flow-reading maker loses less per fill than
+   the same maker with `flow_impact` 0. Against uninformed takers, it earns no less, within
+   intervals over seeds.
+3. **Reversion.** A finite `flow_memory` gives the mid negative autocorrelation of its changes at
+   the memory's timescale. A permanent impact gives none.
+4. **Recovery.** Index twins whose maker reads flow, fitted to markets made at known
+   `flow_impact` and `flow_memory`, find both to within 10%, within chance on held-out seeds, as
+   the index twins without it already do.
+
+**The real fits it must improve,** both recorded books that lead their reference:
+- a prediction-market book before its event, now at 232 against 47;
+- a deep crypto perpetual book, if its first fit, due 19 October, is not within chance.
+
+**Pass rule.** The work passes if it brings a real fit within chance on held-out markets, with
+the no-false-edge check passing on it: no generic probe or learner paid where the recording pays
+nobody.
+
+**Hard stop: 2 November 2026.** If no real fit is within chance by then, the work stops, and
+what was learnt is written here. The three settings stay only if their known answers pass and
+they do not slow the engine.
+
+**Who does what.** The engine product session implements the three settings: C++, registry,
+scenarios.md, and tests 1 and 2. The engine trust session writes tests 3 and 4, the templates
+and the fits, and judges the pass rule.
+
 ## Decisions
 
 Choices for later milestones may change once they are implemented; changes are recorded here.
