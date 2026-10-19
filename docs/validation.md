@@ -457,10 +457,20 @@ text, apart = fills.compare(fills.read_paper("paper/"), run(policy, Path("fit/tw
 A paper record is a tape of the book the strategy watched, with two more tables: `quotes`
 (`market`, `time`, `side`, `price`, `size`, optionally `ahead`, the size shown at that price before
 the quote joined it) and `fills` (`market`, `time`, `side`, `price`, `quantity`, `liquidity`,
-`maker` or `taker`), times in seconds from each market's start and prices in the tape's units.
-`crowdbook-fills PAPER` prints a record's figures alone. Its known answer: a strategy's record in
-an engine market, written out as a paper record and read back, overlaps the same strategy on fresh
-seeds of that market in every figure (60 markets each, the learning example).
+`maker` or `taker`), times in seconds from each market's start, prices in the tape's units and
+sizes in whole lots. Without `ahead`, the size ahead is read from the record's own book: the size
+at the quote's price on its side in the last snapshot before it, as the harness counts it. A
+record with fractional or missing sizes, or rows for markets its tape does not have, is refused.
+`crowdbook-fills PAPER` prints a record's figures alone. Lots a market compare only where paper
+markets and twins last alike, as twins of the recorded markets do.
+
+Overlapping intervals are a weak test: the comparison names what is apart, and names what it
+could not compare (a figure one side has no interval for), but it does not certify agreement.
+Its known answers, on the learning example with 2-minute markets, 60 a side: a maker's record in
+engine markets, written out as a paper record and read back, overlaps the same maker on fresh
+seeds of those markets in every figure; set against the same maker where a quarter of the noise
+traders trade, six of the eight figures are apart, among them the fill rate, the queue, the wait
+and the markouts at 1 and 10 seconds.
 
 ## Datasets
 

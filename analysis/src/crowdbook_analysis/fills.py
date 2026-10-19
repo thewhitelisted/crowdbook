@@ -5,7 +5,7 @@ the strategy trades in the real one.
     from crowdbook_learn.evaluate import run
     paper = fills.read_paper("paper/")                       # what a paper trader recorded
     twins = run(policy, Path("fit/twins"), seeds=range(1, 401))
-    print(fills.compare(paper, twins))
+    text, apart = fills.compare(paper, twins)
 
 A paper trader watches a real book and records what its strategy would have done there: the
 quotes it would have placed and the fills it would have had. Run the same strategy in the fitted
@@ -76,6 +76,30 @@ def _side(values) -> np.ndarray:
     return np.where(text == "buy", 1, -1)
 
 
+def _whole(values, what: str) -> np.ndarray:
+    """Lots as whole numbers: a record in fractions of a lot, or with a size missing, is refused
+    rather than cut to whole lots unseen."""
+    found = np.asarray(values, dtype=float)
+    if not np.isfinite(found).all() or (found != np.round(found)).any() or (found < 0).any():
+        raise ValueError(f"every {what} must be a whole number of lots, 0 or more")
+    return found.astype(np.int64)
+
+
+def _nanoseconds(seconds) -> np.ndarray:
+    return np.round(np.asarray(seconds, dtype=float) * NANOSECONDS).astype(np.int64)
+
+
+def _ahead_in_book(m: tapes.Market, time: float, side: int, price: float) -> int:
+    """The size the book showed at `price` on the quote's own side in the last snapshot at or
+    before `time`: lots ahead of a quote that joins it, as the harness counts them."""
+    at = int(np.searchsorted(m.book_time, time, side="right")) - 1
+    if at < 0:
+        return 0
+    prices, sizes = (m.bid_price, m.bid_size) if side > 0 else (m.ask_price, m.ask_size)
+    match = np.isclose(prices[at], price)
+    return int(np.nansum(sizes[at][match])) if match.any() else 0
+
+
 def read_paper(directory: Path | str) -> list:
     """A paper record as episodes like the strategy harness's, one a market of its tape, prices
     in ticks and times in nanoseconds as the harness records them."""
@@ -84,32 +108,42 @@ def read_paper(directory: Path | str) -> list:
     tick = recorded.options.tick
     quotes = tapes._table(directory, "quotes")
     fill_rows = tapes._table(directory, "fills")
+    names = {m.name for m in recorded.markets}
+    for what, table in (("quotes", quotes), ("fills", fill_rows)):
+        unknown = sorted(set(table["market"].to_list()) - names)
+        if unknown:
+            raise ValueError(f"{what} for markets the tape does not have: {unknown[:5]}")
     episodes = []
     for index, m in enumerate(recorded.markets):
         episode = PaperEpisode(seed=index, scenario=index)
         mid = (m.bid_price[:, 0] + m.ask_price[:, 0]) / 2 / tick
         kept = np.isfinite(mid)
-        episode.mids = list(zip((m.book_time[kept] * NANOSECONDS).astype(np.int64).tolist(),
+        episode.mids = list(zip(_nanoseconds(m.book_time[kept]).tolist(),
                                 mid[kept].tolist(), strict=True))
         mine = quotes.filter(pl.col("market") == m.name)
         if len(mine):
-            ahead = (mine["ahead"].to_numpy() if "ahead" in mine.columns
-                     else np.zeros(len(mine)))
+            times, sides = mine["time"].to_numpy(), _side(mine["side"])
+            prices = mine["price"].to_numpy().astype(float)
+            # Without the size ahead, it is read from the book the record carries.
+            ahead = (_whole(mine["ahead"].to_numpy(), "ahead") if "ahead" in mine.columns
+                     else [_ahead_in_book(m, t, s, p) for t, s, p in zip(times, sides, prices,
+                                                                          strict=True)])
             episode.quotes = [
-                (int(t * NANOSECONDS), int(s), int(round(p / tick)), int(q), int(a))
-                for t, s, p, q, a in zip(mine["time"].to_numpy(), _side(mine["side"]),
-                                         mine["price"].to_numpy(), mine["size"].to_numpy(),
-                                         ahead, strict=True)]
+                (int(t), int(s), int(round(p / tick)), int(q), int(a))
+                for t, s, p, q, a in zip(_nanoseconds(times), sides, prices,
+                                         _whole(mine["size"].to_numpy(), "size"), ahead,
+                                         strict=True)]
         mine = fill_rows.filter(pl.col("market") == m.name)
         if len(mine):
             liquidity = [str(v).lower() for v in mine["liquidity"]]
             if not set(liquidity) <= {"maker", "taker"}:
                 raise ValueError("a fill's liquidity is maker or taker")
             episode.fills = [
-                (int(t * NANOSECONDS), int(s), int(round(p / tick)), int(q), kind == "maker", 0)
-                for t, s, p, q, kind in zip(mine["time"].to_numpy(), _side(mine["side"]),
-                                            mine["price"].to_numpy(),
-                                            mine["quantity"].to_numpy(), liquidity, strict=True)]
+                (int(t), int(s), int(round(p / tick)), int(q), kind == "maker", 0)
+                for t, s, p, q, kind in zip(_nanoseconds(mine["time"].to_numpy()),
+                                            _side(mine["side"]), mine["price"].to_numpy(),
+                                            _whole(mine["quantity"].to_numpy(), "quantity"),
+                                            liquidity, strict=True)]
         episodes.append(episode)
     return episodes
 
@@ -160,7 +194,7 @@ def compare(paper: list, simulated: list, *, draws: int = 200,
     lines = [f"Paper trading on {len(paper)} markets against the fitted market's "
              f"{len(simulated)}, each figure with its 95% interval over resamples of markets.",
              "", "| figure | paper | fitted market | |", "|---|---:|---:|---|"]
-    apart = []
+    apart, unknown = [], []
     for key, (value, low, high) in real.items():
         other, other_low, other_high = fitted[key]
         label, unit = _label(key)
@@ -168,13 +202,26 @@ def compare(paper: list, simulated: list, *, draws: int = 200,
         known = all(math.isfinite(x) for x in (low, high, other_low, other_high))
         if known and not overlap:
             apart.append(key)
+        if not known:
+            unknown.append(key)
         lines.append(f"| {label} ({unit}) | {_cell(value, low, high)} | "
                      f"{_cell(other, other_low, other_high)} | "
-                     f"{'' if not known else 'apart' if not overlap else ''} |")
-    lines += ["", ("**The fit trades this strategy unlike the real market**: "
-                   + ", ".join(_label(k)[0] for k in apart) + "." if apart else
-                   "**Every figure's intervals overlap**: the fit trades this strategy as the "
-                   "real market did, as far as these figures and markets can tell.")]
+                     f"{'not compared' if not known else 'apart' if not overlap else ''} |")
+    lines.append("")
+    if apart:
+        lines.append("**The fit trades this strategy unlike the real market**: "
+                     + ", ".join(_label(k)[0] for k in apart) + ".")
+    elif unknown:
+        lines.append("**No figure compared is apart**, but these could not be compared, one "
+                     "side having no interval for them: "
+                     + ", ".join(_label(k)[0] for k in unknown) + ".")
+    else:
+        lines.append("**Every figure's intervals overlap**: the fit trades this strategy as the "
+                     "real market did, as far as these figures and markets can tell. Overlap "
+                     "is a weak test, and with few markets a wide one.")
+    if apart and unknown:
+        lines.append("Not compared, one side having no interval: "
+                     + ", ".join(_label(k)[0] for k in unknown) + ".")
     return "\n".join(lines) + "\n", apart
 
 
