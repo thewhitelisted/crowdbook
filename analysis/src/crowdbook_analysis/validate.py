@@ -728,13 +728,15 @@ def _dispersion(counts: list[float], exposures: list[float],
 COUNTED = {"orders_per_minute": ("_orders", "_minutes", "_orders_dispersion")}
 
 
-def count_distance(real: dict, simulated: dict, key: str) -> float:
+def count_distance(real: dict, simulated: dict, key: str, searched: dict | None = None) -> float:
     """How far a simulated rate is from a recorded count of events, as the signed root of the
     Poisson deviance of the count against what the simulated rate expects over the recording's
     time, over the simulation's dispersion: positive where the simulation has too many. Where a
     recording saw one order in an hour and its twins make one a minute, the bootstrap of markets
     sees little, as the one market with an order is all it has to resample; the count says the
-    two cannot be the same market. NaN where either side lacks the counts."""
+    two cannot be the same market. NaN where either side lacks the counts. `searched`, the same
+    settings on the seeds a search fitted them on, adds the noise of its count, which the
+    settings partly chased."""
     count, minutes, dispersion = COUNTED[key]
     if not all(np.isfinite(side.get(k, np.nan)) for side in (real, simulated)
                for k in (count, minutes)) or real[minutes] <= 0 or simulated[minutes] <= 0:
@@ -747,7 +749,9 @@ def count_distance(real: dict, simulated: dict, key: str) -> float:
                     - (observed - expected))
     # The simulated rate is a count too: over less time than the recording's, its own noise
     # counts, as the variance of the difference of two Poisson counts, e (1 + real / simulated).
-    deviance /= 1 + real[minutes] / simulated[minutes]
+    deviance /= 1 + real[minutes] / simulated[minutes] + (
+        real[minutes] / searched[minutes]
+        if searched is not None and searched.get(minutes, 0.0) > 0 else 0.0)
     deviance /= max(1.0, simulated.get(dispersion, 1.0))
     return float(math.copysign(math.sqrt(max(deviance, 0.0)), expected - observed))
 
