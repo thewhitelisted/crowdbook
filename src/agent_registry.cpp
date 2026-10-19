@@ -95,6 +95,13 @@ std::unique_ptr<Agent> makeMarketMaker(const Parameters& parameters,
             .levelGrowth = parameters.number("level_growth", defaults.levelGrowth),
             .requoteThreshold =
                 parameters.number("requote_threshold", defaults.requoteThreshold),
+            .flowImpact = parameters.number("flow_impact", defaults.flowImpact),
+            .flowMemory = parameters.contains("flow_memory")
+                              ? std::optional<Duration>{parameters.duration("flow_memory", 0)}
+                              : std::nullopt,
+            .takeThrough = parameters.contains("take_through")
+                               ? std::optional<double>{parameters.number("take_through", 0.0)}
+                               : std::nullopt,
         },
         environment.referencePrice, environment.fundamental);
 }
