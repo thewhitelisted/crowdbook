@@ -270,10 +270,9 @@ void MarketMaker::requote(AgentContext& context, bool afterFill, bool mayTake) {
     }
     // Requests reach the exchange in the order sent, and one that meets its own quote there is
     // cancelled: when its new bid would reach one of its asks as they stand, the asks move
-    // first, and the bids after. Only a maker that reads flow, whose price jumps by whole
-    // spreads, does this, so that every other runs as it always has.
+    // first, and the bids after.
     bool asksFirst = false;
-    if (bids[0] && (config_.flowImpact > 0.0 || config_.takeThrough)) {
+    if (bids[0]) {
         for (const std::optional<Quote>& quote : asks_) {
             asksFirst = asksFirst || (quote && quote->price <= *bids[0]);
         }

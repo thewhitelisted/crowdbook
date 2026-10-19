@@ -275,12 +275,13 @@ TEST(MarketMakerTest, SendsARejectedModifyAgain) {
     context.accept(1);
     context.accept(2);
 
-    // A trade at 103 moves the fair price there, so the quotes move to 102 and 104.
+    // A trade at 103 moves the fair price there, so the quotes move to 102 and 104: the ask first,
+    // as a bid at 102 would meet it at 101.
     maker.onTrade(context, {.price = 103, .quantity = 1});
     maker.onWakeup(context, 0);
     ASSERT_EQ(context.takeSent(),
-              (std::vector<Request>{ModifyOrder{.clientOrderId = 1, .price = 102, .quantity = 5},
-                                    ModifyOrder{.clientOrderId = 2, .price = 104, .quantity = 5}}));
+              (std::vector<Request>{ModifyOrder{.clientOrderId = 2, .price = 104, .quantity = 5},
+                                    ModifyOrder{.clientOrderId = 1, .price = 102, .quantity = 5}}));
 
     // The exchange turns the ask's modify down, so it is still at 101: the next requote asks
     // again. The bid's modify is still on its way, so it is not repeated.
@@ -821,6 +822,37 @@ TEST(MarketMakerTest, TakesAgainOnlyOnItsTimer) {
     EXPECT_EQ(takesIn(context.takeSent()), 1);
 }
 
+struct MakerOrders {
+    int takes = 0;      // immediate-or-cancel orders it sent
+    int selfTrades = 0; // its orders cancelled for meeting its own
+};
+
+// Runs a scenario and counts the orders of the first agent of its first group.
+MakerOrders firstMakersOrders(const Scenario& scenario) {
+    std::ostringstream log;
+    CsvEventLog sink{log, {"new", "cancelled"}};
+    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), &sink);
+    const std::string maker = std::to_string(result.groups[0].agents[0]);
+    MakerOrders orders;
+    std::string line;
+    std::istringstream rows{log.str()};
+    std::getline(rows, line); // time,kind,agent,...,time_in_force (8th),...,reason (15th)
+    while (std::getline(rows, line)) {
+        std::vector<std::string> fields;
+        std::istringstream split{line};
+        for (std::string field; std::getline(split, field, ',');) {
+            fields.push_back(field);
+        }
+        fields.resize(15);
+        if (fields[2] != maker) {
+            continue;
+        }
+        orders.takes += fields[1] == "new" && fields[7] == "immediate-or-cancel" ? 1 : 0;
+        orders.selfTrades += fields[1] == "cancelled" && fields[14] == "self-trade" ? 1 : 0;
+    }
+    return orders;
+}
+
 // In a whole market, its takes are never stopped by its own quotes.
 TEST(MarketMakerTest, ItsTakesNeverMeetItsOwnQuotes) {
     const Scenario scenario = parseScenario(R"(
@@ -856,30 +888,45 @@ type = "informed"
 count = 3
 interval = "1s"
 )");
-    std::ostringstream log;
-    CsvEventLog sink{log, {"new", "cancelled"}};
-    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), &sink);
-    const AgentId setter = result.groups[0].agents[0];
-    int takes = 0;
-    int stopped = 0;
-    std::string line;
-    std::istringstream rows{log.str()};
-    std::getline(rows, line); // time,kind,agent,...,time_in_force (8th),...,reason (15th)
-    while (std::getline(rows, line)) {
-        std::vector<std::string> fields;
-        std::istringstream split{line};
-        for (std::string field; std::getline(split, field, ',');) {
-            fields.push_back(field);
-        }
-        fields.resize(15);
-        if (fields[2] != std::to_string(setter)) {
-            continue;
-        }
-        takes += fields[1] == "new" && fields[7] == "immediate-or-cancel" ? 1 : 0;
-        stopped += fields[1] == "cancelled" && fields[14] == "self-trade" ? 1 : 0;
-    }
-    EXPECT_GT(takes, 0);
-    EXPECT_EQ(stopped, 0);
+    const MakerOrders orders = firstMakersOrders(scenario);
+    EXPECT_GT(orders.takes, 0);
+    EXPECT_EQ(orders.selfTrades, 0);
+}
+
+// In a whole market whose price jumps, a maker that reads no flow never has a quote cancelled for
+// meeting its own: when its bid would reach its ask, the ask moves first.
+TEST(MarketMakerTest, ItsQuotesNeverMeetEachOther) {
+    const Scenario scenario = parseScenario(R"(
+seed = 7
+duration = "300s"
+reference_price = 1000
+
+[fundamental]
+volatility = 2.0
+step = "100ms"
+
+[[agents]]
+type = "market_maker"
+name = "setter"
+quote_size = 2
+max_inventory = 40
+volatility = 1.0
+intensity = 1.0
+quote_value = true
+lag = "20s"
+
+[[agents]]
+type = "zero_intelligence"
+count = 10
+limit_rate = 1.0
+market_rate = 0.3
+
+[[agents]]
+type = "informed"
+count = 3
+interval = "1s"
+)");
+    EXPECT_EQ(firstMakersOrders(scenario).selfTrades, 0);
 }
 
 // When the best price on the far side holds only its own quote it has nothing to take there.
