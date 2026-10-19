@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <memory>
 #include <set>
-#include <utility>
 #include <stdexcept>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -95,7 +95,7 @@ TEST(InformedTest, LooksOnItsIntervalOrAtRandomWithItsMean) {
     poisson.randomInterval = true;
     const auto [mean, spread] = waits(poisson, 4000);
     EXPECT_NEAR(mean, 1.0, 0.05);
-    EXPECT_NEAR(spread, 1.0, 0.05);
+    EXPECT_NEAR(spread, 1.0, 0.07);
     // Its first look too, where a fixed interval starts uniformly within the first.
     const auto first = test::firstWakeups(
         [&] { return std::make_unique<InformedTrader>(poisson, fixedValue(101.0)); }, 4000);

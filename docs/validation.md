@@ -219,7 +219,8 @@ so the distances of a fit started elsewhere compare only roughly with the first 
 held-out distance, judged with the fit's own spread, compares across fits.
 
 Every tolerance is at least 1% of its statistic, 0.01 on a logarithm. A statistic the settings
-fix exactly, such as the sizes of a ladder of quotes, has no resampling spread. Without a floor,
+all but fix, such as the sizes of a ladder of quotes, has hardly any resampling spread, and the
+reach check then reads a miss of 1% on it as chance. Without a floor,
 a fit of reference twins from settings within 25% of the truth scored a miss of a lot in two
 thousand as thousands of tolerances. It started at 16.9 million, searched a cliff and ended
 at 52,825 on held-out seeds; with the floor it starts at 1,546 and ends at 399.

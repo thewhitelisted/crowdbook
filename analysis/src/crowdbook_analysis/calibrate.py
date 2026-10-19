@@ -554,9 +554,10 @@ class Evaluator:
 # is unmeasured in a third of them, and its value is that market's alone.
 MOST_UNMEASURED = 0.1
 # The least tolerance a compared statistic has, a share of its value: 1%, a difference of 0.01 in
-# a logarithm. A statistic the settings fix exactly, such as a ladder's sizes, has no resampling
-# spread, and with none a miss of a lot in two thousand would count as thousands of tolerances,
-# leaving a search nothing to climb but a cliff.
+# a logarithm. A statistic the settings all but fix, such as a ladder's sizes, has hardly any
+# resampling spread, and with so little a miss of a lot in two thousand would count as thousands
+# of tolerances, leaving a search nothing to climb but a cliff. (One with none on either side is
+# not compared at all.) The reach check then reads a miss of 1% on such a statistic as chance.
 TOLERANCE_FLOOR = 0.01
 
 
@@ -808,7 +809,8 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     for again in range(retargets):
         at_fit = evaluator.summary("fitted", fitted, fit_seeds, seed=6 + again)
         target = make_target(real, at_fit, spec.statistics, config, spec.exclude)
-        log(f"tolerances remade at the fit, {again + 1} of {retargets}")
+        log(f"tolerances remade at the fit, {again + 1} of {retargets}; "
+            f"{len(target.keys)} statistics compared")
         fitted, score = search(evaluator, target, fit_seeds, spec.generations, log,
                                start=fitted, sigma=step / 2)
     log(f"fitted, distance {score:.1f} on the fit's seeds: {fitted}")
@@ -848,13 +850,16 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     reached = held_distance <= chi_squared_95(len(target.keys))
     verdict = (f"Distance on the held-out seeds: {held_distance:.1f}, against "
                f"{chi_squared_95(len(target.keys)):.1f} that chance alone would stay under 95% of "
-               "the time. " + ("The fit reaches the target within chance." if reached else
+               "the time, every tolerance at least 1% of its statistic. "
+               + ("The fit reaches the target within chance." if reached else
                                "**The fit does not reach the target within chance**: the model, "
                                "or the search, falls short, and the intervals below are too "
                                "narrow to trust."))
     lines = [f"# Calibration against {real.name}", "",
              f"{len(spec.parameters)} settings fitted to {len(target.keys)} statistics by CMA-ES, "
-             f"{spec.generations} generations on {spec.seeds} common seeds; distance "
+             f"{spec.generations} generations on {spec.seeds} common seeds"
+             + (f", then {retargets} more search{"es" if retargets > 1 else ""} as long, each with the tolerances remade at "
+                "the fit" if retargets else "") + "; distance "
              f"{score:.1f} on those seeds, in the tolerances the search kept. Judged below on {spec.held_out} seeds the search "
              f"never used. {evaluator.runs} markets run in all.", "",
              verdict, "", "## Settings", "", settings_table(rows, truth), "",
@@ -872,7 +877,7 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
                            "distance_held_out": held_distance, "reached": reached,
                            "compared": target.keys,
                            "runs": evaluator.runs, "truth": truth,
-                           "refits": refits if refits >= 2 else 0}
+                           "refits": refits if refits >= 2 else 0, "retargets": retargets}
     if spec.condition:
         first = evaluator.targets[0]
         scenario = (f"# The fitted settings, in the twin of the recorded market {first.name}.\n"
