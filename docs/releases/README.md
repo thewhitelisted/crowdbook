@@ -15,7 +15,7 @@ before that step existed goes to PyPI by running the workflow on `main` by hand 
    `uv lock --project analysis`, and write `docs/releases/vX.Y.Z.md`.
 2. Tag that commit `vX.Y.Z` and push the tag, or publish a release for a new tag `vX.Y.Z` on
    `main` from GitHub's page.
-3. Once the release has its files, point the install instructions at it: `README.md`,
+3. Once the release is on PyPI, point the install instructions at it: `README.md`,
    `docs/quickstart.md`, `docs/tutorial.md` and `python/README.md` name the latest published
    release, so that what an outsider installs and the tutorial they clone match. The analysis
    tests check that these pages name one release, with notes, no newer than the project.

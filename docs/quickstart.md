@@ -22,16 +22,15 @@ git clone --branch v0.13.0 https://github.com/thewhitelisted/crowdbook && cd cro
 python3 -m venv .venv && . .venv/bin/activate
 ```
 
-**From the release's wheels**, with no compiler: each release on GitHub carries wheels for Linux
+**From PyPI's wheels**, with no compiler: each release carries wheels for Linux
 (x86-64 and arm64, glibc 2.28 or later) and macOS 14 or later on Apple silicon. For the latest
 release:
 
 ```bash
-pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0 \
-    --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/v0.13.0
+pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0
 ```
 
-On any other platform that command builds the engine from the release's source instead, which
+On any other platform that command builds the engine from its source package instead, which
 needs the compiler below.
 
 **From source**, for other platforms or a checkout of `main`, with CMake 3.25 or later and a
