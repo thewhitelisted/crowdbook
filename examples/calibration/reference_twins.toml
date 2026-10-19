@@ -50,6 +50,9 @@ max_inventory = 1000000
 requote_interval = ${maker_requote}   # how often they look: a book that hardly moves is
 requote_threshold = ${maker_threshold:0}   # requoted rarely, or only once the value has moved
 post_only = true                       # this many ticks from where they quoted
+flow_impact = ${flow_impact:0}         # ticks a lot of aggressive flow moves their fair price,
+flow_memory = ${flow_memory:"100000000s"}   # for how long (by default, years),
+take_through = ${take_through:1000000}   # and how far past the book before they take it (never)
 quiet_from = "${kickoff}s"   # in play the makers stay away, or with a label quote that often
 quiet_interval = ${maker_in_play_interval:"0s"}
 latency = { to_exchange = "20ms", from_exchange = "20ms" }
