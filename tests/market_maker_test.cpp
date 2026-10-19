@@ -791,6 +791,14 @@ TEST(MarketMakerTest, QuotesAfreshWhenATakeEnds) {
                                     ModifyOrder{.clientOrderId = 2, .price = 103, .quantity = 5}}));
 }
 
+// The takes among the requests sent.
+std::ptrdiff_t takesIn(const std::vector<Request>& sent) {
+    return std::ranges::count_if(sent, [](const Request& request) {
+        const auto* order = std::get_if<NewOrder>(&request);
+        return order != nullptr && order->timeInForce == TimeInForce::ImmediateOrCancel;
+    });
+}
+
 // When a take ends with its fair price still past someone else's quote, as when the take stopped
 // short of it, it takes again only on its timer: takes never follow one another without time
 // passing.
@@ -806,17 +814,11 @@ TEST(MarketMakerTest, TakesAgainOnlyOnItsTimer) {
     static_cast<void>(context.takeSent());
     context.accept(1);
     context.accept(2);
-    const auto takes = [](const std::vector<Request>& sent) {
-        return std::ranges::count_if(sent, [](const Request& request) {
-            const auto* order = std::get_if<NewOrder>(&request);
-            return order != nullptr && order->timeInForce == TimeInForce::ImmediateOrCancel;
-        });
-    };
     maker.onCancelled(context, context.cancelRest(1)); // fair 105 is still past the ask of 101
-    EXPECT_EQ(takes(context.takeSent()), 0);
+    EXPECT_EQ(takesIn(context.takeSent()), 0);
     context.setNow(100 * kMillisecond);
     maker.onWakeup(context, 0);
-    EXPECT_EQ(takes(context.takeSent()), 1);
+    EXPECT_EQ(takesIn(context.takeSent()), 1);
 }
 
 // In a whole market, its takes are never stopped by its own quotes.
@@ -901,6 +903,75 @@ TEST(MarketMakerTest, TakesNothingWhereTheBookHoldsOnlyItsOwnQuote) {
         const auto* order = std::get_if<NewOrder>(&request);
         EXPECT_FALSE(order != nullptr && order->timeInForce == TimeInForce::ImmediateOrCancel);
     }
+}
+
+// A fill of its quote at the best price reaches it before the book that follows it: the lots it
+// lost there are no one else's.
+TEST(MarketMakerTest, TakesNothingOnAFillOfItsOwnQuoteAtTheBestPrice) {
+    MarketMakerConfig config = flowReader(1.0);
+    config.maxInventory = 10;
+    config.takeThrough = 2.0;
+    MarketMaker maker{config, kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context); // bid 99 and ask 101, 5 lots each
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+    maker.onTopOfBook(context, {.bid = LevelSummary{.price = 99, .quantity = 5},
+                                .ask = LevelSummary{.price = 101, .quantity = 5}});
+    maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy}); // fair 105
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0);
+    ASSERT_EQ(takesIn(context.takeSent()), 0);
+    // Someone lifts 2 lots of its ask while the modify moving it is on its way.
+    const OwnOrder ask = *context.ledger().find(2);
+    context.fill(2, 2);
+    maker.onFilled(context, {.clientOrderId = 2,
+                             .orderId = ask.orderId,
+                             .side = Side::Sell,
+                             .price = 101,
+                             .quantity = 2,
+                             .leavesQuantity = 3});
+    EXPECT_EQ(takesIn(context.takeSent()), 0);
+}
+
+// A quote it is cancelling is still its own in the book until the cancel arrives.
+TEST(MarketMakerTest, CountsAQuoteWithACancelOnItsWayAsItsOwn) {
+    MarketMakerConfig config = flowReader(1.0);
+    config.maxInventory = 10;
+    config.takeThrough = 2.0;
+    MarketMaker maker{config, kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context); // bid 99 and ask 101, 5 lots each
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+    maker.onTopOfBook(context, kJoinedTop);
+    maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy}); // fair 105
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0); // cancels its ask at 101 and takes at 103
+    const std::vector<Request> sent = context.takeSent();
+    ASSERT_EQ(sent[0], (Request{CancelOrder{.clientOrderId = 2}}));
+    ASSERT_EQ(takesIn(sent), 1);
+    // The take buys the other lot at 101 and ends; the cancel of its ask is slower.
+    context.accept(3);
+    context.fill(3, 1);
+    maker.onFilled(context, {.clientOrderId = 3,
+                             .orderId = context.ledger().find(3)->orderId,
+                             .side = Side::Buy,
+                             .price = 101,
+                             .quantity = 1,
+                             .leavesQuantity = 4,
+                             .liquidity = Liquidity::Taker});
+    maker.onCancelled(context, context.cancelRest(3));
+    maker.onTopOfBook(context, {.bid = kJoinedTop.bid,
+                                .ask = LevelSummary{.price = 101, .quantity = 5}});
+    static_cast<void>(context.takeSent());
+    context.setNow(200 * kMillisecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(takesIn(context.takeSent()), 0);
 }
 
 // Counts the requests reaching the exchange, and the takes among them, and stops the run past a
