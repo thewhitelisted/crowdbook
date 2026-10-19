@@ -11,8 +11,8 @@
 Times are seconds, or another unit with --time-unit, or dates and times as text. A long recording
 is cut into markets --market seconds long, each starting from the book and the value as they stood
 then, since a tape's statistics are resampled over markets: a day cut into hours is 24 of them. A
-stretch with no quotes, trades or values of its own, such as a night the venue was closed, is left
-out. The tape reads
+stretch with no quotes or trades of its own, such as a night the venue was closed, is left out, as
+are values before the first quote or trade or after the last. The tape reads
 with `tape.read_tape`, and every command that takes --real takes it.
 """
 
@@ -82,14 +82,23 @@ def convert(quotes: pl.DataFrame, trades: pl.DataFrame, *, market: float | None 
     columns = _levels(quotes)
     book = quotes.select(["time", *columns])
     book = book.rename({c: f"{c}_1" for c in columns if not c[-1].isdigit()})
-    times = [f["time"] for f in (book, trades, value) if f is not None and len(f)]
+    # The recording runs from its first quote or trade to its last; a value outside that, such
+    # as a reference price published through the night, is no market.
+    times = [f["time"] for f in (book, trades) if len(f)]
     start = float(min(t.min() for t in times))
     end = float(max(t.max() for t in times))
     span = end - start
     if not span > 0:
         raise ValueError("the recording spans no time")
+    if value is not None:
+        # The value as it stood at the start, then its own.
+        stood = value.filter(pl.col("time") <= start).tail(1).with_columns(time=pl.lit(start))
+        value = pl.concat([stood, value.filter((pl.col("time") > start)
+                                               & (pl.col("time") <= end))])
     length = span if market is None else float(market)
-    count = max(1, int(np.ceil(span / length)))
+    # A microsecond's slack, so that a last event on a boundary, a little past it after
+    # rounding, ends the market before rather than opening one of no length.
+    count = max(1, int(np.ceil((span - 1e-6) / length)))
 
     def index(time: pl.Expr) -> pl.Expr:
         if market is None:
@@ -98,7 +107,7 @@ def convert(quotes: pl.DataFrame, trades: pl.DataFrame, *, market: float | None 
 
     names = [f"{name}-{k:04d}" for k in range(count)]
     starts = [start + k * length for k in range(count)]
-    durations = [float(min(length, end - s)) if k == count - 1 else float(length)
+    durations = [float(end - s) if k == count - 1 else float(length)
                  for k, s in enumerate(starts)]
 
     def place(frame: pl.DataFrame) -> pl.DataFrame:
@@ -128,7 +137,7 @@ def convert(quotes: pl.DataFrame, trades: pl.DataFrame, *, market: float | None 
                                                                           maintain_order=True)
 
     # A market with nothing of its own, such as an hour the venue was closed, is left out.
-    held = set().union(*(place(f)["k"].to_list() for f in (book, trades, value) if f is not None))
+    held = set().union(*(place(f)["k"].to_list() for f in (book, trades)))
     keep = [names[k] for k in sorted(held)]
     book = carry(book)
     book_columns = [c for c in book.columns if c not in ("market", "time", "k")]
@@ -182,6 +191,10 @@ def main() -> None:
     parser.add_argument("--name", default="market", help="what the markets are named after")
     parser.add_argument("--parquet", action="store_true", help="write Parquet, not CSV")
     args = parser.parse_args()
+    if not (np.isfinite(args.tick) and args.tick > 0):
+        parser.error("--tick must be a positive number")
+    if not (np.isfinite(args.same_order) and args.same_order >= 0):
+        parser.error("--same-order is seconds, 0 or more")
     read = lambda path: pl.read_csv(path, infer_schema_length=None)  # noqa: E731
     try:
         tables = convert(read(args.quotes), read(args.trades), market=args.market,
