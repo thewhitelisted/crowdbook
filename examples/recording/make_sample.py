@@ -1,5 +1,5 @@
-"""Writes this directory's sample recording: an hour of the tutorial's market, made by crowdbook
-itself, in the shape market data usually comes in. Quotes are the book's best five levels a
+"""Writes this directory's sample recording: twelve of the tutorial's five-minute markets, made by
+crowdbook itself and laid end to end into an hour, in the shape market data usually comes in. Quotes are the book's best five levels a
 side, in dollars at a cent a tick, a row each time they change, empty where a level has no
 orders; trades are prints with the side that took liquidity; and a reference price, the
 market's value, once a second. All three are stamped with dates and times to the millisecond.
@@ -41,7 +41,8 @@ def main() -> None:
                 columns[f"{side}_price{suffix}"] = np.round(price[:, level] * CENTS, 2)
                 columns[f"{side}_size{suffix}"] = size[:, level]
         book = pl.DataFrame(columns).fill_nan(None)
-        book = book.filter(pl.col("bid_price").is_not_null() & pl.col("ask_price").is_not_null())
+        book = book.filter(pl.col("bid_price").is_not_null() & pl.col("ask_price").is_not_null()
+                           & (pl.col("time") < at + m.duration))
         # A row only when the book changes, as a feed of its levels sends them.
         levels = pl.exclude("time")
         changed = pl.any_horizontal(levels.ne_missing(levels.shift(1)))
@@ -49,7 +50,8 @@ def main() -> None:
         trades.append(pl.DataFrame({
             "time": m.trade_time + at, "price": np.round(m.trade_price * CENTS, 2),
             "size": m.trade_size, "side": np.where(m.trade_sign > 0, "buy", "sell")}))
-        whole = np.abs(m.value_time - np.round(m.value_time)) < 1e-9  # once a second
+        # Once a second, up to the market's end, where the next market's value takes over.
+        whole = (np.abs(m.value_time - np.round(m.value_time)) < 1e-9) & (m.value_time < m.duration)
         values.append(pl.DataFrame({"time": m.value_time[whole] + at,
                                     "value": np.round(m.value[whole] * CENTS, 4)}))
     for name, frames in (("quotes", quotes), ("trades", trades), ("value", values)):
