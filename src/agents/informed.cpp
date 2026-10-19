@@ -36,7 +36,20 @@ Quantity InformedTrader::orderSize(AgentContext& context, Quantity room) const {
         room);
 }
 
-void InformedTrader::onStart(AgentContext& context) { context.wakeWithin(config_.interval); }
+void InformedTrader::wait(AgentContext& context) {
+    const double mean = static_cast<double>(config_.interval);
+    const double drawn = std::min(context.random().exponential(1.0) * mean,
+                                  static_cast<double>(kMaxDuration));
+    context.wakeAfter(static_cast<Duration>(drawn));
+}
+
+void InformedTrader::onStart(AgentContext& context) {
+    if (config_.randomInterval) {
+        wait(context);  // memoryless: the first wait is as any other
+    } else {
+        context.wakeWithin(config_.interval);
+    }
+}
 
 void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     const MarketSnapshot market = context.market();
@@ -67,7 +80,11 @@ void InformedTrader::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
         context.submitLimit(Side::Sell, limit, orderSize(context, sellRoom),
                             TimeInForce::ImmediateOrCancel);
     }
-    context.wakeAfter(config_.interval);
+    if (config_.randomInterval) {
+        wait(context);
+    } else {
+        context.wakeAfter(config_.interval);
+    }
 }
 
 } // namespace crowdbook

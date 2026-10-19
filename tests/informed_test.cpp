@@ -1,6 +1,9 @@
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <set>
+#include <utility>
 #include <stdexcept>
 #include <variant>
 #include <vector>
@@ -60,6 +63,45 @@ TEST(InformedTest, WaitsWhenTheEdgeIsTooSmall) {
     FakeContext context;
     EXPECT_TRUE(lookOnce(trader, context).empty());
     EXPECT_EQ(context.wakeups.size(), 1U); // and looks again later
+}
+
+// Spread over the looks, the mean and coefficient of variation of the waits it asked for.
+std::pair<double, double> waits(const InformedConfig& config, int looks) {
+    InformedTrader trader{config, fixedValue(101.0)};
+    FakeContext context{3};
+    for (int i = 0; i < looks; ++i) {
+        lookOnce(trader, context);
+    }
+    double sum = 0.0;
+    double squares = 0.0;
+    for (const auto& [time, tag] : context.wakeups) {
+        const double seconds = static_cast<double>(time) / static_cast<double>(kSecond);
+        sum += seconds;
+        squares += seconds * seconds;
+    }
+    const double n = static_cast<double>(context.wakeups.size());
+    const double mean = sum / n;
+    return {mean, std::sqrt(squares / n - mean * mean) / mean};
+}
+
+TEST(InformedTest, LooksOnItsIntervalOrAtRandomWithItsMean) {
+    InformedConfig every = kExact;
+    every.interval = kSecond;
+    const auto [fixedMean, fixedSpread] = waits(every, 4000);
+    EXPECT_DOUBLE_EQ(fixedMean, 1.0);
+    EXPECT_NEAR(fixedSpread, 0.0, 1e-6);
+    // Waits drawn from an exponential: the same mean, and as variable as their mean.
+    InformedConfig poisson = every;
+    poisson.randomInterval = true;
+    const auto [mean, spread] = waits(poisson, 4000);
+    EXPECT_NEAR(mean, 1.0, 0.05);
+    EXPECT_NEAR(spread, 1.0, 0.05);
+    // Its first look too, where a fixed interval starts uniformly within the first.
+    const auto first = test::firstWakeups(
+        [&] { return std::make_unique<InformedTrader>(poisson, fixedValue(101.0)); }, 4000);
+    const auto beyond = std::count_if(first.begin(), first.end(),
+                                      [](Timestamp t) { return t > kSecond; });
+    EXPECT_NEAR(static_cast<double>(beyond) / 4000.0, std::exp(-1.0), 0.03);
 }
 
 TEST(InformedTest, StopsAtItsPositionLimit) {
