@@ -123,8 +123,8 @@ private:
         Price price = 0;
     };
 
-    // `afterFill` requotes whatever the threshold.
-    void requote(AgentContext& context, bool afterFill = false);
+    // `afterFill` requotes whatever the threshold; without `mayTake` it sends no take.
+    void requote(AgentContext& context, bool afterFill = false, bool mayTake = true);
     // Whether every quote it set at its last requote is in the book at its full size, none
     // filled or on its way out.
     [[nodiscard]] bool standing(const AgentContext& context) const;
@@ -134,7 +134,7 @@ private:
     [[nodiscard]] Quantity levelSize(int level) const noexcept;
     // With takeThrough, trades against quotes its fair price has moved past; returns the
     // position it would hold were every take still open to fill.
-    Quantity takeThrough(AgentContext& context, double fair);
+    Quantity takeThrough(AgentContext& context, double fair, bool mayTake);
 
     MarketMakerConfig config_;
     MarketView market_;
@@ -145,6 +145,9 @@ private:
     double impact_ = 0.0;               // the flow's impact on its fair price, as of impactAt_
     Timestamp impactAt_ = 0;
     std::vector<ClientOrderId> takes_;  // its take-through orders, until they are done
+    // Lots its takes have filled whose trades it has yet to see, a side each.
+    Quantity ownBought_ = 0;
+    Quantity ownSold_ = 0;
     // Its quotes a side, a level each, the touch first.
     std::vector<std::optional<Quote>> bids_;
     std::vector<std::optional<Quote>> asks_;

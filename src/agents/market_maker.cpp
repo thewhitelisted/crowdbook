@@ -107,21 +107,21 @@ void MarketMaker::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
 }
 
 void MarketMaker::onFilled(AgentContext& context, const OrderFilled& event) {
-    // Its own takes print as aggressive volume too; it learns nothing from them, so their fills
-    // take back what their trades added.
+    // Its own takes print as aggressive volume too, and it learns nothing from them: a take's
+    // fill, which reaches it before the trade it prints, marks that many lots of the next trades
+    // on its side as its own.
     if (config_.flowImpact > 0.0 && std::ranges::contains(takes_, event.clientOrderId)) {
-        impact_ = flowImpact(context.now()) -
-                  config_.flowImpact * static_cast<double>(event.quantity) *
-                      (event.side == Side::Buy ? 1.0 : -1.0);
-        impactAt_ = context.now();
+        (event.side == Side::Buy ? ownBought_ : ownSold_) += event.quantity;
     }
     requote(context, /*afterFill=*/true);
 }
 
 void MarketMaker::onCancelled(AgentContext& context, const OrderCancelled& event) {
-    // The rest of a take is done: it quoted as if all of it would fill, so it quotes afresh.
+    // The rest of a take is done: it quoted as if all of it would fill, so it quotes afresh, but
+    // takes nothing more until its timer, so that takes cannot follow one another without time
+    // passing.
     if (std::ranges::contains(takes_, event.clientOrderId)) {
-        requote(context, /*afterFill=*/true);
+        requote(context, /*afterFill=*/true, /*mayTake=*/false);
     }
 }
 
@@ -147,8 +147,11 @@ void MarketMaker::onTopOfBook(AgentContext& /*context*/, const TopOfBook& top) {
 void MarketMaker::onTrade(AgentContext& context, const Trade& trade) {
     market_.update(trade);
     if (config_.flowImpact > 0.0 && !trade.auction) {
+        Quantity& own = trade.aggressorSide == Side::Buy ? ownBought_ : ownSold_;
+        const Quantity mine = std::min(own, trade.quantity);
+        own -= mine;
         impact_ = flowImpact(context.now()) +
-                  config_.flowImpact * static_cast<double>(trade.quantity) *
+                  config_.flowImpact * static_cast<double>(trade.quantity - mine) *
                       (trade.aggressorSide == Side::Buy ? 1.0 : -1.0);
         impactAt_ = context.now();
     }
@@ -177,7 +180,7 @@ void MarketMaker::onPhase(AgentContext& context, const PhaseChanged& phase) {
     requote(context);
 }
 
-void MarketMaker::requote(AgentContext& context, bool afterFill) {
+void MarketMaker::requote(AgentContext& context, bool afterFill, bool mayTake) {
     if (phase_ != Phase::Continuous) {
         return;
     }
@@ -202,7 +205,7 @@ void MarketMaker::requote(AgentContext& context, bool afterFill) {
         fair += flowImpact(now);
     }
     // As if every take still open fills: the quotes leave room for it.
-    const Quantity position = takeThrough(context, fair);
+    const Quantity position = takeThrough(context, fair, mayTake);
     if (config_.requoteThreshold > 0.0 && !afterFill && quotedFair_ &&
         std::abs(fair - *quotedFair_) < config_.requoteThreshold && standing(context)) {
         return;
@@ -281,7 +284,7 @@ void MarketMaker::requote(AgentContext& context, bool afterFill) {
     }
 }
 
-Quantity MarketMaker::takeThrough(AgentContext& context, double fair) {
+Quantity MarketMaker::takeThrough(AgentContext& context, double fair, bool mayTake) {
     const Ledger& ledger = context.ledger();
     if (!config_.takeThrough) {
         return ledger.position();
@@ -323,10 +326,11 @@ Quantity MarketMaker::takeThrough(AgentContext& context, double fair) {
         takes_.push_back(context.submitLimit(side, price, room, TimeInForce::ImmediateOrCancel));
         quotedFair_.reset(); // whatever its threshold, it quotes afresh around the take
     };
-    if (market_.bestAsk() && fair - through > static_cast<double>(*market_.bestAsk())) {
+    if (mayTake && market_.bestAsk() && fair - through > static_cast<double>(*market_.bestAsk())) {
         take(Side::Buy, clampPrice(std::floor(fair - through), highest),
              config_.maxInventory - ledger.position() - ledger.openQuantity(Side::Buy));
-    } else if (market_.bestBid() && fair + through < static_cast<double>(*market_.bestBid())) {
+    } else if (mayTake && market_.bestBid() &&
+               fair + through < static_cast<double>(*market_.bestBid())) {
         take(Side::Sell, clampPrice(std::ceil(fair + through), highest),
              config_.maxInventory + ledger.position() - ledger.openQuantity(Side::Sell));
     }

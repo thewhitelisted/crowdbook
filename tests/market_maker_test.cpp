@@ -682,8 +682,9 @@ TEST(MarketMakerTest, ASellTakeCountsItsPositionAndQuotesAsIfItFilled) {
                         ModifyOrder{.clientOrderId = 2, .price = 98, .quantity = 5}}));
 }
 
-// Its own take prints as aggressive volume, but it learns nothing from it: the take's fill takes
-// back what its trade added.
+// Its own take prints as aggressive volume, but it learns nothing from it. The take's fill reaches
+// it before the trade, as the simulation delivers them, and the requote the fill brings sees the
+// fair price where it was; the trade then adds nothing for the take's lots, only for others'.
 TEST(MarketMakerTest, LearnsNothingFromItsOwnTakes) {
     MarketMakerConfig config = flowReader(1.0);
     config.maxInventory = 10;
@@ -695,10 +696,71 @@ TEST(MarketMakerTest, LearnsNothingFromItsOwnTakes) {
     maker.onStart(context); // takes with order 1
     static_cast<void>(context.takeSent());
     context.accept(1);
-    maker.onTrade(context, {.price = 101, .quantity = 3, .aggressorSide = Side::Buy});
     context.fill(1, 3);
     maker.onFilled(context, {.clientOrderId = 1, .side = Side::Buy, .quantity = 3});
     EXPECT_DOUBLE_EQ(maker.flowImpact(0), 5.0);
+    maker.onTrade(context, {.price = 101, .quantity = 3, .aggressorSide = Side::Buy});
+    EXPECT_DOUBLE_EQ(maker.flowImpact(0), 5.0);
+    maker.onTrade(context, {.price = 101, .quantity = 2, .aggressorSide = Side::Buy});
+    EXPECT_DOUBLE_EQ(maker.flowImpact(0), 7.0); // another trader's buy counts
+}
+
+// A quote of its own that a modify on its way is moving into the take's reach is cancelled too,
+// though the book still has it out of reach.
+TEST(MarketMakerTest, CancelsAQuoteAModifyIsMovingIntoTheTakesWay) {
+    MarketMakerConfig config = flowReader(1.0);
+    config.maxInventory = 10;
+    config.takeThrough = 2.0;
+    MarketMaker maker{config, kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    // Fair 103, exactly the threshold past the ask of 101: no take, and quotes at 102 and 104,
+    // acknowledged.
+    maker.onTrade(context, {.price = 101, .quantity = 3, .aggressorSide = Side::Buy});
+    maker.onStart(context);
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+    // Fair 100: the ask is modified to 101, the modify still on its way.
+    maker.onTrade(context, {.price = 101, .quantity = 3, .aggressorSide = Side::Sell});
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0);
+    static_cast<void>(context.takeSent());
+    // Fair 105: a take at 103, which the ask at 101 would stop, though the book has it at 104.
+    maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy});
+    context.setNow(200 * kMillisecond);
+    maker.onWakeup(context, 0);
+    const std::vector<Request> sent = context.takeSent();
+    ASSERT_GE(sent.size(), 2U);
+    EXPECT_EQ(sent[0], (Request{CancelOrder{.clientOrderId = 2}}));
+    const auto* take = std::get_if<NewOrder>(&sent[1]);
+    ASSERT_NE(take, nullptr);
+    EXPECT_EQ(take->timeInForce, TimeInForce::ImmediateOrCancel);
+}
+
+// Whatever its requote threshold, it quotes again in place of a quote it cancelled for a take.
+TEST(MarketMakerTest, ReplacesAQuoteItCancelledForATakeWhateverItsThreshold) {
+    MarketMakerConfig config = flowReader(1.0);
+    config.maxInventory = 10;
+    config.takeThrough = 2.0;
+    config.requoteThreshold = 50.0;
+    MarketMaker maker{config, kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context); // 99 and 101
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+    maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy});
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0);
+    const std::vector<Request> sent = context.takeSent();
+    const bool askAgain = std::ranges::any_of(sent, [](const Request& request) {
+        const auto* order = std::get_if<NewOrder>(&request);
+        return order != nullptr && order->side == Side::Sell &&
+               order->timeInForce == TimeInForce::GoodTillCancel;
+    });
+    EXPECT_TRUE(askAgain);
 }
 
 // When the rest of a take is cancelled it quotes afresh, no longer as if all of it filled.
