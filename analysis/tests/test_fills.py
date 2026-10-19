@@ -45,6 +45,34 @@ class PaperTest(unittest.TestCase):
                                        (3_000_000_000, -1, 51, 1, False, 0)])
         self.assertEqual(paper.mids[0], (0, 50.0))
 
+    def test_a_record_of_fractions_reads_in_the_tapes_lots(self):
+        # Bitcoin in lots of 0.001: the book's 0.005 is 5 lots, a quote of 0.003 is 3 with 0.04
+        # ahead of it 40, a fill of 0.002 is 2; 0.01 is 10, not a hair over and refused.
+        book = np.full((3, 1), 82000.0)
+        market = tape.Market(name="m", duration=10.0, book_time=np.array([0.0, 1.0, 2.0]),
+                             bid_price=book, bid_size=np.full((3, 1), 0.005),
+                             ask_price=book + 1, ask_size=np.full((3, 1), 0.005),
+                             trade_time=np.array([]), trade_price=np.array([]),
+                             trade_size=np.array([]), trade_sign=np.array([]))
+        with tempfile.TemporaryDirectory() as scratch:
+            tape.write_tape(tape.Tape([market], tape.Options(returns="log")), scratch)
+            with open(Path(scratch) / "tape.toml", "a") as file:
+                file.write("lot = 0.001\n")
+            (Path(scratch) / "quotes.csv").write_text(
+                "market,time,side,price,size,ahead\nm,1.5,buy,82000,0.003,0.04\n"
+                "m,1.5,sell,82001,0.01,0.01\n")
+            (Path(scratch) / "fills.csv").write_text(
+                "market,time,side,price,quantity,liquidity\nm,2.25,buy,82000,0.002,maker\n")
+            (paper,) = fills.read_paper(scratch)
+            self.assertEqual(paper.quotes, [(1_500_000_000, 1, 82000, 3, 40),
+                                            (1_500_000_000, -1, 82001, 10, 10)])
+            self.assertEqual(paper.fills, [(2_250_000_000, 1, 82000, 2, True, 0)])
+            # Without the size ahead, the book's, in the same lots.
+            (Path(scratch) / "quotes.csv").write_text(
+                "market,time,side,price,size\nm,1.5,buy,82000,0.003\n")
+            (paper,) = fills.read_paper(scratch)
+            self.assertEqual(paper.quotes[0][4], 5)
+
     def write(self, scratch: str, quotes: str, fill_rows: str = "") -> None:
         bid = np.array([[0.49, 0.48], [0.47, 0.46]])
         market = tape.Market(name="m", duration=10.0, book_time=np.array([0.0, 5.0]),

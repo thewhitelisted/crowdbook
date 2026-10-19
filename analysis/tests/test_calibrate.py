@@ -113,10 +113,14 @@ class SpecTest(unittest.TestCase):
             spec_from(SPEC + "\n[parameters.unused]\nlow = 1\nhigh = 2\n")
         # A value lead needs twins whose value is the recorded one, and nothing else.
         lead = "\n[parameters.value_lead]\nlow = 1\nhigh = 600\n"
-        with self.assertRaisesRegex(ValueError, "value_lead leads"):
+        with self.assertRaisesRegex(ValueError, "value_lead moves"):
             spec_from(SPEC + lead)
-        with self.assertRaisesRegex(ValueError, "value_lead leads"):
+        with self.assertRaisesRegex(ValueError, "value_lead moves"):
             spec_from("condition = true\n" + SPEC + lead)
+        # So does a basis.
+        basis = "\n[parameters.value_basis]\nlow = -60\nhigh = 20\n"
+        with self.assertRaisesRegex(ValueError, "value_basis moves"):
+            spec_from("condition = true\n" + SPEC + basis)
         twins = spec_from("condition = true\n" + SPEC + lead,
                           TEMPLATE + "[prediction]\npath = ${value_path}\n")
         self.assertIn("value_lead", [p.name for p in twins.parameters])
@@ -309,6 +313,56 @@ class ConditionTest(unittest.TestCase):
         calibrate.Evaluator(None, led, validate.Config(), [recorded])._label_twin(0, twin, 100.0)
         self.assertEqual(twin.value_time.tolist(), [0.0, 50.0])
         self.assertEqual(twin.value.tolist(), [40.0, 60.0])
+
+    def test_a_twins_value_can_sit_apart_from_its_recorded_reference(self):
+        from crowdbook_analysis import tape as tapes
+        from test_validate import market
+        index = market("perp", duration=120.0)
+        index.value_time = np.array([0.0, 30.0])
+        index.value = np.array([60125.0, 60131.0])
+        [index] = calibrate.with_openings(tapes.Tape([index], tapes.Options(returns="log")))
+        # 20.4 ticks below its index: every value, the opening and the price to anchor at.
+        texts = calibrate.market_texts(index, basis=-20.4)
+        parsed = tomllib.loads(f"initial = {texts['opening_value']}\n"
+                               f"price = {texts['opening_price']}\npath = {texts['value_path']}")
+        self.assertEqual(parsed, {"initial": 60104.6, "price": 60105,
+                                  "path": [[0, 60104.6], [30, 60110.6]]})
+        self.assertEqual(index.labels["opening_value"], 60125.0)  # the market's own, as it was
+        # The price to anchor at moves from its own label: 60125.4 + 0.4 is 60126, where the
+        # value's would give 60125.
+        anchored = market("anchored", duration=120.0)
+        anchored.labels = {"value_path": [(0.0, 60125.0)], "opening_value": 60125.0,
+                           "opening_price": 60125.4}
+        self.assertEqual(calibrate.market_texts(anchored, basis=0.4)["opening_price"], "60126")
+        # A contract's value is bounded and settles: it takes no basis.
+        contract = market("contract", duration=60.0)
+        contract.value_time, contract.value = np.array([0.0, 30.0]), np.array([0.97, 0.99])
+        [contract] = calibrate.with_openings(tapes.Tape([contract], tapes.Options(payout=1.0)))
+        with self.assertRaisesRegex(ValueError, "no contract"):
+            calibrate.market_texts(contract, basis=5.0)
+        # Led as well: first earlier, then lower.
+        both = calibrate.market_texts(index, lead=10.0, basis=5.0)
+        self.assertEqual(tomllib.loads(f"path = {both['value_path']}")["path"],
+                         [[0, 60130], [20, 60136]])
+        # A spec that fits it hands it to every twin, without a placeholder of its own, and
+        # each twin is measured against its reference as recorded.
+        template = "initial = ${opening_value}\npath = ${value_path}\n"
+        spec = calibrate.Spec(template=template, condition=True, parameters=[
+            calibrate.Parameter(calibrate.VALUE_BASIS, -60.0, 20.0, 0.0, log=False)])
+        self.assertEqual(tomllib.loads(spec.scenario({"value_basis": -20.4}, index))["initial"],
+                         60104.6)
+        with self.assertRaisesRegex(ValueError, "no contract"):
+            calibrate.Evaluator(None, spec, validate.Config(), [contract])
+        twin = market("twin", duration=120.0)
+        twin.value_time, twin.value = np.array([0.0]), np.array([60104.6])
+        calibrate.Evaluator(None, spec, validate.Config(), [index])._label_twin(0, twin, None)
+        self.assertEqual(twin.value.tolist(), [60125.0, 60131.0])
+        with tempfile.TemporaryDirectory() as scratch:
+            [written] = calibrate.write_twins(spec, {"value_basis": -20.4}, [index],
+                                              Path(scratch))
+            self.assertIn("sits -20.4 above the recorded reference (value_basis): the fit "
+                          "measured it against the reference as recorded", written.read_text())
+            self.assertEqual(tomllib.loads(written.read_text())["initial"], 60104.6)
 
     def test_around_trims_each_recorded_market_before_the_fit(self):
         from crowdbook_analysis import tape as tapes

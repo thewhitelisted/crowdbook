@@ -53,7 +53,9 @@ An optional `tape.toml` gives `tick`, the price increment (1 if absent), `return
 contract `payout`, what a winning unit pays. `same_order`, in seconds, is for a venue that stamps
 each fill of one order apart: the prints on one side each less than that after the one before are
 then one aggressive order (`same_order = 0.001` for books whose fills come microseconds apart).
-Without it only prints at one time are one order, as the engine stamps them. A recording is
+Without it only prints at one time are one order, as the engine stamps them. `lot` is for a venue
+that trades fractions: how much of the recording's sizes is one of the engine's whole units, such
+as `lot = 0.001` for bitcoin, so that every size is read in lots. A recording is
 converted to a tape once, by whoever holds it; `tape.simulate` runs any scenario under many seeds
 into one, its book sampled every 100 ms.
 
@@ -178,6 +180,14 @@ move the book against its reference together, by their difference, so a fit of b
 intervals that move together; fix the lags where they are known. A twin written by the fit says in
 its header how far it is led: measured against its own value, as `crowdbook-validate` measures a
 scenario, it is that much later than the fit measured it against the reference.
+
+A market can also trade apart from its reference, as a perpetual future does from the index it
+pays funding against. A spec may then fit `value_basis`, another setting no placeholder names:
+each twin's true value, the value it opens at and the price it opens at sit that far above the
+reference recorded (in its units, ticks for a market that is no contract; below it, if negative),
+and each twin is again measured against the reference as recorded. Without it, a twin's makers
+quote the reference and pull its book there, and every statistic of distance from the value
+misses by the basis. A twin written by the fit says its basis in its header.
 
 [game_twins.toml](../examples/calibration/game_twins.toml) and
 [game_twins_spec.toml](../examples/calibration/game_twins_spec.toml) fit a contract on the home
