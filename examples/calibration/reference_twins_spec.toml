@@ -5,7 +5,7 @@
 # trade, down to markets where hardly anything trades.
 template = "reference_twins.toml"
 condition = true
-seeds = 2
+seeds = 3   # each candidate on three twins of every recorded market: two leave its ranking noisy
 generations = 40
 held_out = 10
 # Games last over two hours: a sample of the book every second is enough for these statistics.

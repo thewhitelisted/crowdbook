@@ -4,7 +4,7 @@
 # traders; set it narrowly from the recorded scores where they say.
 template = "prop_twins.toml"
 condition = true
-seeds = 2
+seeds = 3   # each candidate on three twins of every recorded market: two leave its ranking noisy
 generations = 60
 held_out = 10
 # Games last hours: a sample of the book every second is enough for these statistics.
