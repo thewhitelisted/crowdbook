@@ -1,0 +1,45 @@
+# index_twins_spec.toml with its makers reading flow too: the recovery check of design.md, "A maker
+# that sets the price", fits it to markets made at known settings, with --retarget 1.
+template = "index_twins.toml"
+condition = true
+seeds = 2
+generations = 60
+held_out = 20
+
+[parameters.maker_intensity]
+low = 0.1
+high = 2.0
+start = 0.4
+
+[parameters.noise_market_rate]
+low = 0.02
+high = 1.0
+start = 0.1
+
+[parameters.size_tail]
+low = 0.8
+high = 3.0
+start = 1.5
+
+[parameters.followers]
+low = 1
+high = 40
+start = 10
+whole = true
+
+[parameters.follower_lag]
+low = 0.5
+high = 30.0
+start = 5.0
+kind = "duration"
+
+[parameters.flow_impact]
+low = 0.005
+high = 0.5
+start = 0.02
+
+[parameters.flow_memory]
+low = 2
+high = 200
+start = 60
+kind = "duration"

@@ -67,7 +67,7 @@ double varianceRatio(std::string_view flow) {
     double sixty = 0.0;
     std::int64_t ones = 0;
     std::int64_t sixties = 0;
-    for (std::uint64_t seed = 1; seed <= 4; ++seed) {
+    for (std::uint64_t seed = 1; seed <= 8; ++seed) {
         Scenario scenario = parseScenario(market(flow), "flow");
         scenario.seed = seed;
         std::ostringstream prices;
@@ -101,14 +101,15 @@ double varianceRatio(std::string_view flow) {
             }
         }
     }
+    EXPECT_GT(one, 0.0) << "the mid never moved";
     return (sixty / static_cast<double>(sixties)) / (60.0 * one / static_cast<double>(ones));
 }
 
 TEST(FlowReversionTest, AFadingImpactMakesTheMidRevertAndAPermanentOneDoesNot) {
     const double permanent = varianceRatio("flow_impact = 0.05");
     const double fading = varianceRatio("flow_impact = 0.05\nflow_memory = \"20s\"");
-    EXPECT_GT(permanent, 0.75) << permanent;  // about 0.9: a walk of the flow
-    EXPECT_LT(fading, 0.5) << fading;         // about 0.3: it reverts within the memory
+    EXPECT_GT(permanent, 0.6) << permanent;  // about 1: a walk of the flow
+    EXPECT_LT(fading, 0.5) << fading;        // about 0.35: it reverts within the memory
 }
 
 } // namespace

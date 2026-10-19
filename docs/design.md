@@ -1034,15 +1034,17 @@ takes through stale quotes is a price-setter: the book moves because it moves.
    impact of 0.1 and a memory of 20 s. Against uninformed ones it gives up under 5%, +1.444
    against +1.491 a lot: a cost, not "no less".
    - A permanent impact on a trade-average anchor counts the flow twice, since the average
-     already moves with it. It does worse against both kinds of taker, so templates anchor on
-     the value.
+     already moves with it. Measured, not tested: at an impact of 0.2 it lost 2.36 a lot to
+     informed takers against 1.48 without, and 7.4 to noise against a gain of 1.1. So templates
+     anchor on the value.
 3. **Reversion: pass** (flow_reversion_test.cpp). With the value still, so that the mid moves
    only as flow moves the maker:
-   - a 20 s memory gives a 60 s variance ratio of about 0.3;
-   - a permanent impact gives about 0.9, a random walk of the flow;
+   - a 20 s memory gives a 60 s variance ratio of about 0.35;
+   - a permanent impact gives about 1, a random walk of the flow;
    - a maker that reads no flow leaves the mid still.
 4. **Recovery: half a pass.** Index twins with `flow_impact` and `flow_memory` were fitted to
-   markets made at 0.05 and 20 s and four other settings. They ran 30 generations, then 30 more
+   markets made at 0.05 and 20 s and five other settings, by
+   `examples/calibration/index_flow_spec.toml`. They ran 30 generations, then 30 more
    with the tolerances remade at the fit.
    - They reach the target within chance, 17.6 against 60.5.
    - Five settings land within 2% and the impact within 7%, at 0.047.
