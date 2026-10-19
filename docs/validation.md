@@ -438,6 +438,30 @@ second, ten and a minute on, its adverse selection; and all of these at larger s
 seeds, its capacity. Set beside a paper trader's numbers on the real market, they say whether the
 fitted market predicts it.
 
+### Paper fills against the fit
+
+A paper trader runs a strategy on a real book without sending orders, recording the quotes it would
+have placed and the fills it would have had. Run the same strategy in the fitted market and
+[fills.py](../analysis/src/crowdbook_analysis/fills.py) sets the two side by side, each figure
+measured the same way, by the harness's own summary, with a 95% interval from resampling markets:
+the share of quoted lots that filled, the lots ahead of a quote, the wait to fill, the share of
+fills made resting, the lots a market, and a fill's worth 1, 10 and 60 seconds on. Figures whose
+intervals do not overlap are where the fit trades the strategy unlike the real market.
+
+```python
+from crowdbook_analysis import fills
+from crowdbook_learn.evaluate import run
+text, apart = fills.compare(fills.read_paper("paper/"), run(policy, Path("fit/twins"), seeds=range(1, 401)))
+```
+
+A paper record is a tape of the book the strategy watched, with two more tables: `quotes`
+(`market`, `time`, `side`, `price`, `size`, optionally `ahead`, the size shown at that price before
+the quote joined it) and `fills` (`market`, `time`, `side`, `price`, `quantity`, `liquidity`,
+`maker` or `taker`), times in seconds from each market's start and prices in the tape's units.
+`crowdbook-fills PAPER` prints a record's figures alone. Its known answer: a strategy's record in
+an engine market, written out as a paper record and read back, overlaps the same strategy on fresh
+seeds of that market in every figure (60 markets each, the learning example).
+
 ## Datasets
 
 `crowdbook-generate` ([generate.py](../analysis/src/crowdbook_analysis/generate.py)) makes many
