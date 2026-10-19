@@ -148,6 +148,9 @@ private:
     // Lots its takes have filled whose trades it has yet to see, a side each.
     Quantity ownBought_ = 0;
     Quantity ownSold_ = 0;
+    // Lots at the best bid and ask as last published, its own among them.
+    Quantity topBidSize_ = 0;
+    Quantity topAskSize_ = 0;
     // Its quotes a side, a level each, the touch first.
     std::vector<std::optional<Quote>> bids_;
     std::vector<std::optional<Quote>> asks_;

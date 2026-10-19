@@ -142,6 +142,8 @@ void MarketMaker::onRejected(AgentContext& context, const OrderRejected& event) 
 
 void MarketMaker::onTopOfBook(AgentContext& /*context*/, const TopOfBook& top) {
     market_.update(top);
+    topBidSize_ = top.bid ? top.bid->quantity : 0;
+    topAskSize_ = top.ask ? top.ask->quantity : 0;
 }
 
 void MarketMaker::onTrade(AgentContext& context, const Trade& trade) {
@@ -303,7 +305,6 @@ Quantity MarketMaker::takeThrough(AgentContext& context, double fair, bool mayTa
     };
     const double through = *config_.takeThrough;
     const Price highest = context.maxPrice();
-    // Room as the exchange counts it: the position were every open order on that side to fill.
     // The exchange stops a take at the first of its own quotes it reaches, so it first cancels
     // those the take could reach; they arrive first, as messages on a link never overtake. Room is
     // as the exchange counts it: the position were every open order on that side to fill.
@@ -326,11 +327,25 @@ Quantity MarketMaker::takeThrough(AgentContext& context, double fair, bool mayTa
         takes_.push_back(context.submitLimit(side, price, room, TimeInForce::ImmediateOrCancel));
         quotedFair_.reset(); // whatever its threshold, it quotes afresh around the take
     };
-    if (mayTake && market_.bestAsk() && fair - through > static_cast<double>(*market_.bestAsk())) {
+    // Someone else's quote at the far side's best price: the book shows more there than its own.
+    const auto others = [&](const std::vector<std::optional<Quote>>& quotes, Price best,
+                            Quantity shown) {
+        Quantity own = 0;
+        for (const std::optional<Quote>& quote : quotes) {
+            const OwnOrder* live = quote ? ledger.find(quote->clientOrderId) : nullptr;
+            if (live != nullptr && live->acknowledged && live->price == best) {
+                own += live->leaves;
+            }
+        }
+        return shown > own;
+    };
+    if (mayTake && market_.bestAsk() && fair - through > static_cast<double>(*market_.bestAsk()) &&
+        others(asks_, *market_.bestAsk(), topAskSize_)) {
         take(Side::Buy, clampPrice(std::floor(fair - through), highest),
              config_.maxInventory - ledger.position() - ledger.openQuantity(Side::Buy));
     } else if (mayTake && market_.bestBid() &&
-               fair + through < static_cast<double>(*market_.bestBid())) {
+               fair + through < static_cast<double>(*market_.bestBid()) &&
+               others(bids_, *market_.bestBid(), topBidSize_)) {
         take(Side::Sell, clampPrice(std::ceil(fair + through), highest),
              config_.maxInventory + ledger.position() - ledger.openQuantity(Side::Sell));
     }

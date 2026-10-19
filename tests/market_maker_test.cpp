@@ -17,6 +17,7 @@
 #include "crowdbook/scenario_file.hpp"
 #include "exchange_test_support.hpp"
 #include "fake_context.hpp"
+#include "test_agents.hpp"
 
 namespace crowdbook {
 namespace {
@@ -38,6 +39,9 @@ const MarketMakerConfig kConfig{.riskAversion = 0.1,
 
 const TopOfBook kTop{.bid = LevelSummary{.price = 99, .quantity = 1},
                      .ask = LevelSummary{.price = 101, .quantity = 1}};
+// The book once its own 5-lot quotes at 99 and 101 have joined someone else's lot at each.
+const TopOfBook kJoinedTop{.bid = LevelSummary{.price = 99, .quantity = 6},
+                           .ask = LevelSummary{.price = 101, .quantity = 6}};
 
 TEST(AvellanedaStoikovTest, QuotesLeanAgainstInventory) {
     EXPECT_EQ(avellanedaStoikovQuotes(kConfig, 100.0, 0), (Quotes{.bid = 99, .ask = 101}));
@@ -594,6 +598,7 @@ TEST(MarketMakerTest, ATakeLeavesRoomForItsOpenOrders) {
     static_cast<void>(context.takeSent());
     context.accept(1);
     context.accept(2);
+    maker.onTopOfBook(context, kJoinedTop);
     maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy});
     context.setNow(100 * kMillisecond);
     maker.onWakeup(context, 0);
@@ -751,6 +756,7 @@ TEST(MarketMakerTest, ReplacesAQuoteItCancelledForATakeWhateverItsThreshold) {
     static_cast<void>(context.takeSent());
     context.accept(1);
     context.accept(2);
+    maker.onTopOfBook(context, kJoinedTop);
     maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy});
     context.setNow(100 * kMillisecond);
     maker.onWakeup(context, 0);
@@ -776,14 +782,41 @@ TEST(MarketMakerTest, QuotesAfreshWhenATakeEnds) {
     static_cast<void>(context.takeSent());
     context.accept(1);
     context.accept(2);
-    // Nothing fills; with the take done and flat, it would take again at once, so the fair price
-    // is first brought back within the threshold: fair 102.
+    // Nothing fills, and the fair price comes back to 102, within the threshold.
     maker.onTrade(context, {.price = 101, .quantity = 3, .aggressorSide = Side::Sell});
     maker.onCancelled(context, context.cancelRest(1));
     // Flat: bid floor(102 - 0.845) = 101 and the ask to ceil(102.845) = 103.
     EXPECT_EQ(context.takeSent(),
               (std::vector<Request>{limitOrder(3, Side::Buy, 101, 5),
                                     ModifyOrder{.clientOrderId = 2, .price = 103, .quantity = 5}}));
+}
+
+// When a take ends with its fair price still past someone else's quote, as when the take stopped
+// short of it, it takes again only on its timer: takes never follow one another without time
+// passing.
+TEST(MarketMakerTest, TakesAgainOnlyOnItsTimer) {
+    MarketMakerConfig config = flowReader(1.0);
+    config.maxInventory = 10;
+    config.takeThrough = 2.0;
+    MarketMaker maker{config, kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy});
+    maker.onStart(context); // a take of 10 at 103 and an ask at 102, as if long 10
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+    const auto takes = [](const std::vector<Request>& sent) {
+        return std::ranges::count_if(sent, [](const Request& request) {
+            const auto* order = std::get_if<NewOrder>(&request);
+            return order != nullptr && order->timeInForce == TimeInForce::ImmediateOrCancel;
+        });
+    };
+    maker.onCancelled(context, context.cancelRest(1)); // fair 105 is still past the ask of 101
+    EXPECT_EQ(takes(context.takeSent()), 0);
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(takes(context.takeSent()), 1);
 }
 
 // In a whole market, its takes are never stopped by its own quotes.
@@ -845,6 +878,79 @@ interval = "1s"
     }
     EXPECT_GT(takes, 0);
     EXPECT_EQ(stopped, 0);
+}
+
+// When the best price on the far side holds only its own quote it has nothing to take there.
+TEST(MarketMakerTest, TakesNothingWhereTheBookHoldsOnlyItsOwnQuote) {
+    MarketMakerConfig config = flowReader(1.0);
+    config.maxInventory = 10;
+    config.takeThrough = 2.0;
+    MarketMaker maker{config, kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context); // bid 99 and ask 101, 5 lots each
+    static_cast<void>(context.takeSent());
+    context.accept(1);
+    context.accept(2);
+    maker.onTopOfBook(context, {.bid = LevelSummary{.price = 99, .quantity = 5},
+                                .ask = LevelSummary{.price = 101, .quantity = 5}});
+    maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy});
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0);
+    for (const Request& request : context.takeSent()) {
+        const auto* order = std::get_if<NewOrder>(&request);
+        EXPECT_FALSE(order != nullptr && order->timeInForce == TimeInForce::ImmediateOrCancel);
+    }
+}
+
+// Counts the requests reaching the exchange, and the takes among them, and stops the run past a
+// limit.
+class RequestLimit final : public EventSink {
+public:
+    explicit RequestLimit(int limit) : limit_{limit} {}
+    void onRequest(Timestamp /*time*/, AgentId /*agent*/, const Request& request) override {
+        if (++requests_ > limit_) {
+            throw std::runtime_error("too many requests");
+        }
+        const auto* order = std::get_if<NewOrder>(&request);
+        if (order != nullptr && order->type == OrderType::Limit &&
+            order->timeInForce == TimeInForce::ImmediateOrCancel) {
+            ++takes;
+        }
+    }
+    void onEvent(Timestamp /*time*/, const Event& /*event*/) override {}
+
+    int takes = 0;
+
+private:
+    int limit_;
+    int requests_ = 0;
+};
+
+// On a real exchange, where a take's fill arrives before its trade: a buy of 8 lots moves its fair
+// price past the asks, and the take, cancelling its own ask, ends; the requote after it must not
+// take again at once, nor take its own ask on later ticks once no one else's is left in reach.
+TEST(MarketMakerTest, ATakeOnAnExchangeEndsAndIsNotRepeatedAgainstItself) {
+    Simulation simulation{1};
+    RequestLimit sink{1000};
+    simulation.setEventSink(&sink);
+    auto& stale = test::add<test::RecordingAgent>(simulation, {});
+    stale.startHook = [](AgentContext& context) {
+        context.submitLimit(Side::Sell, 103, 12);
+        context.submitLimit(Side::Sell, 105, 10);
+        context.submitLimit(Side::Buy, 90, 20);
+    };
+    MarketMakerConfig config = flowReader(1.0);
+    config.takeThrough = 1.0;
+    static_cast<void>(test::add<MarketMaker>(simulation, {}, config, kReference, stillValue()));
+    auto& buyer = test::add<test::RecordingAgent>(simulation, {});
+    buyer.startHook = [](AgentContext& context) { context.wakeAt(50 * kMillisecond, 0); };
+    buyer.wakeupHook = [](AgentContext& context, std::uint64_t) {
+        context.submitMarket(Side::Buy, 8);
+    };
+    EXPECT_NO_THROW(simulation.runUntil(kSecond));
+    EXPECT_GT(sink.takes, 0);
+    EXPECT_LE(sink.takes, 2) << "it takes on every tick";
 }
 
 // Within the threshold it takes nothing and quotes as usual.
