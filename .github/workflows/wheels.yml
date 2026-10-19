@@ -192,12 +192,15 @@ jobs:
         include:
           - project: crowdbook-engine
             files: crowdbook_engine-*
+            count: 4 # three wheels and the source
             environment: pypi
           - project: crowdbook-analysis
             files: crowdbook_analysis-*
+            count: 2
             environment: pypi-analysis
           - project: crowdbook
             files: crowdbook-[0-9]*
+            count: 2
             environment: pypi-client
     environment:
       name: ${{ matrix.environment }}
@@ -211,6 +214,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.publish || github.ref_name }}
           FILES: ${{ matrix.files }}
+          COUNT: ${{ matrix.count }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "::error::'$TAG' is not a release tag vX.Y.Z"; exit 1; }
@@ -222,6 +226,9 @@ jobs:
               *) echo "::error::$file is not version $version"; exit 1 ;;
             esac
           done
+          files=(dist/*)
+          [[ ${#files[@]} -eq $COUNT ]] || {
+            echo "::error::the release has ${#files[@]} of the $COUNT files expected"; exit 1; }
 
       # Files PyPI already has are left alone, so that a run stopped partway can be run again.
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
