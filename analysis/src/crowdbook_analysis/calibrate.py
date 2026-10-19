@@ -169,7 +169,8 @@ class Spec:
                 return match.group(2)
             if match.group(1) not in texts:
                 raise KeyError(f"the template uses ${{{match.group(1)}}}, which the spec does "
-                               "not set")
+                               "not set" + (f" nor the recorded market {market.name} have"
+                                            if market is not None else ""))
             return texts[match.group(1)]
 
         return "".join(line if line.lstrip().startswith("#") else PLACEHOLDER.sub(fill, line)
@@ -186,6 +187,7 @@ class Spec:
 
 
 DRAW_HIGHEST = 0.26
+MAX_PRICE = 1_000_000_000  # the engine's highest price, in ticks
 # A setting the template need not use: how many seconds a twin's true value runs ahead of the
 # recorded reference, for a reference that trails the market it prices (market_texts).
 VALUE_LEAD = "value_lead"
@@ -252,6 +254,9 @@ def with_value_paths(t: tapes.Tape) -> list[tapes.Market]:
     first, in ticks, and `opening_price`, that to the nearest tick: for twins whose
     `[fundamental]` follows it."""
     tick = t.options.tick
+    if t.options.returns != "log" and any(m.value is not None for m in t.markets):
+        raise ValueError('a tape with a value and no payout is twinned on log returns, as its '
+                         'twins are measured: set returns = "log" in its tape.toml')
     for m in t.markets:
         if m.value is None or m.value_time is None:
             continue
@@ -265,7 +270,8 @@ def with_value_paths(t: tapes.Tape) -> list[tapes.Market]:
         if path:
             m.labels["value_path"] = path
             m.labels["opening_value"] = path[0][1]
-            m.labels["opening_price"] = int(round(path[0][1]))  # a whole tick, to anchor at
+            # A whole tick, to anchor at, within the prices the engine takes.
+            m.labels["opening_price"] = int(min(max(round(path[0][1]), 1), MAX_PRICE))
     return t.markets
 
 
