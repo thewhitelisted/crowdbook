@@ -56,6 +56,35 @@ constexpr std::string_view kUsage =
     "       crowdbook agents\n"
     "       crowdbook --version\n";
 
+// One command's lines of kUsage, as its own usage: from the line naming it to the next that names
+// another. Every line of kUsage starts with seven characters, "usage: " or spaces, so the
+// continuation lines stay aligned. Empty for a name that is no command.
+std::string commandUsage(std::string_view command) {
+    const std::string name = std::format("crowdbook {}", command);
+    std::string usage;
+    bool inside = false;
+    for (const auto part : std::views::split(kUsage, '\n')) {
+        const std::string_view line{part.begin(), part.end()};
+        if (line.size() < 7) {
+            continue;
+        }
+        const std::string_view text = line.substr(7);
+        if (text.starts_with("crowdbook ")) {
+            inside = text.starts_with(name) &&
+                     (text.size() == name.size() || text[name.size()] == ' ');
+            if (inside) {
+                usage += std::format("usage: {}\n", text);
+            }
+        } else if (inside) {
+            usage += std::format("{}\n", line);
+        }
+    }
+    return usage;
+}
+
+// Thrown by parseCommandLine for --help or -h where an option belongs, not as another's value.
+struct HelpRequested {};
+
 struct CommandLine {
     std::string path{}; // the scenario, or for replay the session
     std::optional<std::uint64_t> seed{};
@@ -124,6 +153,9 @@ CommandLine parseCommandLine(std::span<char*> args, std::string_view command,
     CommandLine line;
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string_view arg = args[i];
+        if (arg == "--help" || arg == "-h") {
+            throw HelpRequested{};
+        }
         if (arg.starts_with("--") && std::ranges::find(allowed, arg) == allowed.end()) {
             throw UsageError(std::format("{} does not take {}", command, arg));
         }
@@ -331,11 +363,8 @@ int connectCommand(std::span<char*> args) {
     return connect(options);
 }
 
-int runCommand(std::span<char*> args) {
-    if (args.empty()) {
-        throw UsageError("no command given");
-    }
-    const std::string_view command = args[0];
+// Runs the command args[0] with the arguments after it.
+int dispatch(std::string_view command, std::span<char*> args) {
     if (command == "run") {
         return run(args.subspan(1));
     }
@@ -355,6 +384,10 @@ int runCommand(std::span<char*> args) {
         return reportCommand(args.subspan(1));
     }
     if (command == "agents") {
+        if (args.size() > 1) {
+            parseCommandLine(args.subspan(1), "agents", {}); // only for --help
+            throw UsageError("agents takes no arguments");
+        }
         std::cout << "agent types:\n";
         for (const std::string& type : AgentRegistry::withBuiltIns().types()) {
             std::cout << "  " << type << '\n';
@@ -371,6 +404,20 @@ int runCommand(std::span<char*> args) {
         return 0;
     }
     throw UsageError(std::format("unknown command '{}'", command));
+}
+
+int runCommand(std::span<char*> args) {
+    if (args.empty()) {
+        throw UsageError("no command given");
+    }
+    const std::string_view command = args[0];
+    try {
+        return dispatch(command, args);
+    } catch (const HelpRequested&) {
+        // `crowdbook <command> --help` shows that command's usage.
+        std::cout << commandUsage(command);
+        return 0;
+    }
 }
 
 } // namespace
