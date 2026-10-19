@@ -386,8 +386,11 @@ class Target:
 
     def __init__(self, real: validate.Summary, keys: list[str], logs: list[bool],
                  tolerance: np.ndarray):
-        self.real, self.keys, self.logs, self.tolerance = real, keys, logs, tolerance
+        self.real, self.keys, self.logs = real, keys, logs
         self.vector = self.scaled(real.point)
+        self.floor = np.array([floor_of(v, log) for v, log in zip(self.vector, logs,
+                                                                   strict=True)])
+        self.tolerance = np.maximum(np.asarray(tolerance, dtype=float), self.floor)
 
     def scaled(self, point: dict[str, float]) -> np.ndarray:
         return np.array([float(validate._scaled(point.get(k, np.nan), log))
@@ -420,7 +423,7 @@ class Target:
                 at_fit = math.hypot(validate.spread_of(self.real.draws[key], log),
                                     chased if np.isfinite(chased) else 0.0)
                 if np.isfinite(at_fit) and at_fit > 0:
-                    tolerance = at_fit
+                    tolerance = max(at_fit, self.floor[index])
             own = validate.spread_of(judged.draws[key], log)
             tolerance = math.hypot(tolerance, own if np.isfinite(own) else 0.0)
             gaps.append((float(validate._scaled(judged.point.get(key, np.nan), log))
@@ -550,6 +553,18 @@ class Evaluator:
 # one measured in only a market or two of many, such as trades where nearly none were recorded,
 # is unmeasured in a third of them, and its value is that market's alone.
 MOST_UNMEASURED = 0.1
+# The least tolerance a compared statistic has, a share of its value: 1%, a difference of 0.01 in
+# a logarithm. A statistic the settings fix exactly, such as a ladder's sizes, has no resampling
+# spread, and with none a miss of a lot in two thousand would count as thousands of tolerances,
+# leaving a search nothing to climb but a cliff.
+TOLERANCE_FLOOR = 0.01
+
+
+def floor_of(value: float, logarithmic: bool) -> float:
+    """The least tolerance of a statistic of this value, on the scale it is compared on."""
+    if logarithmic:
+        return TOLERANCE_FLOOR
+    return TOLERANCE_FLOOR * abs(value) if np.isfinite(value) else 0.0
 
 
 def make_target(real: validate.Summary, start: validate.Summary, wanted: list[str] | None,

@@ -545,6 +545,23 @@ class TruthTest(unittest.TestCase):
         self.assertLess(target.judged(judged), 4)  # within chance of the noise the fit chased
         self.assertGreater(validate.distance(real, judged, "spread_mean", False) ** 2, 25)
 
+    def test_a_statistic_the_settings_fix_has_a_tolerance_of_one_percent(self):
+        # A ladder's touch, 2,832 lots in every market, its resamples agreeing but for rounding:
+        # without a floor, a miss of half a percent is thousands of tolerances.
+        rng = np.random.default_rng(7)
+        real = TargetTest.summary(self, {"touch_size_median": 2832 + rng.normal(0, 1e-3, 200),
+                                         "spread_one_tick": 0.11 + rng.normal(0, 1e-6, 200)})
+        start = TargetTest.summary(self, {"touch_size_median": 2265 + rng.normal(0, 1e-3, 200),
+                                          "spread_one_tick": 0.29 + rng.normal(0, 1e-6, 200)})
+        target = calibrate.make_target(real, start, None, validate.Config())
+        tolerance = dict(zip(target.keys, target.tolerance, strict=True))
+        self.assertAlmostEqual(tolerance["touch_size_median"], 0.01)  # a logarithm's 1%
+        self.assertAlmostEqual(tolerance["spread_one_tick"], 0.0011)  # 1% of 0.11
+        near = {"touch_size_median": 2832 * math.exp(0.005), "spread_one_tick": 0.11 * 1.005}
+        self.assertLess(target.distance(near), 1.0)
+        judged = TargetTest.summary(self, {k: np.full(200, v) for k, v in near.items()})
+        self.assertLess(target.judged(judged, searched=judged), 1.0)
+
     def test_the_noise_a_fit_chased_is_measured_at_the_fit(self):
         # A start in a busy regime the fit left spreads widely; the fit on the search's seeds
         # spreads little. The search's noise is the fit's, so a fit off by 0.3 fails, judged
