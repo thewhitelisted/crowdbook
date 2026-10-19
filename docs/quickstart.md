@@ -11,7 +11,7 @@ crowdbook runs on Linux and macOS. It comes as three Python packages:
 | package | holds | licence |
 |---|---|---|
 | `crowdbook-engine` | the `crowdbook` command, and `crowdbook_learn`, markets stepped from Python | [PolyForm Shield 1.0.0](../LICENSE) |
-| `crowdbook-analysis` | fitting and checking markets: `crowdbook-assess`, `crowdbook-calibrate`, `crowdbook-validate`, `crowdbook-sweep`, `crowdbook-draws`, `crowdbook-generate`; the experiments behind [results.md](results.md) run from a checkout, with `uv run --project analysis` | PolyForm Shield 1.0.0 |
+| `crowdbook-analysis` | fitting and checking markets: `crowdbook-assess`, `crowdbook-calibrate`, `crowdbook-validate`, `crowdbook-sweep`, `crowdbook-draws`, `crowdbook-generate`, `crowdbook-tape`; the experiments behind [results.md](results.md) run from a checkout, with `uv run --project analysis` | PolyForm Shield 1.0.0 |
 | `crowdbook` | the client for trading in a served market from Python, standard library only | [MIT](../clients/python/LICENSE) |
 
 The examples and the tutorial's files are in the repository, so start from a clone and a virtual
@@ -123,6 +123,33 @@ ranges: the fit, whether it reaches the recording within chance, whether the fit
 any strategy of the check, generic or learned, and a verdict on whether it can be trusted for testing strategies.
 [tutorial.md](tutorial.md) walks through it on a recording whose answer you can check, and
 [validation.md](validation.md) is the reference.
+
+## Your own recording
+
+A recording in plain CSV, as order-book data usually comes, converts to a tape:
+
+```bash
+crowdbook-tape --quotes quotes.csv --trades trades.csv --market 3600 --tick 0.01 \
+    --returns log --out recording
+```
+
+- `quotes.csv`: `time`, `bid_price`, `bid_size`, `ask_price`, `ask_size`, and deeper levels as
+  `bid_price_2`, `bid_size_2` and so on; each row the book as it stood from then.
+- `trades.csv`: `time`, `price`, `size`, and `side`, the side that took liquidity, `buy` or
+  `sell`, or empty to have it inferred from the book.
+- `--value value.csv`, optional: `time`, `value`, a reference price.
+- Times are seconds, or another unit with `--time-unit ms`, or dates and times as text.
+- `--market 3600` cuts a long recording into markets an hour long, each opening with the book and
+  the value as they stood. A recording is judged over its markets, its intervals from resampling
+  them, so a day of one market is better read as many shorter ones. An hour with no quotes,
+  trades or values of its own, such as one the venue was closed, is left out, and the last market
+  ends at the recording's last event.
+- `--returns log` for prices like a stock's or a coin's; the default, `difference`, for bounded
+  prices such as a probability's.
+
+The tape goes wherever `--real` does: `crowdbook-validate`, `crowdbook-calibrate` and
+`crowdbook-assess`. [validation.md](validation.md#tapes-one-format-for-every-market) describes the
+format, for recordings that need a converter of their own.
 
 ## When something goes wrong
 
