@@ -2,6 +2,7 @@ import math
 import tempfile
 import tomllib
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -82,6 +83,15 @@ class SpecTest(unittest.TestCase):
     def test_rejects_specs_that_cannot_work(self):
         with self.assertRaisesRegex(ValueError, "never uses unused"):
             spec_from(SPEC + "\n[parameters.unused]\nlow = 1\nhigh = 2\n")
+        # A value lead needs twins whose value is the recorded one, and nothing else.
+        lead = "\n[parameters.value_lead]\nlow = 1\nhigh = 600\n"
+        with self.assertRaisesRegex(ValueError, "value_lead leads"):
+            spec_from(SPEC + lead)
+        with self.assertRaisesRegex(ValueError, "value_lead leads"):
+            spec_from("condition = true\n" + SPEC + lead)
+        twins = spec_from("condition = true\n" + SPEC + lead,
+                          TEMPLATE + "[prediction]\npath = ${value_path}\n")
+        self.assertIn("value_lead", [p.name for p in twins.parameters])
         with self.assertRaisesRegex(ValueError, "low must be below high"):
             spec_from(SPEC.replace("high = 1.0", "high = 0.001"))
         with self.assertRaisesRegex(ValueError, "logarithmic range needs low > 0"):
@@ -146,6 +156,20 @@ class ConditionTest(unittest.TestCase):
         parsed = tomllib.loads(f"path = {texts['value_path']}\noutcome = {texts['outcome']}")
         self.assertEqual(parsed, {"path": [[0, 50], [0, 52], [30.5, 54.25], [40, 100]],
                                   "outcome": 100})
+        # Led by 35 s, the twin's value is the one recorded 35 s later: 54.25 is reached at
+        # once, from the start, and 100 at 5 s; the settlement is the recording's.
+        led = calibrate.market_texts(m, lead=35.0)
+        parsed = tomllib.loads(f"path = {led['value_path']}\noutcome = {led['outcome']}")
+        self.assertEqual(parsed, {"path": [[0, 54.25], [5, 100]], "outcome": 100})
+        self.assertEqual(calibrate.led([(0.0, 50.0), (10.0, 60.0)], 5.0),
+                         [(0.0, 50.0), (5.0, 60.0)])
+        self.assertEqual(calibrate.led([(0.0, 50.0), (10.0, 60.0)], 0.0),
+                         [(0.0, 50.0), (10.0, 60.0)])
+        # A spec that fits the lead hands it to every twin, without a placeholder of its own.
+        spec = calibrate.Spec(template="path = ${value_path}\n",
+                              parameters=[calibrate.Parameter("value_lead", 1.0, 60.0, 10.0)])
+        self.assertEqual(spec.scenario({"value_lead": 35.0}, m),
+                         f"path = {led['value_path']}\n")
         bare = market("bare", duration=60.0)
         [bare] = calibrate.with_openings(tapes.Tape([bare], tapes.Options(payout=100.0)))
         self.assertEqual(calibrate.market_texts(bare)["value_path"], "[]")
@@ -192,6 +216,23 @@ class ConditionTest(unittest.TestCase):
         orphan.labels = {"kickoff": 5.0}
         evaluator._label_twin(1, orphan)
         self.assertEqual(spec.cut(tapes.Tape([orphan])).markets, [])
+
+    def test_a_twin_led_ahead_of_its_reference_is_measured_against_that_reference(self):
+        from crowdbook_analysis import validate
+        from test_validate import market
+        recorded = market("recorded", duration=100.0)
+        recorded.value_time, recorded.value = np.array([0.0, 50.0]), np.array([0.4, 0.6])
+        twin = market("twin", duration=100.0)
+        twin.value_time, twin.value = np.array([0.0, 10.0]), np.array([0.4, 0.6])
+        template = TEMPLATE.replace('duration = "60s"', 'duration = "${duration}s"')
+        plain = spec_from("condition = true\n" + SPEC, template)
+        calibrate.Evaluator(None, plain, validate.Config(), [recorded])._label_twin(0, twin)
+        self.assertEqual(twin.value_time.tolist(), [0.0, 10.0])  # its own, without a lead
+        led = replace(plain, parameters=plain.parameters + [
+            calibrate.Parameter(calibrate.VALUE_LEAD, 1.0, 120.0, 40.0)])
+        calibrate.Evaluator(None, led, validate.Config(), [recorded])._label_twin(0, twin)
+        self.assertEqual(twin.value_time.tolist(), [0.0, 50.0])
+        self.assertEqual(twin.value.tolist(), [0.4, 0.6])
 
     def test_around_trims_each_recorded_market_before_the_fit(self):
         from crowdbook_analysis import tape as tapes
