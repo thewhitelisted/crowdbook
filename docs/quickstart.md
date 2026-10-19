@@ -18,20 +18,25 @@ The examples and the tutorial's files are in the repository, so start from a clo
 environment with Python 3.12 or later:
 
 ```bash
-git clone https://github.com/thewhitelisted/crowdbook && cd crowdbook
+git clone --branch v0.13.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
 python3 -m venv .venv && . .venv/bin/activate
 ```
 
-**From a release's wheels**, with no compiler: each release on GitHub carries wheels for Linux
-(x86-64 and arm64) and macOS (Apple silicon). For release `vX.Y.Z`:
+**From the release's wheels**, with no compiler: each release on GitHub carries wheels for Linux
+(x86-64 and arm64, glibc 2.28 or later) and macOS 14 or later on Apple silicon. For the latest
+release:
 
 ```bash
-pip install crowdbook-engine==X.Y.Z crowdbook-analysis==X.Y.Z \
-    --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/vX.Y.Z
+pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0 \
+    --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/v0.13.0
 ```
 
-**From source**, with CMake 3.25 or later and a C++23 compiler (GCC 14, or Apple clang from
-Xcode 16), which builds the engine in a minute or two:
+On any other platform that command builds the engine from the release's source instead, which
+needs the compiler below.
+
+**From source**, for other platforms or a checkout of `main`, with CMake 3.25 or later and a
+C++23 compiler (GCC 14, or Apple clang from Xcode 16), which builds the engine in a minute or
+two:
 
 ```bash
 pip install . ./analysis              # and ./clients/python for the client
