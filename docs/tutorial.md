@@ -57,8 +57,10 @@ That is 100 five-minute markets, in about three seconds. Pretend someone handed 
 | `trades` | every print: time, price, size, and which side took liquidity |
 | `value` | a reference price; here, the asset's true value |
 
-A real recording, of any market where you can see the book and the trades, becomes a tape once,
-with a short script of your own; nothing else in crowdbook knows where a tape came from.
+A real recording, of any market where you can see the book and the trades, becomes a tape once;
+nothing else in crowdbook knows where a tape came from. Recordings as plain CSV, the book's best
+levels and the trades with their times, convert with `crowdbook-tape`
+([quickstart.md](quickstart.md#your-own-recording)).
 
 `recording/markets.csv` holds the answer: the settings it was made with. Don't look yet.
 
@@ -86,7 +88,7 @@ kinds of trader.
 crowdbook-assess examples/tutorial/spec.toml --real recording/shard-00000 --output assessed
 ```
 
-About four and a half minutes on four cores: 5,060 simulated markets for the fit, and the rest
+About four minutes on four cores: 5,060 simulated markets for the fit, and the rest
 for the check. It does three things.
 
 **It fits.** The method of simulated moments: about 47 statistics of the book, the trades and the
@@ -96,11 +98,11 @@ settings whose markets are closest, each statistic counted in units of its own s
 
 | setting | start | fitted | 68% interval |
 |---|---:|---:|---:|
-| maker_intensity | 0.4 | 0.822 | 0.813 to 0.830 |
-| noise_market_rate | 0.1 | 0.303 | 0.295 to 0.311 |
-| follower_lag | 3 s | 9.5 s | 8.8 to 10.3 s |
+| maker_intensity | 0.4 | 0.819 | 0.810 to 0.828 |
+| noise_market_rate | 0.1 | 0.309 | 0.302 to 0.317 |
+| follower_lag | 3 s | 9.9 s | 9.1 to 10.8 s |
 
-**It judges the fit on seeds the search never saw.** Its distance there is 20.9, where chance
+**It judges the fit on seeds the search never saw.** Its distance there is 24.4, where chance
 alone stays under 64.0 95% of the time: the fitted market is the recording's, as far as these
 statistics can tell. When a fit does not reach a recording within chance, the model is missing
 something, and the report's statistics furthest from the recording say what.
@@ -113,11 +115,11 @@ judged on 400 fresh markets:
 
 | each family's best, on fresh markets | made a market (tick-lots) |
 |---|---:|
-| maker, 8 ticks either side | −0.8 [−1.8, +0.3] |
-| trend, 60 s against 600 s | −24.8 [−56.8, +7.2] |
-| reversal, 60 s against 600 s | −87.8 [−114.2, −61.4] |
-| flow, 30 s at 80% | −27.0 [−55.7, +1.7] |
-| learner, 20 generations on 16 markets | −7.1 [−42.8, +28.7] |
+| maker, 5 ticks either side | −6.3 [−10.4, −2.3] |
+| trend, 60 s against 600 s | −21.1 [−52.7, +10.6] |
+| reversal, 60 s against 600 s | −91.1 [−117.3, −65.0] |
+| flow, 120 s at 80% | +1.0 [−25.5, +27.5] |
+| learner, 20 generations on 16 markets | −21.6 [−58.5, +15.2] |
 
 None makes money for sure, after fees. So `assessed/verdict.md` says:
 
@@ -131,13 +133,15 @@ the recording and in the fit, measured alike: where the recording pays such a qu
 fit does, a maker's flag is the market's own edge; where it does not, the flag is the fit's, and
 nothing tested in that fit can be trusted until the fit is corrected.
 
-Why fees of two ticks: at one tick a lot, the learner makes +87.5 [+58.5, +116.4] a market,
-taking with the order flow and the trend of the last twenty seconds to two minutes and moving
-its quotes with them, and the verdict is no. The recording was made by the very model fitted, so the edge
-is most likely the model's own, which the recording's market would pay too. With a real recording
-the check cannot tell a market's own edge from one the fit invented; either way, a strategy
-tested where a simple one is paid is judged against the wrong bar, and a real fee that removes
-the edge, as here, or a closer look at the recording comes first.
+Why fees of two ticks: at one tick a lot the check comes close to a flag. The learner makes
++11.7 [−21.7, +45.1] a market there and the flow followers +7.7 [−18.7, +34.2], and fits only a
+little different from this one have had the learner paid for sure, taking with the order flow and
+the trend of the last minute or two. The recording was made by the very model fitted, so such an
+edge would be the model's own, which the recording's market pays too. With a real recording the
+check cannot tell a market's own edge from one the fit invented; either way, a strategy tested
+where a simple one is paid is judged against the wrong bar, and a real fee that removes the edge,
+or a closer look at the recording, comes first. Two ticks keeps this tutorial's verdict clear of
+that edge.
 
 ## 4. A strategy, tested
 
@@ -159,14 +163,15 @@ Each row runs the strategy on 200 markets, about twenty seconds:
 
 | market | made a market (tick-lots) | 95% interval | lots | per lot | markout 10 s |
 |---|---:|---|---:|---:|---:|
-| assessed/scenario.toml | -2,382.2 | [-2,411.9, -2,352.6] | 1,503 | -1.585 | +0.387 |
-| 20 scenarios in draws | -2,398.2 | [-2,430.2, -2,366.1] | 1,509 | -1.589 | +0.375 |
+| assessed/scenario.toml | -2,414.8 | [-2,444.2, -2,385.5] | 1,527 | -1.581 | +0.388 |
+| 20 scenarios in draws | -2,432.0 | [-2,465.1, -2,398.9] | 1,536 | -1.583 | +0.389 |
 
 It loses about 1.6 ticks a lot. Its fills are worth +0.39 ticks ten seconds on, before fees: it
 earns part of the spread and is not picked off, but the fee of two ticks a lot takes more than
 all of it. The markout is what tells you whether a change could save it: here the fee, not adverse
-selection, is the problem, so quoting wider is the only change that could, and the check's makers
-suggest even that barely breaks even; trading faster would not.
+selection, is the problem, so quoting wider is the only change that could, and the check's makers,
+whose best still loses quoting five ticks out, suggest even that would not; trading faster would
+not either.
 `crowdbook_learn.evaluate` reports more than the table shows: the lots ahead of each quote in the
 queue, the share of quoted lots that filled, how long a fill waited, markouts at 1, 10 and 60
 seconds, and with `scales=(1, 2, 4)` the same at larger sizes, which says how much the market can
@@ -175,8 +180,8 @@ take ([python/README.md](../python/README.md)).
 ## 5. The answer
 
 Now look at `recording/markets.csv`: the recording was made with makers at 0.8, noise traders at
-0.3 and followers 10 seconds late. The fit found 0.822, 0.303 and 9.5 s, each within 5%. Its
-intervals cover the truth for the noise traders and the followers, not the makers; with `--refits 4` the search is repeated from
+0.3 and followers 10 seconds late. The fit found 0.819, 0.309 and 9.9 s, each within 5%. Its
+intervals cover the truth for the followers, not the makers or the noise traders; with `--refits 4` the search is repeated from
 the fit on fresh seeds and the intervals count its own noise, and cover it more often (4 of 5 in [validation.md](validation.md#recovering-known-settings)'s
 check).
 
@@ -190,14 +195,15 @@ python examples/tutorial/strategy.py --truth maker_intensity=0.8,noise_market_ra
 |---|---:|---|---:|---:|---:|
 | the truth | -2,375.6 | [-2,407.0, -2,344.2] | 1,515 | -1.568 | +0.400 |
 
-The fit predicted −2,382 a market where the truth gives −2,376, their intervals overlapping, and
+The fit predicted −2,415 a market where the truth gives −2,376, their intervals overlapping, and
 the same fills, the same markouts and the same verdict: don't run it. With a real recording
 there is no truth to look up. The test that takes its place is paper trading: run the strategy
 on the live market without sending orders, and set its fills beside the fitted market's.
 
 ## Where next
 
-- **Your own recording:** convert it to a tape ([validation.md](validation.md#tapes-one-format-for-every-market)),
+- **Your own recording:** convert it to a tape with `crowdbook-tape`
+  ([quickstart.md](quickstart.md#your-own-recording)),
   copy the tutorial's spec and template, and fit the settings you care about. Settings you
   cannot fit, because the book's statistics barely move with them, the recovery check finds:
   `crowdbook-calibrate SPEC --truth name=value,...` fits markets made at settings you know and
