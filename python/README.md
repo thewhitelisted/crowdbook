@@ -70,7 +70,9 @@ pip install "crowdbook-engine[gymnasium]==0.13.0" \
 python python/examples/random_policy.py examples/learning/market.toml
 ```
 
-The second line installs a release's wheel, with no compiler, and Gymnasium for `VectorEnv`;
+The second line installs a release's wheel, with no compiler, and Gymnasium for `VectorEnv`, on
+Linux (x86-64 or arm64, glibc 2.28 or later) or macOS 14 or later on Apple silicon; on any other
+platform it builds the engine from the release's source, which needs the compiler.
 [docs/quickstart.md](../docs/quickstart.md#install) has the details. NumPy comes with it.
 
 Working on crowdbook itself, CMake builds the module with the rest when it finds Python 3.12 or
