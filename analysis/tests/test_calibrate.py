@@ -437,6 +437,9 @@ class TruthTest(unittest.TestCase):
         self.assertGreater(tight.judged(judged), 25)
         searched = TargetTest.summary(self, {"spread_mean": 3.3 + rng.normal(0, 0.2, 200)})
         self.assertLess(tight.judged(judged, searched=searched), 4)
+        # Where the fit's seeds hardly measure it, the start's wide spread does not come back.
+        unmeasured = TargetTest.summary(self, {"spread_mean": np.full(200, np.nan)})
+        self.assertGreater(loose.judged(judged, searched=unmeasured), 25)
 
     def test_the_reach_check_counts_the_search_seeds_count(self):
         # One order an hour recorded; the fit made 60 over 60 minutes of its search's seeds and

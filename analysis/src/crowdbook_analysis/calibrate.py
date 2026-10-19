@@ -361,8 +361,11 @@ class Target:
                     continue
             tolerance = self.tolerance[index]
             if searched is not None:
+                # A statistic the fit's seeds hardly measure has no spread there: the
+                # recording's stands alone, and the markets judged add theirs below.
+                chased = validate.spread_of(searched.draws[key], log)
                 at_fit = math.hypot(validate.spread_of(self.real.draws[key], log),
-                                    validate.spread_of(searched.draws[key], log))
+                                    chased if np.isfinite(chased) else 0.0)
                 if np.isfinite(at_fit) and at_fit > 0:
                     tolerance = at_fit
             own = validate.spread_of(judged.draws[key], log)
