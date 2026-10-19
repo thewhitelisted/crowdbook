@@ -165,6 +165,15 @@ class ConditionTest(unittest.TestCase):
                          [(0.0, 50.0), (5.0, 60.0)])
         self.assertEqual(calibrate.led([(0.0, 50.0), (10.0, 60.0)], 0.0),
                          [(0.0, 50.0), (10.0, 60.0)])
+        # Led past its whole path, the value is its last from the start.
+        self.assertEqual(calibrate.led([(0.0, 50.0), (10.0, 60.0)], 30.0), [(0.0, 60.0)])
+        # Two at one time after the start: the later wins, and a value repeated is left out.
+        self.assertEqual(calibrate.led([(0.0, 50.0), (10.0, 60.0), (10.0, 50.0), (20.0, 70.0)],
+                                       5.0), [(0.0, 50.0), (15.0, 70.0)])
+        # The last seconds of a settled market are worth the settlement, as its reference was
+        # once the recording ended.
+        self.assertEqual(calibrate.led([(0.0, 50.0), (10.0, 97.0)], 5.0, 120.0, 100.0),
+                         [(0.0, 50.0), (5.0, 97.0), (115.0, 100.0)])
         # A spec that fits the lead hands it to every twin, without a placeholder of its own.
         spec = calibrate.Spec(template="path = ${value_path}\n",
                               parameters=[calibrate.Parameter("value_lead", 1.0, 60.0, 10.0)])
@@ -263,11 +272,36 @@ class ConditionTest(unittest.TestCase):
                                           Path(scratch) / "twins")
             self.assertEqual([p.name for p in paths], ["0000_game_1.toml", "0001_game_2.toml"])
             self.assertEqual(tomllib.loads(paths[1].read_text())["duration"], "45s")
+            self.assertNotIn("ahead of the recorded reference", paths[1].read_text())
+            # A twin led ahead of its reference says so, and by how much.
+            led = calibrate.write_twins(spec, values | {"value_lead": 90.0},
+                                        [market("game", duration=30.0)], Path(scratch) / "led")
+            self.assertIn("runs 90 s ahead of the recorded reference", led[0].read_text())
             # A later fit of one market leaves no twin of the earlier fit behind.
             again = calibrate.write_twins(spec, values, [market("other", duration=20.0)],
                                           Path(scratch) / "twins")
             self.assertEqual(sorted(p.name for p in (Path(scratch) / "twins").iterdir()),
                              [p.name for p in again])
+
+    def test_the_reference_twins_fill_and_can_fit_their_makers_count_and_memory(self):
+        from test_validate import market
+        examples = Path(__file__).resolve().parents[2] / "examples" / "calibration"
+        spec = calibrate.read_spec(examples / "reference_twins_spec.toml")
+        recorded = market("game", duration=7200.0)
+        recorded.labels = {"kickoff": 3600.0, "opening_probability": 0.4,
+                           "value_path": [(0.0, 40.0), (600.0, 42.0)], "outcome": 100.0}
+        values = spec.start()
+        plain = tomllib.loads(spec.scenario(values, recorded))
+        makers = next(a for a in plain["agents"] if a["name"] == "makers")
+        self.assertEqual((makers["count"], makers["error_memory"]), (3, "120s"))
+        fitted = replace(spec, parameters=spec.parameters + [
+            calibrate.Parameter("maker_count", 1, 5, 2, log=False, whole=True),
+            calibrate.Parameter("maker_error_memory", 5, 3600, 240, kind="duration"),
+            calibrate.Parameter(calibrate.VALUE_LEAD, 1, 900, 60)])
+        scenario = tomllib.loads(fitted.scenario(fitted.start(), recorded))
+        makers = next(a for a in scenario["agents"] if a["name"] == "makers")
+        self.assertEqual((makers["count"], makers["error_memory"]), (2, "240s"))
+        self.assertEqual(scenario["prediction"]["path"], [[0, 40], [540, 42], [7140, 100]])
 
     def test_writes_the_settings_as_toml(self):
         values = {"rate": np.float64(0.25), "traders": 30.0, "tiny": np.float64(1e-7)}

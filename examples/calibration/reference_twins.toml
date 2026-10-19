@@ -34,7 +34,7 @@ account = { max_position = 500, max_order_quantity = 100 }
 [[agents]]
 type = "market_maker"
 name = "makers"
-count = ${maker_count:3}
+count = ${maker_count:3}         # a spec that fits it sets whole = true
 quote_value = true
 noise = ${maker_noise:0.5}       # how far each look at the reference strays, fresh each time,
 error = ${maker_error:0.7}       # and their lasting error: a book that moves no more than its

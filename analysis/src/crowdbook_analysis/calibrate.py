@@ -249,17 +249,22 @@ def _plain(value: float) -> str:
     return np.format_float_positional(round(float(value), 6), trim="-")
 
 
-def led(path: list, lead: float) -> list:
+def led(path: list, lead: float, duration: float | None = None,
+        settled: float | None = None) -> list:
     """A value path `lead` seconds earlier: the value at each time is the one recorded `lead`
-    seconds later, and what was recorded before `lead` is where the path starts."""
+    seconds later, and what was recorded before `lead` is where the path starts. With the
+    market's `duration` and where it `settled`, its last `lead` seconds are worth the
+    settlement, which is what the reference was after the recording ended."""
     if lead <= 0:
         return path
+    points = [(round(max(float(time) - lead, 0.0), 6), cents) for time, cents in path]
+    if duration is not None and settled is not None:
+        points.append((round(max(duration - lead, 0.0), 6), settled))
     shifted: list = []
-    for time, cents in path:
-        at = round(max(float(time) - lead, 0.0), 6)
-        if shifted and shifted[-1][0] == at:
-            shifted[-1] = (at, cents)
-        elif not shifted or shifted[-1][1] != cents:
+    for at, cents in points:
+        while shifted and shifted[-1][0] >= at:  # the later of two at one time
+            shifted.pop()
+        if not shifted or shifted[-1][1] != cents:
             shifted.append((at, cents))
     return shifted
 
@@ -272,7 +277,9 @@ def market_texts(market: tapes.Market, lead: float = 0.0) -> dict[str, str]:
     texts = {"duration": _plain(market.duration)}
     labels = dict(market.labels)
     if lead > 0 and labels.get("value_path"):
-        labels["value_path"] = led(labels["value_path"], lead)
+        settled = labels.get("outcome")
+        labels["value_path"] = led(labels["value_path"], lead, market.duration,
+                                   settled if isinstance(settled, (int, float)) else None)
     for name, value in labels.items():
         if isinstance(value, bool) or value is None:
             continue
@@ -454,10 +461,11 @@ class Evaluator:
             self._label_twin(index, market, t.options.payout)
         return self.spec.cut(t)
 
-    def _label_twin(self, index: int, market: tapes.Market, payout: float | None = None) -> None:
+    def _label_twin(self, index: int, market: tapes.Market, payout: float | None = 100.0) -> None:
         """A twin's run carries its recorded market's labels, such as its kickoff, the run's own
         winning, except the phase's label: a twin is cut where its recorded market is. `payout`
-        is what the twin's contract pays, in the twin's units."""
+        is what the twin's contract pays, in the twin's units: 100, a prediction market's cents,
+        unless its tape says otherwise."""
         if self.spec.condition:
             target = self.targets[index % len(self.targets)]
             own = {k: v for k, v in target.labels.items() if not isinstance(v, list)}
@@ -942,8 +950,12 @@ def write_twins(spec: Spec, values: dict[str, float], targets: list[tapes.Market
     for index, market in enumerate(targets):
         name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(market.name)).strip("._") or "market"
         path = out / f"{index:04d}_{name}.toml"
+        lead = values.get(VALUE_LEAD, 0.0)
+        note = (f"# Its value runs {_plain(lead)} s ahead of the recorded reference "
+                f"({VALUE_LEAD}): measured against its own value, it is that much later than "
+                "the fit measured it.\n" if lead > 0 else "")
         path.write_text(f"# The fitted settings, in the twin of the recorded market "
-                        f"{market.name}.\n" + spec.scenario(values, market))
+                        f"{market.name}.\n" + note + spec.scenario(values, market))
         paths.append(path)
     return paths
 
