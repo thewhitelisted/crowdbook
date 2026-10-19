@@ -82,6 +82,9 @@ std::string commandUsage(std::string_view command) {
     return usage;
 }
 
+// Thrown by parseCommandLine for --help or -h where an option belongs, not as another's value.
+struct HelpRequested {};
+
 struct CommandLine {
     std::string path{}; // the scenario, or for replay the session
     std::optional<std::uint64_t> seed{};
@@ -150,6 +153,9 @@ CommandLine parseCommandLine(std::span<char*> args, std::string_view command,
     CommandLine line;
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string_view arg = args[i];
+        if (arg == "--help" || arg == "-h") {
+            throw HelpRequested{};
+        }
         if (arg.starts_with("--") && std::ranges::find(allowed, arg) == allowed.end()) {
             throw UsageError(std::format("{} does not take {}", command, arg));
         }
@@ -357,23 +363,8 @@ int connectCommand(std::span<char*> args) {
     return connect(options);
 }
 
-int runCommand(std::span<char*> args) {
-    if (args.empty()) {
-        throw UsageError("no command given");
-    }
-    const std::string_view command = args[0];
-    // `crowdbook <command> --help` shows that command's usage, whatever else it was given.
-    const bool help = std::ranges::any_of(args.subspan(1), [](std::string_view arg) {
-        return arg == "--help" || arg == "-h";
-    });
-    if (help && command != "--help" && command != "-h") {
-        const std::string usage = commandUsage(command);
-        if (usage.empty()) {
-            throw UsageError(std::format("unknown command '{}'", command));
-        }
-        std::cout << usage;
-        return 0;
-    }
+// Runs the command args[0] with the arguments after it.
+int dispatch(std::string_view command, std::span<char*> args) {
     if (command == "run") {
         return run(args.subspan(1));
     }
@@ -393,6 +384,10 @@ int runCommand(std::span<char*> args) {
         return reportCommand(args.subspan(1));
     }
     if (command == "agents") {
+        if (args.size() > 1) {
+            parseCommandLine(args.subspan(1), "agents", {}); // only for --help
+            throw UsageError("agents takes no arguments");
+        }
         std::cout << "agent types:\n";
         for (const std::string& type : AgentRegistry::withBuiltIns().types()) {
             std::cout << "  " << type << '\n';
@@ -409,6 +404,20 @@ int runCommand(std::span<char*> args) {
         return 0;
     }
     throw UsageError(std::format("unknown command '{}'", command));
+}
+
+int runCommand(std::span<char*> args) {
+    if (args.empty()) {
+        throw UsageError("no command given");
+    }
+    const std::string_view command = args[0];
+    try {
+        return dispatch(command, args);
+    } catch (const HelpRequested&) {
+        // `crowdbook <command> --help` shows that command's usage.
+        std::cout << commandUsage(command);
+        return 0;
+    }
 }
 
 } // namespace
