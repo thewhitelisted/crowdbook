@@ -36,7 +36,7 @@ if(CROWDBOOK_BUILD_TESTS)
     foreach(command run play serve connect replay report agents)
         add_test(NAME cli.help.${command} COMMAND crowdbook_cli ${command} --help)
         set_tests_properties(cli.help.${command} PROPERTIES
-            FAIL_REGULAR_EXPRESSION "does not take|needs|usage: crowdbook [a-z]+ .*crowdbook ")
+            FAIL_REGULAR_EXPRESSION "does not take|needs|takes no|crowdbook.*crowdbook")
         add_test(NAME cli.help.${command}.text COMMAND crowdbook_cli ${command} -h)
         set_tests_properties(cli.help.${command}.text PROPERTIES
             PASS_REGULAR_EXPRESSION "^usage: crowdbook ${command}( |\n)")
@@ -44,7 +44,16 @@ if(CROWDBOOK_BUILD_TESTS)
     add_test(NAME cli.help.unknown COMMAND crowdbook_cli trade --help)
     set_tests_properties(cli.help.unknown PROPERTIES WILL_FAIL TRUE)
     add_test(NAME cli.help COMMAND crowdbook_cli --help)
-    set_tests_properties(cli.help PROPERTIES PASS_REGULAR_EXPRESSION "crowdbook agents")
+    set_tests_properties(cli.help PROPERTIES PASS_REGULAR_EXPRESSION "^usage: crowdbook run")
+    # An option's value that reads -h is the value, not a request for help.
+    add_test(NAME cli.help.as_a_value
+        COMMAND crowdbook_cli run "${PROJECT_SOURCE_DIR}/examples/scenarios/market_maker.toml"
+            --duration 1s --log -h)
+    set_tests_properties(cli.help.as_a_value PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        PASS_REGULAR_EXPRESSION "event log written to -h")
+    add_test(NAME cli.agents.arguments COMMAND crowdbook_cli agents market_maker)
+    set_tests_properties(cli.agents.arguments PROPERTIES WILL_FAIL TRUE)
     add_test(NAME cli.no_command COMMAND crowdbook_cli)
     add_test(NAME cli.missing_scenario COMMAND crowdbook_cli run no-such-scenario.toml)
     add_test(NAME cli.unknown_log_kind
