@@ -32,6 +32,19 @@ if(CROWDBOOK_BUILD_TESTS)
         PASS_REGULAR_EXPRESSION "^crowdbook [0-9]+\\.[0-9]+\\.[0-9]+")
     add_test(NAME cli.agents COMMAND crowdbook_cli agents)
     set_tests_properties(cli.agents PROPERTIES PASS_REGULAR_EXPRESSION "market_maker")
+    # `crowdbook <command> --help` succeeds with that command's usage alone.
+    foreach(command run play serve connect replay report agents)
+        add_test(NAME cli.help.${command} COMMAND crowdbook_cli ${command} --help)
+        set_tests_properties(cli.help.${command} PROPERTIES
+            FAIL_REGULAR_EXPRESSION "does not take|needs|usage: crowdbook [a-z]+ .*crowdbook ")
+        add_test(NAME cli.help.${command}.text COMMAND crowdbook_cli ${command} -h)
+        set_tests_properties(cli.help.${command}.text PROPERTIES
+            PASS_REGULAR_EXPRESSION "^usage: crowdbook ${command}( |\n)")
+    endforeach()
+    add_test(NAME cli.help.unknown COMMAND crowdbook_cli trade --help)
+    set_tests_properties(cli.help.unknown PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME cli.help COMMAND crowdbook_cli --help)
+    set_tests_properties(cli.help PROPERTIES PASS_REGULAR_EXPRESSION "crowdbook agents")
     add_test(NAME cli.no_command COMMAND crowdbook_cli)
     add_test(NAME cli.missing_scenario COMMAND crowdbook_cli run no-such-scenario.toml)
     add_test(NAME cli.unknown_log_kind

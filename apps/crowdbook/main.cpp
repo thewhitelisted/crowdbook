@@ -56,6 +56,32 @@ constexpr std::string_view kUsage =
     "       crowdbook agents\n"
     "       crowdbook --version\n";
 
+// One command's lines of kUsage, as its own usage: from the line naming it to the next that names
+// another. Every line of kUsage starts with seven characters, "usage: " or spaces, so the
+// continuation lines stay aligned. Empty for a name that is no command.
+std::string commandUsage(std::string_view command) {
+    const std::string name = std::format("crowdbook {}", command);
+    std::string usage;
+    bool inside = false;
+    for (const auto part : std::views::split(kUsage, '\n')) {
+        const std::string_view line{part.begin(), part.end()};
+        if (line.size() < 7) {
+            continue;
+        }
+        const std::string_view text = line.substr(7);
+        if (text.starts_with("crowdbook ")) {
+            inside = text.starts_with(name) &&
+                     (text.size() == name.size() || text[name.size()] == ' ');
+            if (inside) {
+                usage += std::format("usage: {}\n", text);
+            }
+        } else if (inside) {
+            usage += std::format("{}\n", line);
+        }
+    }
+    return usage;
+}
+
 struct CommandLine {
     std::string path{}; // the scenario, or for replay the session
     std::optional<std::uint64_t> seed{};
@@ -336,6 +362,18 @@ int runCommand(std::span<char*> args) {
         throw UsageError("no command given");
     }
     const std::string_view command = args[0];
+    // `crowdbook <command> --help` shows that command's usage, whatever else it was given.
+    const bool help = std::ranges::any_of(args.subspan(1), [](std::string_view arg) {
+        return arg == "--help" || arg == "-h";
+    });
+    if (help && command != "--help" && command != "-h") {
+        const std::string usage = commandUsage(command);
+        if (usage.empty()) {
+            throw UsageError(std::format("unknown command '{}'", command));
+        }
+        std::cout << usage;
+        return 0;
+    }
     if (command == "run") {
         return run(args.subspan(1));
     }
