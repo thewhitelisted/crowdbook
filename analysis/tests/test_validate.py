@@ -1,6 +1,7 @@
 import math
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -10,14 +11,16 @@ from crowdbook_analysis import tape, validate
 
 def market(name="m", *, spread=2.0, signs=None, prices=None, outcome=None, value=None,
            duration=100.0) -> tape.Market:
-    """A market whose book is quoted around 50 every second with `spread` ticks, and a print
-    every second from time 0.5."""
+    """A market whose book is quoted around 50 every second with `spread` ticks, two levels a
+    side and nothing behind them, and a print every second from time 0.5."""
     book_time = np.arange(0.0, duration, 1.0)
-    bid = np.full((len(book_time), 2), 50 - spread / 2)
+    bid = np.full((len(book_time), 3), 50 - spread / 2)
     bid[:, 1] -= 1
-    ask = np.full((len(book_time), 2), 50 + spread / 2)
+    ask = np.full((len(book_time), 3), 50 + spread / 2)
     ask[:, 1] += 1
-    sizes = np.full((len(book_time), 2), 10.0)
+    bid[:, 2] = ask[:, 2] = np.nan  # a third level recorded empty: the book ends
+    sizes = np.full((len(book_time), 3), 10.0)
+    sizes[:, 2] = np.nan
     trade_time = np.arange(0.5, duration, 1.0)
     signs = np.ones(len(trade_time)) if signs is None else signs
     prices = 50 + signs * spread / 2 if prices is None else prices
@@ -360,6 +363,29 @@ class StatisticsTest(unittest.TestCase):
         self.assertAlmostEqual(found["depth_near_10"], 20.0)
         self.assertAlmostEqual(found["touch_turnover"], 60 * 3 / 10)  # 3 lots a second
         self.assertAlmostEqual(found["order_gap_median"], 1.0)
+
+    def test_depth_is_unmeasured_beyond_what_the_tape_recorded(self):
+        # The touch alone, its book perhaps going on behind: no depth is measured, rather than
+        # depth that is all touch, and the touch is measured as ever.
+        m = market(spread=2.0)
+        top = replace(m, bid_price=m.bid_price[:, :1], bid_size=m.bid_size[:, :1],
+                      ask_price=m.ask_price[:, :1], ask_size=m.ask_size[:, :1])
+        found = self.measure(top)
+        for key in ("depth_mean", "depth_near_3", "depth_near_10"):
+            self.assertTrue(np.isnan(found[key]), key)
+        self.assertAlmostEqual(found["touch_size_median"], 10.0)
+        # Two full levels, a tick apart behind the touch: within 3 ticks of the mid is not seen
+        # (the second level is 2 away) and neither are 5 levels, but where the levels reach
+        # beyond 3 ticks, it is.
+        both = replace(m, bid_price=m.bid_price[:, :2], bid_size=m.bid_size[:, :2],
+                       ask_price=m.ask_price[:, :2], ask_size=m.ask_size[:, :2])
+        found = self.measure(both)
+        self.assertTrue(np.isnan(found["depth_mean"]))
+        self.assertTrue(np.isnan(found["depth_near_3"]))
+        wide = replace(both, bid_price=both.bid_price - [0, 3], ask_price=both.ask_price + [0, 3])
+        found = self.measure(wide)
+        self.assertAlmostEqual(found["depth_near_3"], 10.0)  # the touch, seen whole within 3
+        self.assertTrue(np.isnan(found["depth_near_10"]))
 
     def test_the_touch_against_the_value(self):
         # The value sits 2.5 ticks above the mid, so 1.5 above the ask: the ask is through it.

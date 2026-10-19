@@ -376,14 +376,26 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     levels = min(config.levels, m.bid_size.shape[1])
     depth = (np.nansum(m.bid_size[:, :levels], axis=1)
              + np.nansum(m.ask_size[:, :levels], axis=1)) / 2
-    p["depth"] = np.array([float(depth[both] @ held[both]), float(held[both].sum())])
+    # Depth is measured only where the tape saw it: a side whose book ends within the levels
+    # recorded was seen whole, and one recorded to its last column may go on beyond it. A tape
+    # of the touch alone measures no depth, rather than depth that is all touch.
+    ended = np.isnan(m.bid_price[:, -1]), np.isnan(m.ask_price[:, -1])
+    deep = m.bid_size.shape[1] >= config.levels
+    seen = both & (deep | ended[0]) & (deep | ended[1])
+    p["depth"] = np.array([float(depth[seen] @ held[seen]), float(held[seen].sum())])
     for ticks in (3, 10):
         near = (np.nansum(np.where(np.abs(m.bid_price - mid[:, None]) <= ticks, m.bid_size, 0.0),
                           axis=1)
                 + np.nansum(np.where(np.abs(m.ask_price - mid[:, None]) <= ticks, m.ask_size,
                                      0.0), axis=1)) / 2
-        p[f"near_{ticks}"] = np.array([float(near[both] @ held[both]),
-                                       float(held[both].sum())])
+        # Within `ticks` of the mid is seen where each side's last level recorded lies beyond
+        # it, or its book ended sooner.
+        with np.errstate(invalid="ignore"):
+            reach = ((ended[0] | (mid - m.bid_price[:, -1] > ticks))
+                     & (ended[1] | (m.ask_price[:, -1] - mid > ticks)))
+        seen = both & reach
+        p[f"near_{ticks}"] = np.array([float(near[seen] @ held[seen]),
+                                       float(held[seen].sum())])
     p["volume"] = float(m.trade_size.sum())
 
     # Orders.
