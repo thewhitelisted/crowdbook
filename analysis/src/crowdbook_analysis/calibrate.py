@@ -146,6 +146,8 @@ class Spec:
     # ahead of a label's time to `after` past it (its end where None), so that its twins are as
     # short: (label, before, after).
     around: tuple[str, float, float | None] | None = None
+    # Statistics the default would compare that this spec leaves out.
+    exclude: list[str] | None = None
 
     def trim(self, t: tapes.Tape) -> tapes.Tape:
         return t if self.around is None else tapes.around(t, *self.around)
@@ -360,22 +362,22 @@ def read_spec(path: Path) -> Spec:
                              "after optional")
         around = (str(entry["label"]), float(entry["before"]),
                   float(entry["after"]) if "after" in entry else None)
-    statistics = spec.get("statistics")
-    if "exclude" in spec:
-        # Every statistic but these, as the default would choose them: a recording's value
-        # polled seconds apart, say, cannot time how fast the book follows it.
+    statistics, exclude = spec.get("statistics"), spec.get("exclude")
+    if exclude is not None:
+        # Every statistic but these, as the default chooses them: a recording's value polled
+        # seconds apart, say, cannot time how fast the book follows it.
         if statistics is not None:
             raise ValueError("a spec gives statistics or exclude, not both")
-        names = [key for key, _, _ in validate.statistic_names(validate.Config())]
-        unknown = sorted(set(spec["exclude"]) - set(names))
+        if not (isinstance(exclude, list) and all(isinstance(k, str) for k in exclude)):
+            raise ValueError("exclude is a list of statistics' names")
+        names = {key for key, _, _ in validate.statistic_names(validate.Config())}
+        unknown = sorted(set(exclude) - names)
         if unknown:
             raise ValueError(f"exclude names statistics the report does not have: {unknown}")
-        statistics = [key for key in names
-                      if key not in spec["exclude"] and not key.startswith("quote_")]
     return Spec(template, parameters, statistics, int(spec.get("seeds", 60)),
                 int(spec.get("generations", 30)), int(spec.get("held_out", 200)), window,
                 float(spec.get("sample_interval", tapes.SAMPLE_INTERVAL)),
-                bool(spec.get("condition", False)), phase, around)
+                bool(spec.get("condition", False)), phase, around, exclude)
 
 
 class Target:
@@ -551,13 +553,14 @@ MOST_UNMEASURED = 0.1
 
 
 def make_target(real: validate.Summary, start: validate.Summary, wanted: list[str] | None,
-                config: validate.Config) -> Target:
+                config: validate.Config, exclude: list[str] | None = None) -> Target:
     """The statistics both sides have, each with a tolerance from the two resampling spreads,
-    and that the recording measures in enough of its markets."""
+    and that the recording measures in enough of its markets: those `wanted`, or every one but
+    those in `exclude`."""
     keys, logs, tolerance = [], [], []
     few = []
     for key, _, log in validate.statistic_names(config):
-        if wanted is not None and key not in wanted:
+        if (wanted is not None and key not in wanted) or (exclude and key in exclude):
             continue
         # What a standing quote earns checks a fit for edges the real market lacks; fitted to,
         # it would check nothing.
@@ -780,7 +783,7 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     fit_seeds = range(FIT_SEED, FIT_SEED + spec.seeds)
     held_out = range(HELD_OUT_SEED, HELD_OUT_SEED + spec.held_out)
     start_summary = evaluator.summary("start", spec.start(), fit_seeds, seed=2)
-    target = make_target(real, start_summary, spec.statistics, config)
+    target = make_target(real, start_summary, spec.statistics, config, spec.exclude)
     log(f"{real.markets} target markets; {len(target.keys)} statistics compared")
     fitted, score = search(evaluator, target, fit_seeds, spec.generations, log, sigma=step)
     log(f"fitted, distance {score:.1f} on the fit's seeds: {fitted}")

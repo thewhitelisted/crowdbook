@@ -1,3 +1,5 @@
+import contextlib
+import io
 import math
 import tempfile
 import tomllib
@@ -83,16 +85,28 @@ class SpecTest(unittest.TestCase):
     def test_a_spec_can_leave_statistics_out(self):
         spec = spec_from('exclude = ["delay", "follow_1"]\n'
                          + SPEC.replace('statistics = ["spread_mean"]\n', ""))
-        self.assertIn("spread_mean", spec.statistics)
-        self.assertNotIn("delay", spec.statistics)
-        self.assertNotIn("follow_1", spec.statistics)
-        self.assertIn("follow_2", spec.statistics)
-        # What a standing quote earns stays a check, as by default.
-        self.assertFalse([k for k in spec.statistics if k.startswith("quote_")])
+        self.assertEqual((spec.statistics, spec.exclude), (None, ["delay", "follow_1"]))
         with self.assertRaisesRegex(ValueError, "statistics or exclude"):
             spec_from('exclude = ["delay"]\n' + SPEC)
+        bare = SPEC.replace('statistics = ["spread_mean"]\n', "")
         with self.assertRaisesRegex(ValueError, "does not have"):
-            spec_from('exclude = ["dealy"]\n' + SPEC.replace('statistics = ["spread_mean"]\n', ""))
+            spec_from('exclude = ["dealy"]\n' + bare)
+        with self.assertRaisesRegex(ValueError, "a list of statistics' names"):
+            spec_from('exclude = "delay"\n' + bare)
+        # The fit compares what it would by default, but those; and says nothing of what one
+        # side cannot measure, which it was never asked for.
+        rng = np.random.default_rng(6)
+        draws = {"spread_mean": 3 + rng.normal(0, 0.1, 200), "delay": 2 + rng.normal(0, 0.1, 200),
+                 "follow_2": 0.5 + rng.normal(0, 0.1, 200)}
+        real, start = TargetTest.summary(self, draws), TargetTest.summary(self, draws)
+        start.point["value_distance"] = 1.0  # one side alone measures it
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            target = calibrate.make_target(real, start, None, validate.Config(), spec.exclude)
+        self.assertEqual(target.keys, ["spread_mean", "follow_2"])
+        self.assertEqual(printed.getvalue(), "")
+        self.assertEqual(calibrate.make_target(real, start, None, validate.Config()).keys,
+                         ["spread_mean", "follow_2", "delay"])
 
     def test_rejects_specs_that_cannot_work(self):
         with self.assertRaisesRegex(ValueError, "never uses unused"):
