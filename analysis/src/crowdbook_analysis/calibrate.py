@@ -35,7 +35,10 @@ value as a `[prediction]` path, and `${outcome}`, what it settled at (where its 
 has not settled), and for a game `${script}`, its scores replayed (see
 `[prediction.game]`); `seeds` and
 `held_out` then count the twins of each market. Markets alike in what is known about them are
-compared with each other, and the luck of a game's result is taken out of the comparison.
+compared with each other, and the luck of a game's result is taken out of the comparison. A spec
+may fit `value_lead`, seconds by which each twin's value runs ahead of its recorded reference,
+for a reference that trails the market it prices; each twin is then measured against the
+reference as recorded.
 
 `around` trims each recorded market, before anything is fitted, to the span from `before` seconds
 ahead of the time a label of its own gives to `after` seconds past it (to its end without
@@ -156,7 +159,7 @@ class Spec:
     def scenario(self, values: dict[str, float], market: tapes.Market | None = None) -> str:
         texts = {p.name: p.text(values[p.name]) for p in self.parameters}
         if market is not None:
-            texts = market_texts(market) | texts
+            texts = market_texts(market, values.get(VALUE_LEAD, 0.0)) | texts
 
         def fill(match: re.Match) -> str:
             if match.group(1) not in texts and match.group(2) is not None:
@@ -180,6 +183,9 @@ class Spec:
 
 
 DRAW_HIGHEST = 0.26
+# A setting the template need not use: how many seconds a twin's true value runs ahead of the
+# recorded reference, for a reference that trails the market it prices (market_texts).
+VALUE_LEAD = "value_lead"
 
 
 def value_path(m: tapes.Market, payout: float) -> list[tuple[float, float]]:
@@ -243,12 +249,38 @@ def _plain(value: float) -> str:
     return np.format_float_positional(round(float(value), 6), trim="-")
 
 
-def market_texts(market: tapes.Market) -> dict[str, str]:
+def led(path: list, lead: float, duration: float | None = None,
+        settled: float | None = None) -> list:
+    """A value path `lead` seconds earlier: the value at each time is the one recorded `lead`
+    seconds later, and what was recorded before `lead` is where the path starts. With the
+    market's `duration` and where it `settled`, its last `lead` seconds are worth the
+    settlement, which is what the reference was after the recording ended."""
+    if lead <= 0:
+        return path
+    points = [(round(max(float(time) - lead, 0.0), 6), cents) for time, cents in path]
+    if duration is not None and settled is not None:
+        points.append((round(max(duration - lead, 0.0), 6), settled))
+    shifted: list = []
+    for at, cents in points:
+        while shifted and shifted[-1][0] >= at:  # the later of two at one time
+            shifted.pop()
+        if not shifted or shifted[-1][1] != cents:
+            shifted.append((at, cents))
+    return shifted
+
+
+def market_texts(market: tapes.Market, lead: float = 0.0) -> dict[str, str]:
     """What a target market fills into a template for its twins: `${duration}` in seconds, each
     label by its name, numbers as they are and text in quotes, and `${script}`, its scores as a
-    game's script, every change of the score from the market's start on."""
+    game's script, every change of the score from the market's start on. With a `lead`, the
+    value path is that many seconds earlier (`led`)."""
     texts = {"duration": _plain(market.duration)}
-    for name, value in market.labels.items():
+    labels = dict(market.labels)
+    if lead > 0 and labels.get("value_path"):
+        settled = labels.get("outcome")
+        labels["value_path"] = led(labels["value_path"], lead, market.duration,
+                                   settled if isinstance(settled, (int, float)) else None)
+    for name, value in labels.items():
         if isinstance(value, bool) or value is None:
             continue
         if isinstance(value, list):
@@ -298,6 +330,12 @@ def read_spec(path: Path) -> Spec:
         raise ValueError(f"the template uses {', '.join(sorted(unknown))}, which the spec does "
                          "not set; a target market's own values need condition = true")
     unused = {p.name for p in parameters} - used
+    if VALUE_LEAD in unused:
+        # It moves the twins' `${value_path}`, not a placeholder of its own.
+        if not (spec.get("condition", False) and "value_path" in used):
+            raise ValueError(f"{VALUE_LEAD} leads a twin's ${{value_path}}: it needs "
+                             "condition = true and a template that uses it")
+        unused.discard(VALUE_LEAD)
     if unused:
         raise ValueError(f"the template never uses {', '.join(sorted(unused))}")
     window = None
@@ -420,17 +458,26 @@ class Evaluator:
         t = tapes.simulate_runs(self.tool, runs, labels=labels,
                                 sample_interval=self.spec.sample_interval)
         for index, market in enumerate(t.markets):
-            self._label_twin(index, market)
+            self._label_twin(index, market, t.options.payout)
         return self.spec.cut(t)
 
-    def _label_twin(self, index: int, market: tapes.Market) -> None:
+    def _label_twin(self, index: int, market: tapes.Market, payout: float | None = 100.0) -> None:
         """A twin's run carries its recorded market's labels, such as its kickoff, the run's own
-        winning, except the phase's label: a twin is cut where its recorded market is."""
+        winning, except the phase's label: a twin is cut where its recorded market is. `payout`
+        is what the twin's contract pays, in the twin's units: 100, a prediction market's cents,
+        unless its tape says otherwise."""
         if self.spec.condition:
             target = self.targets[index % len(self.targets)]
             own = {k: v for k, v in target.labels.items() if not isinstance(v, list)}
             market.labels = own | market.labels
             market.labels["twin_of"] = index % len(self.targets)
+            # A twin whose value runs ahead of its recorded reference is measured against that
+            # reference, as its recorded market is: how its book trails or leads it.
+            path = target.labels.get("value_path")
+            if any(p.name == VALUE_LEAD for p in self.spec.parameters) and path and payout:
+                market.value_time = np.array([time for time, _ in path], dtype=float)
+                market.value = np.array([cents for _, cents in path], dtype=float) \
+                    * payout / 100.0
             # A twin is cut where its recorded market is, or left out with it.
             if self.spec.phase is not None:
                 label = self.spec.phase[0]
@@ -463,7 +510,7 @@ class Evaluator:
         options = tapes.options_for(runs[0].scenario)
 
         def measured(index: int, market: tapes.Market) -> list[dict]:
-            self._label_twin(index, market)
+            self._label_twin(index, market, options.payout)
             cut = self.spec.cut(tapes.Tape([market], options)).markets
             pieces = [validate.market_pieces(m, options, self.config) for m in cut]
             for p in pieces:  # samples kept only for the report's distributions and charts
@@ -903,8 +950,12 @@ def write_twins(spec: Spec, values: dict[str, float], targets: list[tapes.Market
     for index, market in enumerate(targets):
         name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(market.name)).strip("._") or "market"
         path = out / f"{index:04d}_{name}.toml"
+        lead = values.get(VALUE_LEAD, 0.0)
+        note = (f"# Its value runs {_plain(lead)} s ahead of the recorded reference "
+                f"({VALUE_LEAD}): measured against its own value, it is that much later than "
+                "the fit measured it.\n" if lead > 0 else "")
         path.write_text(f"# The fitted settings, in the twin of the recorded market "
-                        f"{market.name}.\n" + spec.scenario(values, market))
+                        f"{market.name}.\n" + note + spec.scenario(values, market))
         paths.append(path)
     return paths
 
