@@ -27,6 +27,7 @@ crowdbook-sweep = "crowdbook_analysis.sweep:main"
 crowdbook-draws = "crowdbook_analysis.calibrate:draws_main"
 crowdbook-assess = "crowdbook_analysis.assess:main"
 crowdbook-tape = "crowdbook_analysis.convert:main"
+crowdbook-fills = "crowdbook_analysis.fills:main"
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]

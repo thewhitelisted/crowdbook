@@ -5,7 +5,7 @@
 # where they can be: give each a narrow range around what the recording says.
 template = "game_twins.toml"
 condition = true
-seeds = 2
+seeds = 3   # each candidate on three twins of every recorded market: two leave its ranking noisy
 generations = 60
 held_out = 10
 # A game whose draw pays nothing starts its home side at 90% at most with 2.5 scores expected:
