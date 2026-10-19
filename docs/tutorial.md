@@ -22,8 +22,8 @@ machine's, never with the seeds, which fix every market.
 
 ## 0. Install
 
-You need Python 3.12 or later on Linux or macOS (Apple silicon), and the repository at the
-release for the tutorial's files:
+You need Python 3.12 or later on Linux (x86-64 or arm64, glibc 2.28 or later) or macOS 14 or
+later on Apple silicon, and the repository at the release for the tutorial's files:
 
 ```bash
 git clone --branch v0.13.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
@@ -34,8 +34,8 @@ pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0 \
 
 That installs two packages from the release's ready-built wheels, in under a minute:
 `crowdbook-engine`, the `crowdbook` command and the learning pool `crowdbook_learn`, and
-`crowdbook-analysis`, the commands that fit and check markets. On another platform,
-`pip install . ./analysis` builds them from source instead, with CMake 3.25+ and a C++23 compiler
+`crowdbook-analysis`, the commands that fit and check markets. On any other platform the same
+command builds the engine from source instead, which needs CMake 3.25+ and a C++23 compiler
 ([quickstart.md](quickstart.md#install)). Check it worked:
 
 ```bash
