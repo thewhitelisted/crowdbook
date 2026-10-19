@@ -65,8 +65,8 @@ The module is part of the `crowdbook-engine` package, with the `crowdbook` comma
 
 ```bash
 pip install .                      # from crowdbook's checkout: CMake 3.25+ and a C++23 compiler
-pip install "crowdbook-engine[gymnasium]==X.Y.Z" \
-    --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/vX.Y.Z
+pip install "crowdbook-engine[gymnasium]==0.13.0" \
+    --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/v0.13.0
 python python/examples/random_policy.py examples/learning/market.toml
 ```
 

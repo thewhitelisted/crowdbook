@@ -21,20 +21,22 @@ tested strategy in about fifteen minutes.
 
 ## Install
 
-Python 3.12 or later, on Linux or macOS, and CMake 3.25+ with a C++23 compiler to build from
-source:
+Python 3.12 or later, on Linux (x86-64 or arm64) or macOS (Apple silicon), from the latest
+release's ready-built wheels, with the repository at that release for the examples:
 
 ```bash
-git clone https://github.com/thewhitelisted/crowdbook && cd crowdbook
+git clone --branch v0.13.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
 python3 -m venv .venv && . .venv/bin/activate
-pip install . ./analysis
+pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0 \
+    --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/v0.13.0
 ```
 
 That installs the `crowdbook` command and the learning pool `crowdbook_learn` (the
 `crowdbook-engine` package), and the analysis commands, `crowdbook-assess`,
-`crowdbook-calibrate`, `crowdbook-validate` and the rest (`crowdbook-analysis`). A release's
-ready-built wheels need no compiler; [docs/quickstart.md](docs/quickstart.md#install) says how to
-install them, and [Building](#building) covers the C++ build with its tests.
+`crowdbook-calibrate`, `crowdbook-validate` and the rest (`crowdbook-analysis`), in under a
+minute. Elsewhere, or from a checkout of `main`, `pip install . ./analysis` builds the engine
+from source with CMake 3.25+ and a C++23 compiler ([docs/quickstart.md](docs/quickstart.md#install));
+[Building](#building) covers the C++ build with its tests.
 
 ## Quick start
 
