@@ -434,6 +434,28 @@ class CalibrateTest(unittest.TestCase):
                                                       refit_generations=1)
         self.assertIn("searches again on fresh seeds", refitted)
         self.assertEqual(refit_data["calibration"]["refits"], 2)
+        # Retargeted, the search runs again from where it landed, with the tolerances made at
+        # the fit: its settings measured where it landed, not at the start.
+        lines, measured = [], []
+        made = calibrate.make_target
+
+        def watched(real, start, *rest):
+            measured.append(start.name)
+            return made(real, start, *rest)
+
+        calibrate.make_target = watched
+        try:
+            retargeted, retarget_data, _ = calibrate.calibrate(
+                spec, evaluator, real, truth=truth, log=lines.append, retargets=1)
+        finally:
+            calibrate.make_target = made
+        self.assertEqual(measured, ["start", "fitted"])
+        self.assertTrue(any(line.startswith("tolerances remade at the fit, 1 of 1")
+                            for line in lines))
+        self.assertEqual(sum(line.startswith("generation ") for line in lines), 6)
+        self.assertIn("then 1 more search as long, each with the tolerances remade", retargeted)
+        self.assertEqual(retarget_data["calibration"]["retargets"], 1)
+        self.assertEqual(data["calibration"]["retargets"], 0)
 
     def test_a_conditioned_fit_writes_the_twin_of_its_first_market(self):
         from crowdbook_analysis import validate
@@ -526,6 +548,23 @@ class TruthTest(unittest.TestCase):
         judged.point["spread_mean"] = 3.3
         self.assertLess(target.judged(judged), 4)  # within chance of the noise the fit chased
         self.assertGreater(validate.distance(real, judged, "spread_mean", False) ** 2, 25)
+
+    def test_a_statistic_the_settings_fix_has_a_tolerance_of_one_percent(self):
+        # A ladder's touch, 2,832 lots in every market, its resamples agreeing but for rounding:
+        # without a floor, a miss of half a percent is thousands of tolerances.
+        rng = np.random.default_rng(7)
+        real = TargetTest.summary(self, {"touch_size_median": 2832 + rng.normal(0, 1e-3, 200),
+                                         "spread_one_tick": 0.11 + rng.normal(0, 1e-6, 200)})
+        start = TargetTest.summary(self, {"touch_size_median": 2265 + rng.normal(0, 1e-3, 200),
+                                          "spread_one_tick": 0.29 + rng.normal(0, 1e-6, 200)})
+        target = calibrate.make_target(real, start, None, validate.Config())
+        tolerance = dict(zip(target.keys, target.tolerance, strict=True))
+        self.assertAlmostEqual(tolerance["touch_size_median"], 0.01)  # a logarithm's 1%
+        self.assertAlmostEqual(tolerance["spread_one_tick"], 0.0011)  # 1% of 0.11
+        near = {"touch_size_median": 2832 * math.exp(0.005), "spread_one_tick": 0.11 * 1.005}
+        self.assertLess(target.distance(near), 1.0)
+        judged = TargetTest.summary(self, {k: np.full(200, v) for k, v in near.items()})
+        self.assertLess(target.judged(judged, searched=judged), 1.0)
 
     def test_the_noise_a_fit_chased_is_measured_at_the_fit(self):
         # A start in a busy regime the fit left spreads widely; the fit on the search's seeds

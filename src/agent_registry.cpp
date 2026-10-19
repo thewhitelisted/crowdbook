@@ -194,6 +194,7 @@ std::unique_ptr<Agent> makeInformed(const Parameters& parameters,
     return std::make_unique<InformedTrader>(
         InformedConfig{
             .interval = parameters.duration("interval", defaults.interval),
+            .randomInterval = parameters.flag("random_interval", defaults.randomInterval),
             .belief = readBelief(parameters, defaults.belief),
             .threshold = parameters.number("threshold", defaults.threshold),
             .orderSize = parameters.integer("order_size", defaults.orderSize),

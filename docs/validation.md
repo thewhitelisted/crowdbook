@@ -215,7 +215,25 @@ there takes a short first step, 0.02 of each setting's range, where a search fro
 starts takes 0.15 (`--step` sets it): carried on from a fit of recorded games, steps of 0.1
 scored three to forty times the fit's distance while steps of 0.01 found better points. The
 tolerances come partly from the starting point's markets,
-so the distances of a fit started elsewhere compare only roughly with the first fit's.
+so the distances of a fit started elsewhere compare only roughly with the first fit's; the
+held-out distance, judged with the fit's own spread, compares across fits.
+
+Every tolerance is at least 1% of its statistic, 0.01 on a logarithm. A statistic the settings
+all but fix, such as the sizes of a ladder of quotes, has hardly any resampling spread, and the
+reach check then reads a miss of 1% on it as chance. Without a floor,
+a fit of reference twins from settings within 25% of the truth scored a miss of a lot in two
+thousand as thousands of tolerances. It started at 16.9 million, searched a cliff and ended
+at 52,825 on held-out seeds; with the floor it starts at 1,546 and ends at 399.
+
+`--retarget N` searches again N times from where the search landed, each time with the
+tolerances remade from the fit's own spread rather than the start's, at half the first step. A
+start far from the answer weighs the statistics by how noisy they are there. On the same
+reference twins, `--retarget 2` took the held-out distance from 399 to 271, at three times
+the cost. It did not find the truth: the makers' requote interval, threshold, lag and lasting
+error trade off against each other in those twins, so a 257 s requote fits about as well as the
+true 4.2 s. A fit that cannot recover known settings this way has settings the statistics do
+not pin down; read its intervals with that in mind, or fix the settings the recording cannot
+tell apart.
 
 Labels that a template reads as times, such as `kickoff` and `in_play_delay`, are numbers of
 seconds, as the templates write `"${kickoff}s"`.
