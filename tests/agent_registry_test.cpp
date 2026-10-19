@@ -75,6 +75,19 @@ TEST(AgentRegistryTest, AMarketMakerSeesTheValueOnlyWhenItQuotesOffIt) {
               std::string::npos);
 }
 
+TEST(AgentRegistryTest, AMarketMakerReadsItsFlowSettings) {
+    const AgentRegistry registry = AgentRegistry::withBuiltIns();
+    Parameters flow;
+    flow.set("flow_impact", 0.1);
+    flow.set("flow_memory", std::string{"20s"});
+    flow.set("take_through", 2.0);
+    EXPECT_NE(registry.create("market_maker", flow, {}), nullptr);
+    Parameters noMemory;
+    noMemory.set("flow_memory", std::string{"0s"});
+    EXPECT_NE(creationError(registry, "market_maker", noMemory).find("flow_memory"),
+              std::string::npos);
+}
+
 TEST(AgentRegistryTest, RejectsUnknownTypesAndNamesTheKnownOnes) {
     const std::string error =
         creationError(AgentRegistry::withBuiltIns(), "market_taker", Parameters{});

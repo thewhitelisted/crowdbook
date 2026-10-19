@@ -51,6 +51,19 @@ struct MarketMakerConfig {
     // left out then, by its limits or a post-only quote the book would have met, stays out until
     // it requotes. 0 requotes on every tick of the timer.
     double requoteThreshold = 0.0;
+    // Reading order flow, as in Glosten and Milgrom (1985) and Kyle (1985): each lot of
+    // aggressive volume in a trade it sees moves its fair price this many ticks, up for a buy and
+    // down for a sell, on top of the price it anchors on. Auction trades, which have no aggressor,
+    // move it not at all. 0 reads no flow.
+    double flowImpact = 0.0;
+    // How long that impact lasts: it decays by a factor of e every flowMemory. None keeps it for
+    // good, as flow from traders who know the value; a finite memory makes the mid revert.
+    std::optional<Duration> flowMemory{};
+    // Ticks: at a requote, when its fair price is past the far side of the book by more than
+    // this, it sends an immediate-or-cancel order against the stale quotes there, at its fair
+    // price less this, for as much as max_inventory leaves room for, counting every order it has
+    // open, before it quotes. None never takes.
+    std::optional<double> takeThrough{};
 };
 
 struct Quotes {
@@ -97,6 +110,8 @@ public:
     // The running average of trades; a market maker with a value belief quotes around the value
     // instead.
     [[nodiscard]] double fairPrice() const noexcept;
+    // What the order flow it has seen adds to its fair price at `now`, in ticks.
+    [[nodiscard]] double flowImpact(Timestamp now) const noexcept;
 
 private:
     Phase phase_ = Phase::Continuous;
@@ -115,6 +130,9 @@ private:
                   std::optional<Price> price, Quantity size) const;
     // Lots quoted at each level of the ladder, the touch first.
     [[nodiscard]] Quantity levelSize(int level) const noexcept;
+    // With takeThrough, trades against quotes its fair price has moved past; returns the
+    // position it would hold were every take still open to fill.
+    Quantity takeThrough(AgentContext& context, double fair);
 
     MarketMakerConfig config_;
     MarketView market_;
@@ -122,6 +140,9 @@ private:
     std::optional<Belief> belief_;
     std::optional<Timestamp> quotedAt_; // its last requote in a quiet stretch
     std::optional<double> quotedFair_;  // its fair price when it last set its quotes
+    double impact_ = 0.0;               // the flow's impact on its fair price, as of impactAt_
+    Timestamp impactAt_ = 0;
+    std::vector<ClientOrderId> takes_;  // its take-through orders, until they are done
     // Its quotes a side, a level each, the touch first.
     std::vector<std::optional<Quote>> bids_;
     std::vector<std::optional<Quote>> asks_;

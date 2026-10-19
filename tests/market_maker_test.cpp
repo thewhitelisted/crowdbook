@@ -1,9 +1,17 @@
+#include <cmath>
+#include <format>
+#include <memory>
+#include <numeric>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "crowdbook/agent_registry.hpp"
 #include "crowdbook/agents/market_maker.hpp"
+#include "crowdbook/scenario.hpp"
+#include "crowdbook/scenario_file.hpp"
 #include "exchange_test_support.hpp"
 #include "fake_context.hpp"
 
@@ -463,6 +471,196 @@ TEST(MarketMakerTest, ALadderStopsAtItsInventoryLimit) {
                                   }));
 }
 
+// A maker that reads order flow and sees a value of 100 that never moves, so that its fair price
+// is 100 plus what the flow has moved it.
+MarketMakerConfig flowReader(double impact) {
+    MarketMakerConfig config = kConfig;
+    config.valueBelief = BeliefConfig{.noise = 0.0};
+    config.flowImpact = impact;
+    return config;
+}
+
+std::shared_ptr<Fundamental> stillValue() {
+    return std::make_shared<Fundamental>(FundamentalConfig{.initial = 100.0, .volatility = 0.0},
+                                         Random{1, 0});
+}
+
+// Each lot of aggressive volume moves the fair price flow_impact ticks, up for a buy and down for
+// a sell; an auction's trades not at all. With a memory the impact falls to 1/e after it; without
+// one it stays.
+TEST(MarketMakerTest, OrderFlowMovesItsFairPrice) {
+    MarketMakerConfig config = kConfig;
+    config.flowImpact = 0.5;
+    config.flowMemory = 10 * kSecond;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTrade(context, {.price = 100, .quantity = 4, .aggressorSide = Side::Buy});
+    EXPECT_DOUBLE_EQ(maker.flowImpact(0), 2.0);
+    EXPECT_NEAR(maker.flowImpact(10 * kSecond), 2.0 / std::exp(1.0), 1e-12);
+    context.setNow(10 * kSecond);
+    maker.onTrade(context, {.price = 100, .quantity = 2, .aggressorSide = Side::Sell});
+    EXPECT_NEAR(maker.flowImpact(10 * kSecond), 2.0 / std::exp(1.0) - 1.0, 1e-12);
+    maker.onTrade(context,
+                  {.price = 100, .quantity = 50, .aggressorSide = Side::Buy, .auction = true});
+    EXPECT_NEAR(maker.flowImpact(10 * kSecond), 2.0 / std::exp(1.0) - 1.0, 1e-12);
+
+    config.flowMemory.reset();
+    MarketMaker lasting{config, kReference};
+    lasting.onTrade(context, {.price = 100, .quantity = 4, .aggressorSide = Side::Buy});
+    EXPECT_DOUBLE_EQ(lasting.flowImpact(10 * kSecond + 3600 * kSecond), 2.0);
+}
+
+// It quotes around its anchor plus the impact: a buy of 5 lots at an impact of 1 tick a lot moves
+// its quotes from 99/101 to 104/106.
+TEST(MarketMakerTest, QuotesAroundItsAnchorPlusTheFlowsImpact) {
+    MarketMaker maker{flowReader(1.0), kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy});
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(1, Side::Buy, 104, 5),
+                                                        limitOrder(2, Side::Sell, 106, 5)}));
+}
+
+// When its fair price has moved past the far side of the book by more than take_through, it takes
+// the stale quotes there with an immediate-or-cancel order, at its fair price less the threshold,
+// for as much as its inventory limit leaves room for, and quotes as if that filled.
+TEST(MarketMakerTest, TakesQuotesItsFairPriceHasMovedPastUpToItsLimit) {
+    MarketMakerConfig config = flowReader(1.0);
+    config.maxInventory = 10;
+    config.takeThrough = 2.0;
+    MarketMaker maker{config, kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    // Fair 105: 105 - 2 = 103 is past the ask of 101. Counting the take as filled, it is long 10,
+    // at its limit: no bid, and the ask at ceil(105 - 10 * 0.4 + 0.845) = 102.
+    maker.onTrade(context, {.price = 101, .quantity = 5, .aggressorSide = Side::Buy});
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(),
+              (std::vector<Request>{limitOrder(1, Side::Buy, 103, 10, TimeInForce::ImmediateOrCancel),
+                                    limitOrder(2, Side::Sell, 102, 5)}));
+    // 4 lots fill and the rest is cancelled: it takes again, but only the 6 lots left to its
+    // limit, and its ask stays where it was.
+    context.accept(1);
+    context.fill(1, 4);
+    static_cast<void>(context.cancelRest(1));
+    context.setNow(100 * kMillisecond);
+    maker.onWakeup(context, 0);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(
+                                      3, Side::Buy, 103, 6, TimeInForce::ImmediateOrCancel)}));
+    // At its limit, with nothing open, it takes nothing more.
+    context.accept(3);
+    context.fill(3, 6);
+    context.setNow(200 * kMillisecond);
+    maker.onWakeup(context, 0);
+    for (const Request& request : context.takeSent()) {
+        const auto* order = std::get_if<NewOrder>(&request);
+        EXPECT_FALSE(order != nullptr && order->side == Side::Buy);
+    }
+}
+
+TEST(MarketMakerTest, TakesTheBidSideToo) {
+    MarketMakerConfig config = flowReader(1.0);
+    config.maxInventory = 10;
+    config.takeThrough = 2.0;
+    MarketMaker maker{config, kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    // Fair 95: 95 + 2 = 97 is below the bid of 99.
+    maker.onTrade(context, {.price = 99, .quantity = 5, .aggressorSide = Side::Sell});
+    maker.onStart(context);
+    const std::vector<Request> sent = context.takeSent();
+    ASSERT_FALSE(sent.empty());
+    EXPECT_EQ(sent[0], (Request{limitOrder(1, Side::Sell, 97, 10, TimeInForce::ImmediateOrCancel)}));
+}
+
+// Within the threshold it takes nothing and quotes as usual.
+TEST(MarketMakerTest, TakesNothingWithinItsThreshold) {
+    MarketMakerConfig config = flowReader(1.0);
+    config.takeThrough = 2.0;
+    MarketMaker maker{config, kReference, stillValue()};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    // Fair 102: 102 - 2 = 100 is not past the ask of 101.
+    maker.onTrade(context, {.price = 101, .quantity = 2, .aggressorSide = Side::Buy});
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{limitOrder(1, Side::Buy, 101, 5),
+                                                        limitOrder(2, Side::Sell, 103, 5)}));
+}
+
+// A maker's profit a lot traded, over seeds, in a market whose value walks, against `takers`;
+// it sees the value 20 s late, as Glosten and Milgrom's dealer knows less than the informed.
+std::vector<double> profitPerLot(const std::string& takers, double impact) {
+    std::vector<double> profits;
+    for (int seed = 1; seed <= 8; ++seed) {
+        const Scenario scenario = parseScenario(std::format(R"(
+seed = {}
+duration = "600s"
+reference_price = 1000
+
+[fundamental]
+volatility = 1.0
+step = "100ms"
+
+[[agents]]
+type = "market_maker"
+quote_size = 2
+max_inventory = 40
+volatility = 1.0
+intensity = 1.0
+quote_value = true
+lag = "20s"
+{}
+
+{})",
+                                                            seed,
+                                                            impact > 0.0
+                                                                ? std::format("flow_impact = {}\n"
+                                                                              "flow_memory = \"20s\"",
+                                                                              impact)
+                                                                : std::string{},
+                                                            takers));
+        const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), nullptr);
+        const GroupResult& maker = result.groups[0];
+        profits.push_back(static_cast<double>(maker.pnl) /
+                          static_cast<double>(std::max<Quantity>(maker.traded, 1)));
+    }
+    return profits;
+}
+
+// The difference with flow reading, seed by seed: its mean and standard error.
+std::pair<double, double> gain(const std::string& takers) {
+    const std::vector<double> without = profitPerLot(takers, 0.0);
+    const std::vector<double> with = profitPerLot(takers, 0.1);
+    std::vector<double> differences;
+    for (std::size_t i = 0; i < with.size(); ++i) {
+        differences.push_back(with[i] - without[i]);
+    }
+    const auto n = static_cast<double>(differences.size());
+    const double mean = std::accumulate(differences.begin(), differences.end(), 0.0) / n;
+    double squares = 0.0;
+    for (const double difference : differences) {
+        squares += (difference - mean) * (difference - mean);
+    }
+    return {mean, std::sqrt(squares / (n - 1.0) / n)};
+}
+
+// Glosten and Milgrom: against takers who know the value, a maker who reads their flow loses
+// less a lot than one who does not; against takers who know nothing, it earns no less.
+TEST(MarketMakerTest, ReadingFlowLosesLessToTheInformedAndNoMoreToNoise) {
+    const auto [informed, informedError] = gain(R"([[agents]]
+type = "informed"
+count = 4
+interval = "1s")");
+    EXPECT_GT(informed - 2.0 * informedError, 0.0) << informed << " ± " << informedError;
+    const auto [noise, noiseError] = gain(R"([[agents]]
+type = "zero_intelligence"
+count = 4
+limit_rate = 0.0
+market_rate = 0.5)");
+    EXPECT_GT(noise + 2.0 * noiseError, 0.0) << noise << " ± " << noiseError;
+}
+
 TEST(MarketMakerTest, RejectsInvalidConfigs) {
     const auto withChange = [](auto change) {
         MarketMakerConfig config = kConfig;
@@ -505,6 +703,12 @@ TEST(MarketMakerTest, RejectsInvalidConfigs) {
     EXPECT_THROW(
         (MarketMaker{withChange([](auto& c) { c.levelSpacing = kMaxPrice + 1; }), kReference}),
         std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.flowImpact = -0.1; }), kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.flowMemory = 0; }), kReference}),
+                 std::invalid_argument);
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.takeThrough = -1.0; }), kReference}),
+                 std::invalid_argument);
 }
 
 } // namespace

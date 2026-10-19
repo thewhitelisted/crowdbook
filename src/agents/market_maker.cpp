@@ -71,6 +71,13 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
             "level_growth above 0 and at most {}",
             kMaxLevels, kMaxPrice, kMaxGrowth));
     }
+    if (!(config.flowImpact >= 0.0) || !std::isfinite(config.flowImpact) ||
+        (config.flowMemory && *config.flowMemory <= 0) ||
+        (config.takeThrough && (!(*config.takeThrough >= 0.0) ||
+                                !std::isfinite(*config.takeThrough)))) {
+        throw std::invalid_argument("market_maker needs a flow_impact of 0 or more, a positive "
+                                    "flow_memory and a take_through of 0 or more");
+    }
     if (config.valueBelief) {
         belief_.emplace(*config.valueBelief, std::move(fundamental));
     }
@@ -120,8 +127,14 @@ void MarketMaker::onTopOfBook(AgentContext& /*context*/, const TopOfBook& top) {
     market_.update(top);
 }
 
-void MarketMaker::onTrade(AgentContext& /*context*/, const Trade& trade) {
+void MarketMaker::onTrade(AgentContext& context, const Trade& trade) {
     market_.update(trade);
+    if (config_.flowImpact > 0.0 && !trade.auction) {
+        impact_ = flowImpact(context.now()) +
+                  config_.flowImpact * static_cast<double>(trade.quantity) *
+                      (trade.aggressorSide == Side::Buy ? 1.0 : -1.0);
+        impactAt_ = context.now();
+    }
     const auto price = static_cast<double>(trade.price);
     if (tradeAverage_) {
         *tradeAverage_ += config_.fairValueWeight * (price - *tradeAverage_);
@@ -132,6 +145,14 @@ void MarketMaker::onTrade(AgentContext& /*context*/, const Trade& trade) {
 
 double MarketMaker::fairPrice() const noexcept {
     return tradeAverage_.value_or(market_.fairPrice());
+}
+
+double MarketMaker::flowImpact(Timestamp now) const noexcept {
+    if (!config_.flowMemory || impact_ == 0.0) {
+        return impact_;
+    }
+    return impact_ * math::exp(-static_cast<double>(now - impactAt_) /
+                               static_cast<double>(*config_.flowMemory));
 }
 
 void MarketMaker::onPhase(AgentContext& context, const PhaseChanged& phase) {
@@ -159,13 +180,18 @@ void MarketMaker::requote(AgentContext& context, bool afterFill) {
         }
         quotedAt_ = now;
     }
-    const double fair = belief_ ? belief_->look(context) : fairPrice();
+    double fair = belief_ ? belief_->look(context) : fairPrice();
+    if (config_.flowImpact > 0.0) {
+        fair += flowImpact(now);
+    }
+    // As if every take still open fills: the quotes leave room for it.
+    const Quantity position = takeThrough(context, fair);
     if (config_.requoteThreshold > 0.0 && !afterFill && quotedFair_ &&
         std::abs(fair - *quotedFair_) < config_.requoteThreshold && standing(context)) {
         return;
     }
     quotedFair_ = fair;
-    Quotes target = avellanedaStoikovQuotes(config_, fair, context.ledger().position());
+    Quotes target = avellanedaStoikovQuotes(config_, fair, position);
     if (config_.postOnly) {
         if (target.bid && market_.bestAsk()) {
             target.bid = std::min(*target.bid, *market_.bestAsk() - 1);
@@ -192,7 +218,6 @@ void MarketMaker::requote(AgentContext& context, bool afterFill) {
     }
     // The ladder: each level behind the touch quote, quoted while filling it and every level
     // nearer would keep the position within max_inventory.
-    const Quantity position = context.ledger().position();
     Quantity bought = 0;
     Quantity sold = 0;
     for (int level = 0; level < config_.levels; ++level) {
@@ -214,6 +239,46 @@ void MarketMaker::requote(AgentContext& context, bool afterFill) {
         maintain(context, bids_[at], Side::Buy, bid, size);
         maintain(context, asks_[at], Side::Sell, ask, size);
     }
+}
+
+Quantity MarketMaker::takeThrough(AgentContext& context, double fair) {
+    const Ledger& ledger = context.ledger();
+    if (!config_.takeThrough) {
+        return ledger.position();
+    }
+    // Takes still open count as filled; a take that is done drops out.
+    std::erase_if(takes_, [&](ClientOrderId id) { return ledger.find(id) == nullptr; });
+    const auto open = [&](Side side) {
+        Quantity lots = 0;
+        for (const ClientOrderId id : takes_) {
+            const OwnOrder* take = ledger.find(id);
+            if (take->side == side) {
+                lots += take->leaves;
+            }
+        }
+        return lots;
+    };
+    const double through = *config_.takeThrough;
+    const Price highest = context.maxPrice();
+    // Room as the exchange counts it: the position were every open order on that side to fill.
+    if (market_.bestAsk() && fair - through > static_cast<double>(*market_.bestAsk())) {
+        const Quantity room =
+            config_.maxInventory - ledger.position() - ledger.openQuantity(Side::Buy);
+        if (room > 0) {
+            takes_.push_back(context.submitLimit(Side::Buy,
+                                                 clampPrice(std::floor(fair - through), highest),
+                                                 room, TimeInForce::ImmediateOrCancel));
+        }
+    } else if (market_.bestBid() && fair + through < static_cast<double>(*market_.bestBid())) {
+        const Quantity room =
+            config_.maxInventory + ledger.position() - ledger.openQuantity(Side::Sell);
+        if (room > 0) {
+            takes_.push_back(context.submitLimit(Side::Sell,
+                                                 clampPrice(std::ceil(fair + through), highest),
+                                                 room, TimeInForce::ImmediateOrCancel));
+        }
+    }
+    return ledger.position() + open(Side::Buy) - open(Side::Sell);
 }
 
 bool MarketMaker::standing(const AgentContext& context) const {
