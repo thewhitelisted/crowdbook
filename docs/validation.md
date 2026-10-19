@@ -171,8 +171,9 @@ a time is the reference recorded that many seconds later, and each twin is measu
 reference as recorded, as its recorded market is. A fit can then find a book that leads its
 reference, rather than one that takers must pull along behind it. To see whether a recording
 needs it, compare how far its mid moves toward each change of the reference in the minutes
-before the change and in the minutes after. Where the recording ends, a twin's last
-`value_lead` seconds are worth what its market settled at. A lead and the traders' lags mostly
+before the change and in the minutes after. A twin's last `value_lead` seconds hold the last
+reference recorded: a recording often ends long before its market settles, and a twin that
+knew the settlement a lead early would hand its takers a sure thing. A lead and the traders' lags mostly
 move the book against its reference together, by their difference, so a fit of both gives
 wide intervals that move together; fix the lags where they are known. A twin written by the fit
 says in its header how far it is led: measured against its own value, as `crowdbook-validate`
