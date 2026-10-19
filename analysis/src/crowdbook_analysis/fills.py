@@ -76,6 +76,12 @@ def _side(values) -> np.ndarray:
     return np.where(text == "buy", 1, -1)
 
 
+def _in_lots(values, lot: float) -> np.ndarray:
+    """Sizes recorded in the venue's units, in lots: to a billionth, so that 0.01 in lots of 0.001
+    is 10 and not a hair over."""
+    return np.round(np.asarray(values, dtype=float) / lot, 9)
+
+
 def _whole(values, what: str) -> np.ndarray:
     """Lots as whole numbers: a record in fractions of a lot, or with a size missing, is refused
     rather than cut to whole lots unseen."""
@@ -105,7 +111,7 @@ def read_paper(directory: Path | str) -> list:
     in ticks and times in nanoseconds as the harness records them."""
     directory = Path(directory)
     recorded = tapes.read_tape(directory)
-    tick = recorded.options.tick
+    tick, lot = recorded.options.tick, recorded.options.lot
     quotes = tapes._table(directory, "quotes")
     fill_rows = tapes._table(directory, "fills")
     names = {m.name for m in recorded.markets}
@@ -125,13 +131,14 @@ def read_paper(directory: Path | str) -> list:
             times, sides = mine["time"].to_numpy(), _side(mine["side"])
             prices = mine["price"].to_numpy().astype(float)
             # Without the size ahead, it is read from the book the record carries.
-            ahead = (_whole(mine["ahead"].to_numpy(), "ahead") if "ahead" in mine.columns
-                     else [_ahead_in_book(m, t, s, p) for t, s, p in zip(times, sides, prices,
+            ahead = (_whole(_in_lots(mine["ahead"].to_numpy(), lot), "ahead")
+                     if "ahead" in mine.columns else [_ahead_in_book(m, t, s, p) for t, s, p in zip(times, sides, prices,
                                                                           strict=True)])
             episode.quotes = [
                 (int(t), int(s), int(round(p / tick)), int(q), int(a))
                 for t, s, p, q, a in zip(_nanoseconds(times), sides, prices,
-                                         _whole(mine["size"].to_numpy(), "size"), ahead,
+                                         _whole(_in_lots(mine["size"].to_numpy(), lot), "size"),
+                                         ahead,
                                          strict=True)]
         mine = fill_rows.filter(pl.col("market") == m.name)
         if len(mine):
@@ -142,7 +149,8 @@ def read_paper(directory: Path | str) -> list:
                 (int(t), int(s), int(round(p / tick)), int(q), kind == "maker", 0)
                 for t, s, p, q, kind in zip(_nanoseconds(mine["time"].to_numpy()),
                                             _side(mine["side"]), mine["price"].to_numpy(),
-                                            _whole(mine["quantity"].to_numpy(), "quantity"),
+                                            _whole(_in_lots(mine["quantity"].to_numpy(), lot),
+                                                   "quantity"),
                                             liquidity, strict=True)]
         episodes.append(episode)
     return episodes

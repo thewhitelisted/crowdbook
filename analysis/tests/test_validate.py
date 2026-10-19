@@ -201,6 +201,30 @@ class StatisticsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 tape.read_tape(scratch)
 
+    def test_a_tape_of_fractions_is_read_in_lots(self):
+        # Bitcoin traded in thousandths: a recorded size of 0.01 is 10 lots, 0.0003 is 0.3.
+        with tempfile.TemporaryDirectory() as scratch:
+            recorded = market("a")
+            recorded.bid_size = recorded.bid_size * 0.001
+            recorded.ask_size = recorded.ask_size * 0.001
+            recorded.trade_size = np.full(len(recorded.trade_time), 0.0003)
+            tape.write_tape(tape.Tape([recorded]), scratch)
+            with open(Path(scratch) / "tape.toml", "a") as file:
+                file.write("lot = 0.001\n")
+            [read] = tape.read_tape(scratch).markets
+            np.testing.assert_allclose(read.bid_size[:, :2], 10.0)
+            np.testing.assert_allclose(read.ask_size[:, :2], 10.0)
+            self.assertTrue(np.isnan(read.bid_size[:, 2]).all())
+            np.testing.assert_allclose(read.trade_size, 0.3)
+            # Written again, it is in lots, and reads back as it was.
+            tape.write_tape(tape.read_tape(scratch), Path(scratch) / "again")
+            np.testing.assert_allclose(tape.read_tape(Path(scratch) / "again").markets[0]
+                                       .trade_size, 0.3)
+            for wrong in ("0", "-0.001", "nan"):
+                (Path(scratch) / "tape.toml").write_text(f"lot = {wrong}\n")
+                with self.assertRaisesRegex(ValueError, "lot is a size above 0"):
+                    tape.read_tape(scratch)
+
     def test_a_rate_of_events_is_compared_by_its_count(self):
         # One order recorded in an hour; twins that make one a minute over ten hours expect 60
         # there. The Poisson deviance is 2 (1 ln(1/60) + 59) = 109.8, over 1 + 60/600 for the

@@ -19,7 +19,9 @@ A tape is a directory of tables, as CSV or Parquet, that hold one or many market
   change, which a calibration can make its synthetic markets replay (see `calibrate`).
 - `tape.toml` (optional): `tick`, the price increment (1 if absent); `returns`, how price changes
   are measured, `"difference"` (the default, for prices with bounds such as probabilities) or
-  `"log"`; and `payout`, for a binary contract, what a winning unit pays.
+  `"log"`; `payout`, for a binary contract, what a winning unit pays; and `lot`, how much of the
+  recording's sizes is one of the engine's whole units, for a venue that trades fractions, such as
+  0.001 for bitcoin: every size is read in lots (1, as recorded, if absent).
 
 Any of the tables may be Parquet instead (`book.parquet` and so on). `read_tape` reads a tape and
 `write_tape` writes one; `simulate` runs a crowdbook scenario under many seeds into a tape, so that
@@ -57,6 +59,9 @@ class Options:
     # order, for a venue that stamps each fill of one order apart; 0, prints at one time only, as
     # the engine stamps them.
     same_order: float = 0.0
+    # How much of the recording's sizes is one lot. Sizes are in lots once read, so a tape writes
+    # none: it is what they were divided by.
+    lot: float = 1.0
 
 
 @dataclass
@@ -154,6 +159,9 @@ def read_tape(directory: Path | str) -> Tape:
         raise ValueError(f"tape.toml: returns is 'difference' or 'log', not {options.returns!r}")
     if not options.same_order >= 0.0 or not math.isfinite(options.same_order):
         raise ValueError(f"tape.toml: same_order is seconds, 0 or more, not {options.same_order}")
+    lot = options.lot = float(settings.get("lot", 1.0))
+    if not lot > 0.0 or not math.isfinite(lot):
+        raise ValueError(f"tape.toml: lot is a size above 0, not {lot}")
     listed = _table(directory, "markets")
     book = _table(directory, "book").sort("market", "time", maintain_order=True)
     prints = _table(directory, "trades").sort("market", "time", maintain_order=True)
@@ -194,11 +202,11 @@ def read_tape(directory: Path | str) -> Tape:
         markets.append(Market(
             name=name, duration=float(row["duration"]), book_time=book_time,
             bid_price=bid_price,
-            bid_size=_matrix(snaps, [f"bid_size_{i}" for i in range(1, bid_levels + 1)]),
+            bid_size=_matrix(snaps, [f"bid_size_{i}" for i in range(1, bid_levels + 1)]) / lot,
             ask_price=ask_price,
-            ask_size=_matrix(snaps, [f"ask_size_{i}" for i in range(1, ask_levels + 1)]),
+            ask_size=_matrix(snaps, [f"ask_size_{i}" for i in range(1, ask_levels + 1)]) / lot,
             trade_time=trade_time, trade_price=trade_price,
-            trade_size=tape["size"].cast(pl.Float64).to_numpy(), trade_sign=signs,
+            trade_size=tape["size"].cast(pl.Float64).to_numpy() / lot, trade_sign=signs,
             outcome=None if outcome is None else float(outcome),
             value_time=None if value is None else value["time"].cast(pl.Float64).to_numpy(),
             value=None if value is None else value["value"].cast(pl.Float64).to_numpy(),
