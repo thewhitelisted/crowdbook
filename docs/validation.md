@@ -209,6 +209,18 @@ true value (`${value_path}`) and settle them where the market settled (`${outcom
 about the game's scoring is then fitted or assumed, which the book's statistics could not pin
 down anyway (see the game recovery check below), and only the traders are fitted.
 
+A market that is not a contract on an outcome, such as a perpetual future, can be twinned on its
+reference too, an index's price say: for a tape with a value table and no `payout`, a recorded
+market fills `${value_path}` in ticks, `${opening_value}` with its first value and
+`${opening_price}` with that to the nearest tick, and
+[index_twins.toml](../examples/calibration/index_twins.toml) makes them its twins'
+`[fundamental]` path ([`path`](scenarios.md#fundamental-optional)), with book.toml's traders. Such
+a tape's `returns` should be `"log"`, as the twins' are. On 40 markets made by book.toml at known
+settings, the twins at those settings reach them within chance, 19.6 against 61.7. Fitted from
+the spec's starts, 40 generations on 2 seeds in 25 minutes, they find those settings to within
+2 to 5% (maker intensity 0.802 against 0.8, noise rate 0.296 against 0.3, size tail 1.22 against
+1.2, 21 followers against 20, a lag of 9.9 s against 10), at 34.8 against 62.8 on held-out seeds.
+
 `--start SETTINGS` begins the search from an earlier fit's `settings.toml` instead of the spec's
 starts, so that a fit can be carried on with more generations or seeds, or after a change to the
 template, rather than begun again. Near a fit the distance rises steeply, so a search started

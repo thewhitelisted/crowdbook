@@ -16,6 +16,12 @@ namespace crowdbook {
 Fundamental::Fundamental(const FundamentalConfig& config, Random random)
     : config_(config), random_(random), value_(config.initial) {
     check(config);
+    if (!config.path.empty()) {
+        recorded_ = true;
+        path_ = config.path;
+        pathStart_ = config.initial;
+        pathOutcome_ = path_.back().value;
+    }
     const double seconds = static_cast<double>(config.step) / static_cast<double>(kSecond);
     jumpsPerStep_ = config.jumpRate * seconds;
     const double theta = config.meanReversion;
@@ -44,6 +50,21 @@ void Fundamental::check(const FundamentalConfig& config) {
     }
     if (!(config.jumpRate >= 0.0) || !(config.jumpSize >= 0.0)) {
         throw std::invalid_argument("the jump rate and jump size must not be negative");
+    }
+    if (!config.path.empty()) {
+        if (config.meanReversion != 0.0 || config.volatility != 0.0 || config.jumpRate != 0.0 ||
+            config.jumpSize != 0.0) {
+            throw std::invalid_argument(
+                "a recorded value path takes no mean reversion, volatility or jumps");
+        }
+        Duration last = 0;
+        for (const ValuePoint& point : config.path) {
+            if (point.at < last || !std::isfinite(point.value)) {
+                throw std::invalid_argument("a value path's points must come in order, at times "
+                                            "that are not negative, with finite values");
+            }
+            last = point.at;
+        }
     }
 }
 
