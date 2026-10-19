@@ -51,6 +51,19 @@ struct MarketMakerConfig {
     // left out then, by its limits or a post-only quote the book would have met, stays out until
     // it requotes. 0 requotes on every tick of the timer.
     double requoteThreshold = 0.0;
+    // Reading order flow, as in Glosten and Milgrom (1985) and Kyle (1985): each lot of
+    // aggressive volume in a trade it sees moves its fair price this many ticks, up for a buy and
+    // down for a sell, on top of the price it anchors on. Auction trades, which have no aggressor,
+    // move it not at all. 0 reads no flow.
+    double flowImpact = 0.0;
+    // How long that impact lasts: it decays by a factor of e every flowMemory. None keeps it for
+    // good, as flow from traders who know the value; a finite memory makes the mid revert.
+    std::optional<Duration> flowMemory{};
+    // Ticks: at a requote, when its fair price is past the far side of the book by more than
+    // this, it sends an immediate-or-cancel order against the stale quotes there, at its fair
+    // price less this, for as much as max_inventory leaves room for, counting every order it has
+    // open, before it quotes. None never takes.
+    std::optional<double> takeThrough{};
 };
 
 struct Quotes {
@@ -73,7 +86,8 @@ struct Quotes {
 // reservation price that leans against its inventory: when long it lowers both quotes, so it sells
 // more and buys less, and when short it raises them. The fair price is a running average of trade
 // prices (the mid before the first trade), not the mid itself, because the mid is often the market
-// maker's own quotes; or, with a value belief, the value as it sees it at each requote. It quotes
+// maker's own quotes; or, with a value belief, the value as it sees it at each requote; to which,
+// with a flow impact, it adds what the order flow it has seen says. It quotes
 // on start, then requotes on a timer (whose first tick falls at a random point in the first
 // interval) and straight after each of its own fills, moving a live quote with modify. A modify the
 // exchange rejects is sent again at the next requote.
@@ -87,6 +101,7 @@ public:
     void onStart(AgentContext& context) override;
     void onWakeup(AgentContext& context, std::uint64_t tag) override;
     void onFilled(AgentContext& context, const OrderFilled& event) override;
+    void onCancelled(AgentContext& context, const OrderCancelled& event) override;
     void onRejected(AgentContext& context, const OrderRejected& event) override;
     // Its quotes stand through an auction, but it sends no new ones until trading is
     // continuous again.
@@ -97,6 +112,8 @@ public:
     // The running average of trades; a market maker with a value belief quotes around the value
     // instead.
     [[nodiscard]] double fairPrice() const noexcept;
+    // What the order flow it has seen adds to its fair price at `now`, in ticks.
+    [[nodiscard]] double flowImpact(Timestamp now) const noexcept;
 
 private:
     Phase phase_ = Phase::Continuous;
@@ -106,8 +123,8 @@ private:
         Price price = 0;
     };
 
-    // `afterFill` requotes whatever the threshold.
-    void requote(AgentContext& context, bool afterFill = false);
+    // `afterFill` requotes whatever the threshold; without `mayTake` it sends no take.
+    void requote(AgentContext& context, bool afterFill = false, bool mayTake = true);
     // Whether every quote it set at its last requote is in the book at its full size, none
     // filled or on its way out.
     [[nodiscard]] bool standing(const AgentContext& context) const;
@@ -115,6 +132,9 @@ private:
                   std::optional<Price> price, Quantity size) const;
     // Lots quoted at each level of the ladder, the touch first.
     [[nodiscard]] Quantity levelSize(int level) const noexcept;
+    // With takeThrough, trades against quotes its fair price has moved past; returns the
+    // position it would hold were every take still open to fill.
+    Quantity takeThrough(AgentContext& context, double fair, bool mayTake);
 
     MarketMakerConfig config_;
     MarketView market_;
@@ -122,9 +142,21 @@ private:
     std::optional<Belief> belief_;
     std::optional<Timestamp> quotedAt_; // its last requote in a quiet stretch
     std::optional<double> quotedFair_;  // its fair price when it last set its quotes
+    double impact_ = 0.0;               // the flow's impact on its fair price, as of impactAt_
+    Timestamp impactAt_ = 0;
+    std::vector<ClientOrderId> takes_;  // its take-through orders, until they are done
+    // Lots its takes have filled whose trades it has yet to see, a side each.
+    Quantity ownBought_ = 0;
+    Quantity ownSold_ = 0;
+    // Lots at the best bid and ask as last published, its own among them.
+    Quantity topBidSize_ = 0;
+    Quantity topAskSize_ = 0;
     // Its quotes a side, a level each, the touch first.
     std::vector<std::optional<Quote>> bids_;
     std::vector<std::optional<Quote>> asks_;
+    // Where each level's quote goes at a requote, kept to save allocating them each time.
+    std::vector<std::optional<Price>> targetBids_;
+    std::vector<std::optional<Price>> targetAsks_;
 };
 
 } // namespace crowdbook

@@ -71,11 +71,20 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
             "level_growth above 0 and at most {}",
             kMaxLevels, kMaxPrice, kMaxGrowth));
     }
+    if (!(config.flowImpact >= 0.0) || !std::isfinite(config.flowImpact) ||
+        (config.flowMemory && *config.flowMemory <= 0) ||
+        (config.takeThrough && (!(*config.takeThrough >= 0.0) ||
+                                !std::isfinite(*config.takeThrough)))) {
+        throw std::invalid_argument("market_maker needs a flow_impact of 0 or more, a positive "
+                                    "flow_memory and a take_through of 0 or more");
+    }
     if (config.valueBelief) {
         belief_.emplace(*config.valueBelief, std::move(fundamental));
     }
     bids_.resize(static_cast<std::size_t>(config.levels));
     asks_.resize(static_cast<std::size_t>(config.levels));
+    targetBids_.resize(static_cast<std::size_t>(config.levels));
+    targetAsks_.resize(static_cast<std::size_t>(config.levels));
 }
 
 Quantity MarketMaker::levelSize(int level) const noexcept {
@@ -97,8 +106,30 @@ void MarketMaker::onWakeup(AgentContext& context, std::uint64_t /*tag*/) {
     context.wakeAfter(config_.requoteInterval);
 }
 
-void MarketMaker::onFilled(AgentContext& context, const OrderFilled& /*event*/) {
+void MarketMaker::onFilled(AgentContext& context, const OrderFilled& event) {
+    // Its own takes print as aggressive volume too, and it learns nothing from them: a take's
+    // fill, which reaches it before the trade it prints, marks that many lots of the next trades
+    // on its side as its own.
+    if (config_.flowImpact > 0.0 && std::ranges::contains(takes_, event.clientOrderId)) {
+        (event.side == Side::Buy ? ownBought_ : ownSold_) += event.quantity;
+    }
+    // A fill of a quote at the best price reaches it before the book does: those lots are gone.
+    const std::optional<Price> best =
+        event.side == Side::Buy ? market_.bestBid() : market_.bestAsk();
+    if (event.liquidity == Liquidity::Maker && best == event.price) {
+        Quantity& shown = event.side == Side::Buy ? topBidSize_ : topAskSize_;
+        shown = std::max<Quantity>(shown - event.quantity, 0);
+    }
     requote(context, /*afterFill=*/true);
+}
+
+void MarketMaker::onCancelled(AgentContext& context, const OrderCancelled& event) {
+    // The rest of a take is done: it quoted as if all of it would fill, so it quotes afresh, but
+    // takes nothing more until its timer, so that takes cannot follow one another without time
+    // passing.
+    if (std::ranges::contains(takes_, event.clientOrderId)) {
+        requote(context, /*afterFill=*/true, /*mayTake=*/false);
+    }
 }
 
 void MarketMaker::onRejected(AgentContext& context, const OrderRejected& event) {
@@ -118,10 +149,21 @@ void MarketMaker::onRejected(AgentContext& context, const OrderRejected& event) 
 
 void MarketMaker::onTopOfBook(AgentContext& /*context*/, const TopOfBook& top) {
     market_.update(top);
+    topBidSize_ = top.bid ? top.bid->quantity : 0;
+    topAskSize_ = top.ask ? top.ask->quantity : 0;
 }
 
-void MarketMaker::onTrade(AgentContext& /*context*/, const Trade& trade) {
+void MarketMaker::onTrade(AgentContext& context, const Trade& trade) {
     market_.update(trade);
+    if (config_.flowImpact > 0.0 && !trade.auction) {
+        Quantity& own = trade.aggressorSide == Side::Buy ? ownBought_ : ownSold_;
+        const Quantity mine = std::min(own, trade.quantity);
+        own -= mine;
+        impact_ = flowImpact(context.now()) +
+                  config_.flowImpact * static_cast<double>(trade.quantity - mine) *
+                      (trade.aggressorSide == Side::Buy ? 1.0 : -1.0);
+        impactAt_ = context.now();
+    }
     const auto price = static_cast<double>(trade.price);
     if (tradeAverage_) {
         *tradeAverage_ += config_.fairValueWeight * (price - *tradeAverage_);
@@ -134,12 +176,20 @@ double MarketMaker::fairPrice() const noexcept {
     return tradeAverage_.value_or(market_.fairPrice());
 }
 
+double MarketMaker::flowImpact(Timestamp now) const noexcept {
+    if (!config_.flowMemory || impact_ == 0.0) {
+        return impact_;
+    }
+    return impact_ * math::exp(-static_cast<double>(now - impactAt_) /
+                               static_cast<double>(*config_.flowMemory));
+}
+
 void MarketMaker::onPhase(AgentContext& context, const PhaseChanged& phase) {
     phase_ = phase.phase;
     requote(context);
 }
 
-void MarketMaker::requote(AgentContext& context, bool afterFill) {
+void MarketMaker::requote(AgentContext& context, bool afterFill, bool mayTake) {
     if (phase_ != Phase::Continuous) {
         return;
     }
@@ -159,13 +209,18 @@ void MarketMaker::requote(AgentContext& context, bool afterFill) {
         }
         quotedAt_ = now;
     }
-    const double fair = belief_ ? belief_->look(context) : fairPrice();
+    double fair = belief_ ? belief_->look(context) : fairPrice();
+    if (config_.flowImpact > 0.0) {
+        fair += flowImpact(now);
+    }
+    // As if every take still open fills: the quotes leave room for it.
+    const Quantity position = takeThrough(context, fair, mayTake);
     if (config_.requoteThreshold > 0.0 && !afterFill && quotedFair_ &&
         std::abs(fair - *quotedFair_) < config_.requoteThreshold && standing(context)) {
         return;
     }
     quotedFair_ = fair;
-    Quotes target = avellanedaStoikovQuotes(config_, fair, context.ledger().position());
+    Quotes target = avellanedaStoikovQuotes(config_, fair, position);
     if (config_.postOnly) {
         if (target.bid && market_.bestAsk()) {
             target.bid = std::min(*target.bid, *market_.bestAsk() - 1);
@@ -192,28 +247,116 @@ void MarketMaker::requote(AgentContext& context, bool afterFill) {
     }
     // The ladder: each level behind the touch quote, quoted while filling it and every level
     // nearer would keep the position within max_inventory.
-    const Quantity position = context.ledger().position();
     Quantity bought = 0;
     Quantity sold = 0;
+    std::vector<std::optional<Price>>& bids = targetBids_;
+    std::vector<std::optional<Price>>& asks = targetAsks_;
     for (int level = 0; level < config_.levels; ++level) {
         const auto at = static_cast<std::size_t>(level);
         const Quantity size = levelSize(level);
         const Price behind = static_cast<Price>(level) * config_.levelSpacing;
         bought += size;
         sold += size;
-        std::optional<Price> bid;
+        bids[at].reset();
+        asks[at].reset();
         if (target.bid && *target.bid - behind >= 1 &&
             position + bought <= config_.maxInventory) {
-            bid = *target.bid - behind;
+            bids[at] = *target.bid - behind;
         }
-        std::optional<Price> ask;
         if (target.ask && *target.ask + behind <= highest &&
             position - sold >= -config_.maxInventory) {
-            ask = *target.ask + behind;
+            asks[at] = *target.ask + behind;
         }
-        maintain(context, bids_[at], Side::Buy, bid, size);
-        maintain(context, asks_[at], Side::Sell, ask, size);
     }
+    // Requests reach the exchange in the order sent, and one that meets its own quote there is
+    // cancelled: when its new bid would reach one of its asks as they stand, the asks move
+    // first, and the bids after. Only a maker that reads flow, whose price jumps by whole
+    // spreads, does this, so that every other runs as it always has.
+    bool asksFirst = false;
+    if (bids[0] && (config_.flowImpact > 0.0 || config_.takeThrough)) {
+        for (const std::optional<Quote>& quote : asks_) {
+            asksFirst = asksFirst || (quote && quote->price <= *bids[0]);
+        }
+    }
+    if (asksFirst) {
+        for (int level = 0; level < config_.levels; ++level) {
+            const auto at = static_cast<std::size_t>(level);
+            maintain(context, asks_[at], Side::Sell, asks[at], levelSize(level));
+        }
+    }
+    for (int level = 0; level < config_.levels; ++level) {
+        const auto at = static_cast<std::size_t>(level);
+        maintain(context, bids_[at], Side::Buy, bids[at], levelSize(level));
+        if (!asksFirst) {
+            maintain(context, asks_[at], Side::Sell, asks[at], levelSize(level));
+        }
+    }
+}
+
+Quantity MarketMaker::takeThrough(AgentContext& context, double fair, bool mayTake) {
+    const Ledger& ledger = context.ledger();
+    if (!config_.takeThrough) {
+        return ledger.position();
+    }
+    // Takes still open count as filled; a take that is done drops out.
+    std::erase_if(takes_, [&](ClientOrderId id) { return ledger.find(id) == nullptr; });
+    const auto open = [&](Side side) {
+        Quantity lots = 0;
+        for (const ClientOrderId id : takes_) {
+            const OwnOrder* take = ledger.find(id);
+            if (take->side == side) {
+                lots += take->leaves;
+            }
+        }
+        return lots;
+    };
+    const double through = *config_.takeThrough;
+    const Price highest = context.maxPrice();
+    // The exchange stops a take at the first of its own quotes it reaches, so it first cancels
+    // those the take could reach; they arrive first, as messages on a link never overtake. Room is
+    // as the exchange counts it: the position were every open order on that side to fill.
+    const auto take = [&](Side side, Price price, Quantity room) {
+        if (room <= 0) {
+            return;
+        }
+        for (std::optional<Quote>& quote : side == Side::Buy ? asks_ : bids_) {
+            const OwnOrder* live = quote ? ledger.find(quote->clientOrderId) : nullptr;
+            // At its price in the book or the one a modify still on its way asks for.
+            const auto reaches = [&](Price at) {
+                return side == Side::Buy ? at <= price : at >= price;
+            };
+            if (live != nullptr && !live->cancelRequested &&
+                (reaches(live->price) || reaches(quote->price))) {
+                context.cancel(quote->clientOrderId);
+                quote.reset();
+            }
+        }
+        takes_.push_back(context.submitLimit(side, price, room, TimeInForce::ImmediateOrCancel));
+        quotedFair_.reset(); // whatever its threshold, it quotes afresh around the take
+    };
+    // Someone else's quote at the far side's best price: the book shows more there than its own.
+    // Its own there are every order the exchange holds for it at that price, a cancel on its way
+    // or not.
+    const auto others = [&](Side side, Price best, Quantity shown) {
+        Quantity own = 0;
+        for (const auto& [id, order] : ledger.orders()) {
+            if (order.acknowledged && order.side == side && order.price == best) {
+                own += order.leaves;
+            }
+        }
+        return shown > own;
+    };
+    if (mayTake && market_.bestAsk() && fair - through > static_cast<double>(*market_.bestAsk()) &&
+        others(Side::Sell, *market_.bestAsk(), topAskSize_)) {
+        take(Side::Buy, clampPrice(std::floor(fair - through), highest),
+             config_.maxInventory - ledger.position() - ledger.openQuantity(Side::Buy));
+    } else if (mayTake && market_.bestBid() &&
+               fair + through < static_cast<double>(*market_.bestBid()) &&
+               others(Side::Buy, *market_.bestBid(), topBidSize_)) {
+        take(Side::Sell, clampPrice(std::ceil(fair + through), highest),
+             config_.maxInventory + ledger.position() - ledger.openQuantity(Side::Sell));
+    }
+    return ledger.position() + open(Side::Buy) - open(Side::Sell);
 }
 
 bool MarketMaker::standing(const AgentContext& context) const {
