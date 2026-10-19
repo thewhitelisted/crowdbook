@@ -1,3 +1,4 @@
+import math
 import tempfile
 import tomllib
 import unittest
@@ -401,5 +402,20 @@ class TruthTest(unittest.TestCase):
         judged.point["touch_through_value_2"] = 2.2e-4
         self.assertGreater(target.distance(judged.point), 25)
         self.assertLess(target.judged(judged), 2)
-        self.assertAlmostEqual(target.judged(judged), validate.distance(
-            real, judged, "touch_through_value_2", False) ** 2)
+        # Its tolerance is the start's, the search's seeds, and the markets judged together.
+        key = "touch_through_value_2"
+        tolerance = math.hypot(target.tolerance[0], validate.spread_of(judged.draws[key], False))
+        self.assertAlmostEqual(target.judged(judged),
+                               ((2.2e-4 - real.point[key]) / tolerance) ** 2)
+
+    def test_the_reach_check_counts_the_noise_a_fit_chased(self):
+        # Fitted on few seeds, the fit's statistic sits off the recording by the search's seeds'
+        # noise, which the start's spread measures; the markets judged are many and steady.
+        rng = np.random.default_rng(4)
+        real = TargetTest.summary(self, {"spread_mean": 3.0 + rng.normal(0, 0.05, 200)})
+        start = TargetTest.summary(self, {"spread_mean": 3.0 + rng.normal(0, 0.2, 200)})
+        target = calibrate.make_target(real, start, None, validate.Config())
+        judged = TargetTest.summary(self, {"spread_mean": 3.3 + rng.normal(0, 0.01, 200)})
+        judged.point["spread_mean"] = 3.3
+        self.assertLess(target.judged(judged), 4)  # within chance of the noise the fit chased
+        self.assertGreater(validate.distance(real, judged, "spread_mean", False) ** 2, 25)
