@@ -218,21 +218,25 @@ class ConditionTest(unittest.TestCase):
         self.assertEqual(spec.cut(tapes.Tape([orphan])).markets, [])
 
     def test_a_twin_led_ahead_of_its_reference_is_measured_against_that_reference(self):
+        from crowdbook_analysis import tape as tapes
         from crowdbook_analysis import validate
         from test_validate import market
+        # Recorded in dollars, the reference reaches the twin in cents, as its value path does,
+        # and in the twin's own units: its contract pays 100.
         recorded = market("recorded", duration=100.0)
         recorded.value_time, recorded.value = np.array([0.0, 50.0]), np.array([0.4, 0.6])
+        [recorded] = calibrate.with_openings(tapes.Tape([recorded], tapes.Options(payout=1.0)))
         twin = market("twin", duration=100.0)
-        twin.value_time, twin.value = np.array([0.0, 10.0]), np.array([0.4, 0.6])
+        twin.value_time, twin.value = np.array([0.0, 10.0]), np.array([40.0, 60.0])
         template = TEMPLATE.replace('duration = "60s"', 'duration = "${duration}s"')
         plain = spec_from("condition = true\n" + SPEC, template)
-        calibrate.Evaluator(None, plain, validate.Config(), [recorded])._label_twin(0, twin)
+        calibrate.Evaluator(None, plain, validate.Config(), [recorded])._label_twin(0, twin, 100.0)
         self.assertEqual(twin.value_time.tolist(), [0.0, 10.0])  # its own, without a lead
         led = replace(plain, parameters=plain.parameters + [
             calibrate.Parameter(calibrate.VALUE_LEAD, 1.0, 120.0, 40.0)])
-        calibrate.Evaluator(None, led, validate.Config(), [recorded])._label_twin(0, twin)
+        calibrate.Evaluator(None, led, validate.Config(), [recorded])._label_twin(0, twin, 100.0)
         self.assertEqual(twin.value_time.tolist(), [0.0, 50.0])
-        self.assertEqual(twin.value.tolist(), [0.4, 0.6])
+        self.assertEqual(twin.value.tolist(), [40.0, 60.0])
 
     def test_around_trims_each_recorded_market_before_the_fit(self):
         from crowdbook_analysis import tape as tapes

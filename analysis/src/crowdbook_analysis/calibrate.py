@@ -451,12 +451,13 @@ class Evaluator:
         t = tapes.simulate_runs(self.tool, runs, labels=labels,
                                 sample_interval=self.spec.sample_interval)
         for index, market in enumerate(t.markets):
-            self._label_twin(index, market)
+            self._label_twin(index, market, t.options.payout)
         return self.spec.cut(t)
 
-    def _label_twin(self, index: int, market: tapes.Market) -> None:
+    def _label_twin(self, index: int, market: tapes.Market, payout: float | None = None) -> None:
         """A twin's run carries its recorded market's labels, such as its kickoff, the run's own
-        winning, except the phase's label: a twin is cut where its recorded market is."""
+        winning, except the phase's label: a twin is cut where its recorded market is. `payout`
+        is what the twin's contract pays, in the twin's units."""
         if self.spec.condition:
             target = self.targets[index % len(self.targets)]
             own = {k: v for k, v in target.labels.items() if not isinstance(v, list)}
@@ -464,10 +465,11 @@ class Evaluator:
             market.labels["twin_of"] = index % len(self.targets)
             # A twin whose value runs ahead of its recorded reference is measured against that
             # reference, as its recorded market is: how its book trails or leads it.
-            if any(p.name == VALUE_LEAD for p in self.spec.parameters) \
-                    and target.value is not None and target.value_time is not None:
-                market.value_time = np.array(target.value_time, dtype=float)
-                market.value = np.array(target.value, dtype=float)
+            path = target.labels.get("value_path")
+            if any(p.name == VALUE_LEAD for p in self.spec.parameters) and path and payout:
+                market.value_time = np.array([time for time, _ in path], dtype=float)
+                market.value = np.array([cents for _, cents in path], dtype=float) \
+                    * payout / 100.0
             # A twin is cut where its recorded market is, or left out with it.
             if self.spec.phase is not None:
                 label = self.spec.phase[0]
@@ -500,7 +502,7 @@ class Evaluator:
         options = tapes.options_for(runs[0].scenario)
 
         def measured(index: int, market: tapes.Market) -> list[dict]:
-            self._label_twin(index, market)
+            self._label_twin(index, market, options.payout)
             cut = self.spec.cut(tapes.Tape([market], options)).markets
             pieces = [validate.market_pieces(m, options, self.config) for m in cut]
             for p in pieces:  # samples kept only for the report's distributions and charts
