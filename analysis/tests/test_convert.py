@@ -200,6 +200,23 @@ class ConvertTest(unittest.TestCase):
         # either way.
         self.assertEqual(second["bid_price_1"].to_list(), [3.0, 4.0])
 
+    def test_the_sample_recording_converts(self):
+        # examples/recording: an hour of five-level quotes and trades as gzipped CSV, with dates
+        # and times as text and prices in dollars, as docs/quickstart.md converts it.
+        sample = Path(__file__).resolve().parents[2] / "examples" / "recording"
+        read = lambda name: pl.read_csv(sample / name, infer_schema_length=None)  # noqa: E731
+        tables = convert.convert(read("quotes.csv.gz"), read("trades.csv.gz"), market=300)
+        with tempfile.TemporaryDirectory() as scratch:
+            convert.write(tables, Path(scratch), tick=0.01, returns="log")
+            tape = read_tape(scratch)
+        self.assertEqual(len(tape.markets), 12)
+        self.assertEqual({m.duration for m in tape.markets[:-1]}, {300.0})
+        self.assertTrue(all(m.bid_price.shape[1] == 5 for m in tape.markets))
+        self.assertEqual(sum(len(m.trade_time) for m in tape.markets), 56_159)
+        # A cent a tick: the spread, in ticks, is a whole number of them.
+        spread = (tape.markets[0].ask_price[:, 0] - tape.markets[0].bid_price[:, 0]) / 0.01
+        np.testing.assert_allclose(spread, np.round(spread), atol=1e-6)
+
     def test_mistakes_are_named(self):
         t = pl.DataFrame({"time": [0.0], "price": [1.0], "size": [1.0], "side": ["up"]})
         with self.assertRaisesRegex(ValueError, "buy, sell or empty"):

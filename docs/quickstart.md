@@ -153,6 +153,19 @@ crowdbook-tape --quotes quotes.csv --trades trades.csv --market 3600 --tick 0.01
 - `--same-order 0.002` for a venue that stamps each fill of one order on its own: prints within
   that many seconds of the one before count as one order.
 
+[examples/recording](../examples/recording) is such a recording to try it on: an hour of a
+market's five best levels and its trades, gzipped CSV as data feeds often come, with prices in
+dollars at a cent a tick. It is new since 0.13.0, so until the next release it is in a checkout
+of `main`:
+
+```bash
+crowdbook-tape --quotes examples/recording/quotes.csv.gz --trades examples/recording/trades.csv.gz \
+    --market 300 --tick 0.01 --returns log --out recording
+crowdbook-assess examples/tutorial/spec.toml --real recording --output assessed
+```
+
+It was made by the tutorial's market, at the settings the tutorial's recording has.
+
 The tape goes wherever `--real` does: `crowdbook-validate`, `crowdbook-calibrate` and
 `crowdbook-assess`. [validation.md](validation.md#tapes-one-format-for-every-market) describes the
 format, for recordings that need a converter of their own.
