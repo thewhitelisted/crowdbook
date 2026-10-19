@@ -384,6 +384,8 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     # Depth is measured only where the tape saw it, market by market: a tape of the touch alone
     # measures no depth, rather than depth that is all touch. A market records as many levels as
     # it ever fills, so a tape padded to a deeper market's columns does not pass for deep.
+    # A book always thinner than the levels counted cannot be told from one recorded thinner, and
+    # measures no depth within levels; within ticks, a book seen to end counts as seen.
     filled = np.isfinite(m.bid_price).any(axis=0) | np.isfinite(m.ask_price).any(axis=0)
     recorded = int(np.flatnonzero(filled)[-1]) + 1 if filled.any() else 0
     quoted = both & (spread > 0)  # a crossed book, as in an auction, has no depth to speak of
@@ -397,13 +399,13 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
                           axis=1)
                 + np.nansum(np.where(np.abs(m.ask_price - mid[:, None]) <= ticks, m.ask_size,
                                      0.0), axis=1)) / 2
-        # Within `ticks` of the mid is seen where each side's last level recorded lies at least
-        # that far out (prices are whole ticks, so nothing nearer is missing) or its book ended
-        # sooner. A market is measured over all its time if it saw that far for most of it, and
+        # Within `ticks` of the mid is seen where each side's last level recorded lies more than
+        # `ticks` - 1 out, as the next price behind it, a whole tick further, is beyond `ticks`
+        # whether the mid sits on a tick or half way between, or where its book ended sooner. A market is measured over all its time if it saw that far for most of it, and
         # not at all otherwise: keeping only the moments it saw would keep only thin books.
         with np.errstate(invalid="ignore"):
-            reach = ((np.isnan(last_bid) | (mid - last_bid >= ticks - 1e-9))
-                     & (np.isnan(last_ask) | (last_ask - mid >= ticks - 1e-9)))
+            reach = ((np.isnan(last_bid) | (mid - last_bid > ticks - 1 + 1e-9))
+                     & (np.isnan(last_ask) | (last_ask - mid > ticks - 1 + 1e-9)))
         total = float(held[quoted].sum())
         sees = total > 0 and float(held[quoted & reach].sum()) >= MOSTLY_SEEN * total
         p[f"near_{ticks}"] = (np.array([float(near[quoted] @ held[quoted]), total]) if sees

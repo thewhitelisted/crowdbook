@@ -375,8 +375,16 @@ class StatisticsTest(unittest.TestCase):
         deep = self.measure(deep_market())
         self.assertAlmostEqual(deep["depth_near_3"], 30.0)
         self.assertTrue(np.isnan(deep["depth_near_10"]))
-        # Eleven levels: the last exactly 11 ticks out sees 10, and the 10 within it count.
-        self.assertAlmostEqual(self.measure(deep_market(11))["depth_near_10"], 100.0)
+        # Ten levels: the last 10 ticks out sees 10, the next price behind it being 11 out, and
+        # with a one-tick spread too, the mid half way between ticks and the last 9.5 out.
+        self.assertAlmostEqual(self.measure(deep_market(10))["depth_near_10"], 100.0)
+        self.assertAlmostEqual(self.measure(deep_market(10, spread=1.0))["depth_near_10"], 100.0)
+        self.assertAlmostEqual(self.measure(deep_market(3, spread=1.0))["depth_near_3"], 30.0)
+        self.assertTrue(np.isnan(self.measure(deep_market(9))["depth_near_10"]))
+        # A crossed book, as in an auction, has no depth: depth comes only from quoted moments.
+        crossed = deep_market()
+        crossed.bid_price[:50] += 5
+        self.assertAlmostEqual(self.measure(crossed)["depth_mean"], 50.0)
         self.assertAlmostEqual(found["order_gap_median"], 1.0)
 
     def test_depth_is_unmeasured_beyond_what_the_tape_recorded(self):
