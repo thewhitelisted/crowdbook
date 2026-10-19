@@ -240,6 +240,13 @@ Two checks guard the fit:
   alone, so the held-out distance should be below the 95th percentile of chi-squared with a degree
   of freedom a statistic. The report says whether it is. When it is not, the model or the search
   falls short and the intervals, which assume the fit is at the truth, are too narrow to trust.
+  The held-out markets are judged with their own spread beside the recording's, as the report's
+  distances are, while the search keeps the tolerances it started with: a statistic of rare
+  events, such as the share of time the touch is two ticks through the value, can be all but
+  unseen at the start and seen on the held-out seeds, and a tolerance from the start alone
+  failed the reference twins at their own true settings (136 against 65, from that one
+  statistic; 26 judged with the markets' own spread). A twin spec takes `--real` beside
+  `--truth`, its known twins copying the recorded markets.
 - **Can it find what it should?** `--truth name=value,...` fits markets the engine made itself, at
   settings it knows, from the spec's starting point, and reports whether each interval covers
   the truth. A fit that cannot find a known answer should not be trusted with an unknown one.

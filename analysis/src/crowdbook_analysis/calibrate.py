@@ -340,6 +340,23 @@ class Target:
         return np.array([float(validate._scaled(point.get(k, np.nan), log))
                          for k, log in zip(self.keys, self.logs, strict=True)])
 
+    def judged(self, judged: validate.Summary) -> float:
+        """The distance of a summary judged on its own markets, each statistic's tolerance from
+        the recording's resamples and its own, as the report measures it: what the reach check
+        reads. The search keeps the tolerances fixed at the start, which steadies it, but a
+        statistic of rare events, such as a share of time the touch is two ticks through the
+        value, can be all but unseen at the start and seen in the markets judged, and a
+        tolerance from the start alone would count that chance as a miss."""
+        gaps = []
+        for index, (key, log) in enumerate(zip(self.keys, self.logs, strict=True)):
+            gap = validate.distance(self.real, judged, key, log)
+            if not np.isfinite(gap):
+                gap = (float(validate._scaled(judged.point.get(key, np.nan), log))
+                       - self.vector[index]) / self.tolerance[index]
+            gaps.append(gap)
+        gaps = np.array(gaps)
+        return float(np.sum(np.where(np.isfinite(gaps), gaps**2, 1e6)))
+
     def distance(self, point: dict[str, float]) -> float:
         gaps = (self.scaled(point) - self.vector) / self.tolerance
         # A rate of events is compared by its count, which the resamples of markets understate.
@@ -716,7 +733,7 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     judged = [evaluator.summary("start", spec.start(), held_out, seed=4),
               evaluator.summary("fitted", fitted, held_out, seed=5)]
     text, data = validate.report(real, judged, config)
-    held_distance = target.distance(judged[1].point)
+    held_distance = target.judged(judged[1])
     # At the true settings each compared statistic is off by chance alone, so the distance is
     # about chi-squared with one degree of freedom a statistic, or less on the held-out seeds,
     # which are more than the fit's. Beyond its 95th percentile the model does not reach the

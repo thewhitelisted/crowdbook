@@ -388,3 +388,18 @@ class TruthTest(unittest.TestCase):
         self.assertEqual(len(calibrate.truth_seeds(400, 34)), 12)  # 408 twins
         self.assertEqual(len(calibrate.truth_seeds(10, 34)), 1)
         self.assertEqual(calibrate.truth_seeds(5, 0).start, calibrate.TRUTH_SEED)
+
+    def test_the_reach_check_judges_a_market_with_its_own_spread(self):
+        # A rare event, all but unseen at the start (a spread of 1e-6), seen in the markets
+        # judged: from the start's tolerance alone it is a miss of about 10, with the judged
+        # markets' own spread about 1.
+        rng = np.random.default_rng(3)
+        real = TargetTest.summary(self, {"touch_through_value_2": 3e-5 + rng.normal(0, 3e-5, 200)})
+        start = TargetTest.summary(self, {"touch_through_value_2": 3e-5 + rng.normal(0, 1e-6, 200)})
+        target = calibrate.make_target(real, start, None, validate.Config())
+        judged = TargetTest.summary(self, {"touch_through_value_2": 2.2e-4 + rng.normal(0, 2e-4, 200)})
+        judged.point["touch_through_value_2"] = 2.2e-4
+        self.assertGreater(target.distance(judged.point), 25)
+        self.assertLess(target.judged(judged), 2)
+        self.assertAlmostEqual(target.judged(judged), validate.distance(
+            real, judged, "touch_through_value_2", False) ** 2)
