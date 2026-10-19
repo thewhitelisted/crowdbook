@@ -168,6 +168,39 @@ class ConditionTest(unittest.TestCase):
         self.assertEqual(calibrate.market_texts(tapes.Market(
             **{**m.__dict__, "scores": None}))["script"], "[]")
 
+    def test_a_market_that_is_no_contract_gives_its_twins_its_value_in_ticks(self):
+        from crowdbook_analysis import tape as tapes
+        from test_validate import market
+        index = market("perp", duration=120.0)
+        index.value_time = np.array([0.0, 10.0, 20.0, 30.0])
+        index.value = np.array([60125.5, 60125.5, np.nan, 60131.0])
+        [index] = calibrate.with_openings(tapes.Tape([index], tapes.Options(tick=0.5,
+                                                                            returns="log")))
+        self.assertEqual(index.labels["value_path"], [(0.0, 120251.0), (30.0, 120262.0)])
+        self.assertEqual(index.labels["opening_value"], 120251.0)
+        self.assertEqual(index.labels["opening_price"], 120251)
+        self.assertNotIn("outcome", index.labels)
+        texts = calibrate.market_texts(index)
+        parsed = tomllib.loads(f"initial = {texts['opening_value']}\n"
+                               f"path = {texts['value_path']}")
+        self.assertEqual(parsed, {"initial": 120251, "path": [[0, 120251], [30, 120262]]})
+        # A market without a value table gets neither, and its twins say which market it is.
+        bare = market("bare", duration=60.0)
+        [bare] = calibrate.with_openings(tapes.Tape([bare], tapes.Options(tick=0.5)))
+        self.assertNotIn("value_path", bare.labels)
+        spec = calibrate.Spec(template="path = ${value_path}\n", parameters=[])
+        with self.assertRaisesRegex(KeyError, "nor the recorded market bare have"):
+            spec.scenario({}, bare)
+        # Twins are measured by log returns, so the tape must be too.
+        index.value_time, index.value = np.array([0.0]), np.array([1.0])
+        with self.assertRaisesRegex(ValueError, "log returns"):
+            calibrate.with_openings(tapes.Tape([index], tapes.Options(tick=0.5,
+                                                                      returns="difference")))
+        # An opening under half a tick still anchors at the lowest price.
+        [low] = calibrate.with_openings(tapes.Tape([index], tapes.Options(tick=10.0,
+                                                                          returns="log")))
+        self.assertEqual(low.labels["opening_price"], 1)
+
     def test_a_target_market_gives_its_twins_its_value_path_and_outcome(self):
         from crowdbook_analysis import tape as tapes
         from test_validate import market

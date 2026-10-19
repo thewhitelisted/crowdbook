@@ -318,7 +318,8 @@ PredictionConfig readPrediction(const Reader& reader, const toml::table& table) 
 FundamentalConfig readFundamental(const Reader& reader, const toml::table& table,
                                   Price referencePrice) {
     reader.allowOnly(table,
-                     {"initial", "mean_reversion", "volatility", "step", "jump_rate", "jump_size"},
+                     {"initial", "mean_reversion", "volatility", "step", "jump_rate", "jump_size",
+                      "path"},
                      "in [fundamental]");
     FundamentalConfig config{.initial = static_cast<double>(referencePrice)};
     if (const auto* node = table.get("initial")) {
@@ -338,6 +339,38 @@ FundamentalConfig readFundamental(const Reader& reader, const toml::table& table
     }
     if (const auto* node = table.get("jump_size")) {
         config.jumpSize = reader.number(*node, "jump_size");
+    }
+    if (const auto* node = table.get("path")) {
+        for (const char* walk : {"mean_reversion", "volatility", "jump_rate", "jump_size"}) {
+            if (table.contains(walk)) {
+                reader.fail(*table.get(walk), std::format("'{}' is the walk's, and a recorded "
+                                                          "'path' replaces the walk",
+                                                          walk));
+            }
+        }
+        config.volatility = 0.0;
+        const auto* list = node->as_array();
+        if (list == nullptr || list->empty()) {
+            reader.fail(*node, "'path' must be a list of [seconds, ticks] pairs, such as "
+                               "[[0, 6012.5], [30.5, 6013]]");
+        }
+        for (const toml::node& element : *list) {
+            const auto* pair = element.as_array();
+            if (pair == nullptr || pair->size() != 2) {
+                reader.fail(element, "each point of 'path' is a pair: [seconds, ticks]");
+            }
+            const double seconds = reader.number(*pair->get(0), "path");
+            if (!(seconds >= 0.0) || seconds >= 1e9) {
+                reader.fail(element, "a point of 'path' comes from the start, within 1000000000s");
+            }
+            const ValuePoint point{
+                .at = static_cast<Duration>(std::llround(seconds * static_cast<double>(kSecond))),
+                .value = reader.number(*pair->get(1), "path")};
+            if (!config.path.empty() && point.at < config.path.back().at) {
+                reader.fail(element, "the points of 'path' must come in order of time");
+            }
+            config.path.push_back(point);
+        }
     }
     return config;
 }

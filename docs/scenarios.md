@@ -48,6 +48,13 @@ news.
 | `step` | duration | `"100ms"` | How often the value changes |
 | `jump_rate` | number | `0` | News per second: jumps come at random times, this many a second on average |
 | `jump_size` | number | `0` | Ticks: the standard deviation of each jump, which is normally distributed |
+| `path` | list of pairs | none | A recorded value instead of the walk: `[[seconds, ticks], ...]`, in order of time, from the market's opening. The value is `initial` until the first point and each point's from its time until the next, the later of two at one time; it takes no `mean_reversion`, `volatility`, `jump_rate` or `jump_size` |
+
+With a `path`, the true value is one that was recorded, such as an index's price for a perpetual
+future, so that a market can be made to see the moves a real one saw. It holds the last point's
+value to the end: there is nothing to settle. `crowdbook-calibrate` fills `${value_path}` and
+`${opening_value}` with a recorded market's, in ticks, for a tape that has a value table and no
+payout.
 
 ## `[prediction]` (optional)
 

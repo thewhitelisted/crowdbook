@@ -1,0 +1,67 @@
+# A template for fitting a market that is not a contract on an outcome, such as a perpetual
+# future, to recorded markets, twin by twin, when the recording has a reference price, such as
+# the index: each twin's true value is the recorded one (${value_path}, in ticks, from the tape's
+# value table), so that its makers and followers see the moves the real market's reference made.
+# Each twin opens where its market's reference did (${opening_value}) and lasts as long
+# (${duration}, seconds). The traders are book.toml's; index_twins_spec.toml fits them.
+#
+#   uv run --project analysis crowdbook-calibrate examples/calibration/index_twins_spec.toml \
+#       --real RECORDED_MARKETS
+
+seed = 1
+duration = "${duration}s"
+reference_price = ${opening_price}
+
+[fundamental]
+initial = ${opening_value}
+path = ${value_path}                 # the recorded reference, [seconds, ticks] pairs
+step = "100ms"
+
+[exchange]
+depth_levels = 5
+
+[[agents]]
+type = "market_maker"
+name = "makers"
+count = 3
+quote_value = true
+noise = 0.5
+lag = "100ms"
+risk_aversion = 0.005
+volatility = 2.0
+intensity = ${maker_intensity}
+quote_size = 20
+max_inventory = 400
+requote_interval = "100ms"
+post_only = true
+latency = { to_exchange = "50us", from_exchange = "50us" }
+account = { max_position = 450, max_order_quantity = 20 }
+
+[[agents]]
+type = "zero_intelligence"
+name = "noise"
+count = 20
+limit_rate = 0.5
+market_rate = ${noise_market_rate}
+cancel_rate = 0.2
+max_offset = 6
+min_size = 1
+max_size = 500
+size_tail = ${size_tail}
+latency = { to_exchange = "300us", from_exchange = "300us", jitter = "100us" }
+account = { max_position = 100000, max_order_quantity = 500 }
+
+[[agents]]
+type = "informed"
+name = "followers"
+count = ${followers}
+interval = "1s"
+noise = 1.0
+error = 2.0
+error_memory = "300s"
+lag = ${follower_lag}
+threshold = 3.0
+order_size = 3
+max_position = 100
+latency = { to_exchange = "200us", from_exchange = "200us", jitter = "50us" }
+account = { max_position = 105, max_order_quantity = 5 }
