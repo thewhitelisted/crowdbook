@@ -22,14 +22,13 @@ tested strategy in about fifteen minutes.
 ## Install
 
 Python 3.12 or later, on Linux (x86-64 or arm64, glibc 2.28 or later) or macOS 14 or later on
-Apple silicon, from the latest release's ready-built wheels, with the repository at that release
+Apple silicon, from the latest release's ready-built wheels on PyPI, with the repository at that release
 for the examples:
 
 ```bash
 git clone --branch v0.13.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
 python3 -m venv .venv && . .venv/bin/activate
-pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0 \
-    --find-links https://github.com/thewhitelisted/crowdbook/releases/expanded_assets/v0.13.0
+pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0
 ```
 
 That installs the `crowdbook` command and the learning pool `crowdbook_learn` (the
