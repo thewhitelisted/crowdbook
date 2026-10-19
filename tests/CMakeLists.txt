@@ -28,6 +28,7 @@ add_executable(crowdbook_tests
     ledger_test.cpp
     live_test.cpp
     market_maker_test.cpp
+    flow_reversion_test.cpp
     math_test.cpp
     momentum_test.cpp
     probe_test.cpp
