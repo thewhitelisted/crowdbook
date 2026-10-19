@@ -2,7 +2,8 @@ name: wheels
 
 # The wheels an outsider installs: crowdbook-engine (the crowdbook command and the learning pool)
 # for Linux and macOS, crowdbook-analysis and the Python client, and the tutorial run from them
-# alone, as docs/tutorial.md has a newcomer run it. A tag v* also attaches them to a GitHub release.
+# alone, as docs/tutorial.md has a newcomer run it. A tag v* also attaches them to a GitHub release
+# and then publishes that release's files on PyPI.
 
 on:
   push:
@@ -10,12 +11,21 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          A published release's tag, vX.Y.Z, whose files to put on PyPI: for a release made
+          before this workflow published them. Empty to build only.
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
+# A run that publishes a release by hand has a group of its own, so that no push cancels it
+# halfway.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.publish }}
   cancel-in-progress: true
 
 jobs:
@@ -164,3 +174,56 @@ jobs:
             gh release create "$GITHUB_REF_NAME" dist/* \
               --title "crowdbook $GITHUB_REF_NAME" --notes-file "$notes"
           fi
+
+  # Each project goes to PyPI from the GitHub release's own files, the ones the tutorial ran on,
+  # through PyPI's trusted publishing: no token is stored, and each project trusts only this
+  # workflow in its own environment.
+  pypi:
+    name: pypi / ${{ matrix.project }}
+    needs: [release]
+    if: >-
+      !cancelled() && (
+        (startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish != ''))
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: crowdbook-engine
+            files: crowdbook_engine-*
+            environment: pypi
+          - project: crowdbook-analysis
+            files: crowdbook_analysis-*
+            environment: pypi-analysis
+          - project: crowdbook
+            files: crowdbook-[0-9]*
+            environment: pypi-client
+    environment:
+      name: ${{ matrix.environment }}
+      url: https://pypi.org/project/${{ matrix.project }}/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download the release's files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.publish || github.ref_name }}
+          FILES: ${{ matrix.files }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::'$TAG' is not a release tag vX.Y.Z"; exit 1; }
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist --pattern "$FILES"
+          version="${TAG#v}"
+          for file in dist/*; do
+            case "${file##*/}" in
+              *-"$version"-*.whl | *-"$version".tar.gz) echo "$file" ;;
+              *) echo "::error::$file is not version $version"; exit 1 ;;
+            esac
+          done
+
+      # Files PyPI already has are left alone, so that a run stopped partway can be run again.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          skip-existing: true
