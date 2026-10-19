@@ -774,11 +774,15 @@ def parse_truth(text: str, spec: Spec) -> dict[str, float]:
 
 def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
               truth: dict[str, float] | None = None, log=print, refits: int = 0,
-              refit_generations: int = 15, step: float = 0.15) -> tuple[str, dict, str]:
+              refit_generations: int = 15, step: float = 0.15,
+              retargets: int = 0) -> tuple[str, dict, str]:
     """The whole fit: returns the report as Markdown, as a dictionary, and the fitted scenario.
     With `refits` of 2 or more, the search runs again that many times from the fit, on fresh
     seeds, and the spread of where it lands is added to the intervals. `step` is the search's
-    first step, a share of each setting's range."""
+    first step, a share of each setting's range. With `retargets`, the search runs again that
+    many times from where it landed, each time with the tolerances remade from the fit's own
+    spread rather than the start's: a start far from the answer weighs the statistics by how
+    noisy they are there, not where the answer is."""
     config = evaluator.config
     fit_seeds = range(FIT_SEED, FIT_SEED + spec.seeds)
     held_out = range(HELD_OUT_SEED, HELD_OUT_SEED + spec.held_out)
@@ -786,6 +790,12 @@ def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
     target = make_target(real, start_summary, spec.statistics, config, spec.exclude)
     log(f"{real.markets} target markets; {len(target.keys)} statistics compared")
     fitted, score = search(evaluator, target, fit_seeds, spec.generations, log, sigma=step)
+    for again in range(retargets):
+        at_fit = evaluator.summary("fitted", fitted, fit_seeds, seed=6 + again)
+        target = make_target(real, at_fit, spec.statistics, config, spec.exclude)
+        log(f"tolerances remade at the fit, {again + 1} of {retargets}")
+        fitted, score = search(evaluator, target, fit_seeds, spec.generations, log,
+                               start=fitted, sigma=step / 2)
     log(f"fitted, distance {score:.1f} on the fit's seeds: {fitted}")
     # About 100 markets for each difference, or the fit's own number if more: with twins, that
     # many all told.
@@ -874,6 +884,9 @@ def main() -> None:
                         help="search again this many times from the fit on fresh seeds, and add "
                         "the spread of where it lands to the intervals (2 or more; 0 for none)")
     parser.add_argument("--refit-generations", type=int, default=15)
+    parser.add_argument("--retarget", type=int, default=0, metavar="N",
+                        help="search again N times from the fit, each with the tolerances remade "
+                        "from the fit's own spread rather than the start's")
     parser.add_argument("--start", type=Path, metavar="SETTINGS",
                         help="start the search from these settings, such as an earlier fit's "
                         "settings.toml, instead of the spec's starts")
@@ -887,6 +900,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.step is not None and not 0 < args.step <= 1:
         parser.error("--step is a share of each setting's range, above 0 and at most 1")
+    if args.retarget < 0:
+        parser.error("--retarget is 0, for none, or more")
     if args.refits < 0 or args.refits == 1:
         parser.error("--refits is 0, for none, or 2 or more: one search alone has no spread")
     if args.truth and args.truth_markets < 1:
@@ -921,6 +936,7 @@ def main() -> None:
                                      log=lambda line: print(line, flush=True),
                                      refits=args.refits,
                                      refit_generations=args.refit_generations,
+                                     retargets=args.retarget,
                                      step=args.step if args.step is not None else (
                                          RESUMED_STEP if args.start else 0.15))
     args.output.mkdir(parents=True, exist_ok=True)

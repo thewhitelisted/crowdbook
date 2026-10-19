@@ -434,6 +434,24 @@ class CalibrateTest(unittest.TestCase):
                                                       refit_generations=1)
         self.assertIn("searches again on fresh seeds", refitted)
         self.assertEqual(refit_data["calibration"]["refits"], 2)
+        # Retargeted, the search runs again from where it landed, with the tolerances made at
+        # the fit: its settings measured where it landed, not at the start.
+        lines, measured = [], []
+        made = calibrate.make_target
+
+        def watched(real, start, *rest):
+            measured.append(start.name)
+            return made(real, start, *rest)
+
+        calibrate.make_target = watched
+        try:
+            calibrate.calibrate(spec, evaluator, real, truth=truth, log=lines.append,
+                                retargets=1)
+        finally:
+            calibrate.make_target = made
+        self.assertEqual(measured, ["start", "fitted"])
+        self.assertIn("tolerances remade at the fit, 1 of 1", lines)
+        self.assertEqual(sum(line.startswith("generation ") for line in lines), 6)
 
     def test_a_conditioned_fit_writes_the_twin_of_its_first_market(self):
         from crowdbook_analysis import validate
