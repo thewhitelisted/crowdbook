@@ -1,8 +1,8 @@
 """Writes this directory's sample recording: an hour of the tutorial's market, made by crowdbook
 itself, in the shape market data usually comes in. Quotes are the book's best five levels a
 side, in dollars at a cent a tick, a row each time they change, empty where a level has no
-orders; trades are prints with the side that took liquidity; both are stamped with dates and
-times to the millisecond. It has no true value, as a real recording does not.
+orders; trades are prints with the side that took liquidity; and a reference price, the
+market's value, once a second. All three are stamped with dates and times to the millisecond.
 
     crowdbook-generate examples/tutorial/spec.toml --markets 12 --seed 2026 \\
         --fixed maker_intensity=0.8,noise_market_rate=0.3,follower_lag=10 --out /tmp/hour
@@ -30,7 +30,7 @@ def stamp(seconds: np.ndarray) -> list[str]:
 
 def main() -> None:
     tape, out = read_tape(sys.argv[1]), Path(sys.argv[2])
-    quotes, trades = [], []
+    quotes, trades, values = [], [], []
     for k, m in enumerate(tape.markets):
         at = START + k * m.duration
         columns = {"time": m.book_time + at}
@@ -49,7 +49,10 @@ def main() -> None:
         trades.append(pl.DataFrame({
             "time": m.trade_time + at, "price": np.round(m.trade_price * CENTS, 2),
             "size": m.trade_size, "side": np.where(m.trade_sign > 0, "buy", "sell")}))
-    for name, frames in (("quotes", quotes), ("trades", trades)):
+        whole = np.abs(m.value_time - np.round(m.value_time)) < 1e-9  # once a second
+        values.append(pl.DataFrame({"time": m.value_time[whole] + at,
+                                    "value": np.round(m.value[whole] * CENTS, 4)}))
+    for name, frames in (("quotes", quotes), ("trades", trades), ("value", values)):
         frame = pl.concat(frames)
         frame = frame.with_columns(pl.Series("time", stamp(frame["time"].to_numpy())),
                                    pl.selectors.contains("size").cast(pl.Int64))

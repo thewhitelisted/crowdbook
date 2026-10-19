@@ -205,7 +205,8 @@ class ConvertTest(unittest.TestCase):
         # and times as text and prices in dollars, as docs/quickstart.md converts it.
         sample = Path(__file__).resolve().parents[2] / "examples" / "recording"
         read = lambda name: pl.read_csv(sample / name, infer_schema_length=None)  # noqa: E731
-        tables = convert.convert(read("quotes.csv.gz"), read("trades.csv.gz"), market=300)
+        tables = convert.convert(read("quotes.csv.gz"), read("trades.csv.gz"), market=300,
+                                 value=read("value.csv.gz"))
         with tempfile.TemporaryDirectory() as scratch:
             convert.write(tables, Path(scratch), tick=0.01, returns="log")
             tape = read_tape(scratch)
@@ -213,6 +214,7 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual({m.duration for m in tape.markets[:-1]}, {300.0})
         self.assertTrue(all(m.bid_price.shape[1] == 5 for m in tape.markets))
         self.assertEqual(sum(len(m.trade_time) for m in tape.markets), 56_159)
+        self.assertTrue(all(m.value is not None and len(m.value) >= 300 for m in tape.markets))
         # A cent a tick: the spread, in ticks, is a whole number of them.
         spread = (tape.markets[0].ask_price[:, 0] - tape.markets[0].bid_price[:, 0]) / 0.01
         np.testing.assert_allclose(spread, np.round(spread), atol=1e-6)
