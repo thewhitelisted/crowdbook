@@ -150,14 +150,17 @@ def convert(quotes: pl.DataFrame, trades: pl.DataFrame, *, market: float | None 
 
 
 def write(tables: dict[str, pl.DataFrame], directory: Path, *, tick: float = 1.0,
-          returns: str = "difference", parquet: bool = False) -> None:
+          returns: str = "difference", parquet: bool = False, same_order: float = 0.0) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     for name, frame in tables.items():
         if parquet:
             frame.write_parquet(directory / f"{name}.parquet")
         else:
             frame.write_csv(directory / f"{name}.csv")
-    (directory / "tape.toml").write_text(f'tick = {tick}\nreturns = "{returns}"\n')
+    options = f'tick = {tick}\nreturns = "{returns}"\n'
+    if same_order > 0:
+        options += f"same_order = {same_order}\n"
+    (directory / "tape.toml").write_text(options)
 
 
 def main() -> None:
@@ -173,6 +176,9 @@ def main() -> None:
     parser.add_argument("--tick", type=float, default=1.0, help="the price increment (1)")
     parser.add_argument("--returns", default="difference", choices=["difference", "log"],
                         help="difference for bounded prices such as probabilities, log otherwise")
+    parser.add_argument("--same-order", type=float, default=0.0,
+                        help="seconds within which prints of one order are stamped apart, for "
+                             "venues that stamp each fill on its own (0, the same time)")
     parser.add_argument("--name", default="market", help="what the markets are named after")
     parser.add_argument("--parquet", action="store_true", help="write Parquet, not CSV")
     args = parser.parse_args()
@@ -183,7 +189,8 @@ def main() -> None:
                          name=args.name)
     except (OSError, ValueError, pl.exceptions.PolarsError) as error:
         parser.error(str(error))
-    write(tables, args.out, tick=args.tick, returns=args.returns, parquet=args.parquet)
+    write(tables, args.out, tick=args.tick, returns=args.returns, parquet=args.parquet,
+          same_order=args.same_order)
     markets = tables["markets"]
     print(f"{len(markets)} markets, {markets['duration'].sum():,.0f} s, "
           f"{len(tables['book']):,} book rows and {len(tables['trades']):,} trades in {args.out}")

@@ -35,6 +35,9 @@ class ConvertTest(unittest.TestCase):
         np.testing.assert_allclose(m.trade_time, [0.5, 2.0])
         np.testing.assert_array_equal(m.trade_sign, [1, -1])
         self.assertEqual(tape.options.tick, 0.5)
+        with tempfile.TemporaryDirectory() as scratch:
+            convert.write(tables, Path(scratch), same_order=0.002)
+            self.assertEqual(read_tape(scratch).options.same_order, 0.002)
 
     def test_a_long_recording_is_cut_into_markets_each_opening_with_the_book_as_it_stood(self):
         q = quotes([0, 1_000, 3_500, 5_000])
