@@ -419,3 +419,33 @@ class TruthTest(unittest.TestCase):
         judged.point["spread_mean"] = 3.3
         self.assertLess(target.judged(judged), 4)  # within chance of the noise the fit chased
         self.assertGreater(validate.distance(real, judged, "spread_mean", False) ** 2, 25)
+
+    def test_the_noise_a_fit_chased_is_measured_at_the_fit(self):
+        # A start in a busy regime the fit left spreads widely; the fit on the search's seeds
+        # spreads little. The search's noise is the fit's, so a fit off by 0.3 fails, judged
+        # with the fit; and where the start spreads little and the fit much, it passes.
+        rng = np.random.default_rng(5)
+        real = TargetTest.summary(self, {"spread_mean": 3.0 + rng.normal(0, 0.05, 200)})
+        wide = TargetTest.summary(self, {"spread_mean": 3.0 + rng.normal(0, 0.5, 200)})
+        narrow = TargetTest.summary(self, {"spread_mean": 3.0 + rng.normal(0, 0.01, 200)})
+        judged = TargetTest.summary(self, {"spread_mean": 3.3 + rng.normal(0, 0.01, 200)})
+        judged.point["spread_mean"] = 3.3
+        loose = calibrate.make_target(real, wide, None, validate.Config())
+        self.assertLess(loose.judged(judged), 4)
+        self.assertGreater(loose.judged(judged, searched=narrow), 25)
+        tight = calibrate.make_target(real, narrow, None, validate.Config())
+        self.assertGreater(tight.judged(judged), 25)
+        searched = TargetTest.summary(self, {"spread_mean": 3.3 + rng.normal(0, 0.2, 200)})
+        self.assertLess(tight.judged(judged, searched=searched), 4)
+
+    def test_the_reach_check_counts_the_search_seeds_count(self):
+        # One order an hour recorded; the fit made 60 over 60 minutes of its search's seeds and
+        # 600 over 600 judged: the deviance is over 1 + 60/600 + 60/60.
+        real = {"_orders": 1.0, "_minutes": 60.0}
+        judged = {"_orders": 600.0, "_minutes": 600.0, "_orders_dispersion": 1.0}
+        searched = {"_orders": 60.0, "_minutes": 60.0}
+        deviance = 2 * (math.log(1 / 60) + 59)
+        self.assertAlmostEqual(validate.count_distance(real, judged, "orders_per_minute",
+                                                       searched), math.sqrt(deviance / 2.1))
+        self.assertAlmostEqual(validate.count_distance(real, judged, "orders_per_minute"),
+                               math.sqrt(deviance / 1.1))

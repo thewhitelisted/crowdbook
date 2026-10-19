@@ -241,13 +241,15 @@ Two checks guard the fit:
   of freedom a statistic. The report says whether it is. When it is not, the model or the search
   falls short and the intervals, which assume the fit is at the truth, are too narrow to trust.
   A fit's statistics on fresh seeds stray from the recording by three noises, which the
-  held-out distance counts together: the recording's own and the search's seeds', which the
-  fitted settings partly chased, both in the tolerances the search kept, and the held-out
-  markets' own spread. Without the last, a statistic of rare events, such as the share of time
-  the touch is two ticks through the value, all but unseen at the start and seen on the
-  held-out seeds, failed the reference twins at their own true settings (136 against 65; 14
-  with it); without the second, a fit three hundredths off its true settings, as fits on a few
-  seeds are, failed the tutorial's recording of its own model (75 against 64; 21 with it). A
+  held-out distance counts together: the recording's own; that of the seeds the search scored
+  on, which the fitted settings partly chased, measured at the fit on those seeds; and the
+  held-out markets' own spread. A rate of events counts all three in its count. Without the
+  last, a statistic of rare events, such as the share of time the touch is two ticks through
+  the value, all but unseen at the start and seen on the held-out seeds, failed the reference
+  twins at their own true settings (136 against 65); without the second, a fit three
+  hundredths off its true settings, as fits on a few seeds are, failed the tutorial's recording
+  of its own model (75 against 64). The report's table below compares each statistic by the
+  first and last noises alone, so its distances can sum to more than the held-out distance. A
   twin spec takes `--real` beside `--truth`, its known twins copying the recorded markets.
 - **Can it find what it should?** `--truth name=value,...` fits markets the engine made itself, at
   settings it knows, from the spec's starting point, and reports whether each interval covers
