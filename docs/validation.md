@@ -162,6 +162,20 @@ at, in cents, for a twin whose true value is the recorded one
 the times they came ([`script`](scenarios.md#predictiongame-optional)). `seeds` and `held_out` then count the twins of
 each market. Markets are compared with markets alike in what is known about them, and the luck of
 each game's result is taken out of the comparison.
+
+A recorded reference can trail the market it prices, as a price recorded elsewhere may. A spec
+may then fit `value_lead`, in seconds, a setting no placeholder names: each twin's true value at
+a time is the reference recorded that many seconds later, and each twin is measured against the
+reference as recorded, as its recorded market is. A fit can then find a book that leads its
+reference, rather than one that takers must pull along behind it. To see whether a recording
+needs it, compare how far its mid moves toward each change of the reference in the minutes
+before the change and in the minutes after. Where the recording ends, a twin's last
+`value_lead` seconds are worth what its market settled at. A lead and the traders' lags mostly
+move the book against its reference together, by their difference, so a fit of both gives
+wide intervals that move together; fix the lags where they are known. A twin written by the fit
+says in its header how far it is led: measured against its own value, as `crowdbook-validate`
+measures a scenario, it is that much later than the fit measured it against the reference.
+
 [game_twins.toml](../examples/calibration/game_twins.toml) and
 [game_twins_spec.toml](../examples/calibration/game_twins_spec.toml) fit a contract on the home
 side's win to recorded games this way, or the away side's or a draw, from a `side` label of the
