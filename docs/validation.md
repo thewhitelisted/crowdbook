@@ -215,7 +215,14 @@ there takes a short first step, 0.02 of each setting's range, where a search fro
 starts takes 0.15 (`--step` sets it): carried on from a fit of recorded games, steps of 0.1
 scored three to forty times the fit's distance while steps of 0.01 found better points. The
 tolerances come partly from the starting point's markets,
-so the distances of a fit started elsewhere compare only roughly with the first fit's.
+so the distances of a fit started elsewhere compare only roughly with the first fit's; the
+held-out distance, judged with the fit's own spread, compares across fits.
+
+Every tolerance is at least 1% of its statistic, 0.01 on a logarithm. A statistic the settings
+fix exactly, such as the sizes of a ladder of quotes, has no resampling spread. Without a floor,
+a fit of reference twins from settings within 25% of the truth scored a miss of a lot in two
+thousand as thousands of tolerances. It started at 16.9 million, searched a cliff and ended
+at 52,825 on held-out seeds; with the floor it starts at 1,546 and ends at 399.
 
 Labels that a template reads as times, such as `kickoff` and `in_play_delay`, are numbers of
 seconds, as the templates write `"${kickoff}s"`.
