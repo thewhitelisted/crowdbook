@@ -43,7 +43,8 @@ ahead of the time a label of its own gives to `after` seconds past it (to its en
 on the part that matters at a fraction of the cost.
 
 `--truth` fits markets the engine made itself at known settings instead of a recording: a fit
-that cannot find settings it knows the answer to should not be trusted with ones it does not.
+that cannot find settings it knows the answer to should not be trusted with ones it does not. A
+twin spec takes `--real` too, its recorded markets the ones the known twins are made of.
 
 It writes the fitted scenario, the validation report of the start and the fit against the target,
 and the settings with their intervals, as Markdown and as JSON; with `condition = true`, also
@@ -763,7 +764,9 @@ def main() -> None:
     parser.add_argument("--real", type=Path, help="the recorded market's tape")
     parser.add_argument("--truth", help="fit the engine's own markets made at these settings, "
                         "name=value,... (the rest at their starts)")
-    parser.add_argument("--truth-markets", type=int, default=400)
+    parser.add_argument("--truth-markets", type=int, default=400,
+                        help="markets made at the truth; for twins, spread over the recorded "
+                             "markets, a seed for each in turn (400)")
     parser.add_argument("--generations", type=int)
     parser.add_argument("--seeds", type=int)
     parser.add_argument("--held-out", type=int)
@@ -787,8 +790,8 @@ def main() -> None:
         parser.error("--step is a share of each setting's range, above 0 and at most 1")
     if args.refits < 0 or args.refits == 1:
         parser.error("--refits is 0, for none, or 2 or more: one search alone has no spread")
-    if bool(args.real) == bool(args.truth):
-        parser.error("give one of --real or --truth")
+    if not (args.real or args.truth):
+        parser.error("give --real, --truth, or for a twin spec both")
     spec = read_spec(args.spec)
     if args.start:
         spec = started_from(spec, tomllib.loads(args.start.read_text()))
@@ -801,12 +804,15 @@ def main() -> None:
         parser.error("no recorded market is left once trimmed: does each have the label?")
     if spec.condition and recorded is None:
         parser.error("a conditioned spec is fitted to a recording: give --real")
+    if args.real and args.truth and not spec.condition:
+        parser.error("--real with --truth is for a twin spec, whose known twins copy the "
+                     "recording's markets")
     evaluator = Evaluator(find_tool(args.crowdbook), spec, config,
                           with_openings(recorded) if spec.condition else None)
     truth = None
     if args.truth:
         truth = parse_truth(args.truth, spec)
-        seeds = range(TRUTH_SEED, TRUTH_SEED + args.truth_markets)
+        seeds = truth_seeds(args.truth_markets, len(evaluator.targets) if spec.condition else 0)
         real = validate.summarize("truth", evaluator.tape(truth, seeds), config, seed=1)
     else:
         real = validate.summarize(args.real.name, spec.cut(recorded), config, seed=1)
@@ -825,6 +831,14 @@ def main() -> None:
     if spec.condition:
         write_twins(spec, fitted, evaluator.targets, args.output / "twins")
     print(text)
+
+
+def truth_seeds(markets: int, targets: int) -> range:
+    """The seeds of the markets made at the truth: `markets` of them, or for twins of `targets`
+    recorded markets, enough seeds that each recorded market's twins number at least
+    markets / targets, every recorded market twinned once a seed."""
+    count = markets if targets <= 0 else max(1, math.ceil(markets / targets))
+    return range(TRUTH_SEED, TRUTH_SEED + count)
 
 
 def started_from(spec: Spec, values: dict[str, float]) -> Spec:

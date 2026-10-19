@@ -380,3 +380,11 @@ class TargetTest(unittest.TestCase):
         gap = (np.log(1.0) - np.log(real.point["orders_per_minute"])) / target.tolerance[0]
         self.assertAlmostEqual(target.distance(bare), gap**2)
         self.assertGreater(target.distance(busy), target.distance(bare))
+
+
+class TruthTest(unittest.TestCase):
+    def test_known_markets_spread_over_a_twin_specs_recorded_ones(self):
+        self.assertEqual(len(calibrate.truth_seeds(400, 0)), 400)
+        self.assertEqual(len(calibrate.truth_seeds(400, 34)), 12)  # 408 twins
+        self.assertEqual(len(calibrate.truth_seeds(10, 34)), 1)
+        self.assertEqual(calibrate.truth_seeds(5, 0).start, calibrate.TRUTH_SEED)
