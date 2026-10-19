@@ -1,3 +1,4 @@
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -186,6 +187,100 @@ class StatisticsTest(unittest.TestCase):
                 file.write("same_order = -1\n")
             with self.assertRaises(ValueError):
                 tape.read_tape(scratch)
+
+    def test_a_rate_of_events_is_compared_by_its_count(self):
+        # One order recorded in an hour; twins that make one a minute over ten hours expect 60
+        # there. The Poisson deviance is 2 (1 ln(1/60) + 59) = 109.8, over 1 + 60/600 for the
+        # twins' own count: a distance of +9.99.
+        real = {"_orders": 1.0, "_minutes": 60.0}
+        twins = {"_orders": 600.0, "_minutes": 600.0, "_orders_dispersion": 1.0}
+        deviance = 2 * (math.log(1 / 60) + 59) / 1.1
+        self.assertAlmostEqual(validate.count_distance(real, twins, "orders_per_minute"),
+                               math.sqrt(deviance))
+        # Bursty twins, four times as variable as Poisson, are farther from nothing less.
+        bursty = dict(twins, _orders_dispersion=4.0)
+        self.assertAlmostEqual(validate.count_distance(real, bursty, "orders_per_minute"),
+                               math.sqrt(deviance / 4))
+        # Too few is negative; the same rate is 0; none recorded is 2 e.
+        self.assertLess(validate.count_distance({"_orders": 90.0, "_minutes": 60.0}, twins,
+                                                "orders_per_minute"), 0)
+        self.assertAlmostEqual(validate.count_distance({"_orders": 60.0, "_minutes": 60.0},
+                                                       twins, "orders_per_minute"), 0.0)
+        self.assertAlmostEqual(validate.count_distance({"_orders": 0.0, "_minutes": 60.0},
+                                                       twins, "orders_per_minute"),
+                               math.sqrt(120 / 1.1))
+        # Neither side traded: within chance however the times compare.
+        for minutes in (600.0, 60_000.0):
+            none = {"_orders": 0.0, "_minutes": 6_000.0}
+            quiet = {"_orders": 0.0, "_minutes": minutes, "_orders_dispersion": 1.0}
+            self.assertLess(validate.count_distance(none, quiet, "orders_per_minute"), 1.0)
+        self.assertTrue(np.isnan(validate.count_distance({}, twins, "orders_per_minute")))
+
+    def test_dispersion_of_counts_over_markets(self):
+        self.assertEqual(validate._dispersion([5, 5, 5], [1, 1, 1]), 1.0)  # never below 1
+        # Counts of 0 and 10 at one rate of 5: Pearson's (25 + 25) / 5 over 1 degree = 10.
+        self.assertAlmostEqual(validate._dispersion([0, 10], [1, 1]), 10.0)
+        self.assertEqual(validate._dispersion([0, 0], [1, 1]), 1.0)
+        # Twins of two recorded markets at different rates by design, steady within each: no
+        # bursts. Across them they would look a hundred times as variable as Poisson.
+        counts, exposures = [10, 10, 1000, 1000], [1, 1, 1, 1]
+        self.assertEqual(validate._dispersion(counts, exposures, ["a", "a", "b", "b"]), 1.0)
+        self.assertGreater(validate._dispersion(counts, exposures), 100)
+        self.assertEqual(validate._dispersion([3, 7], [1, 1], ["a", "b"]), 1.0)  # no replicates
+
+    def test_one_scenarios_seeds_are_one_group_and_twins_their_own(self):
+        # Markets named by their seeds, half trading every second and half every minute: one
+        # scenario's bursty seeds, whose dispersion must show; given as twins of two markets,
+        # each pair steady, none.
+        busy, calm = market(duration=600.0), market(duration=600.0)
+        calm.trade_time = calm.trade_time[::60]
+        for name in ("trade_price", "trade_size", "trade_sign"):
+            setattr(calm, name, getattr(calm, name)[::60])
+        markets = []
+        for seed, kind in enumerate([busy, calm] * 10):
+            m = tape.Market(**{**kind.__dict__, "name": str(seed), "labels": {}})
+            markets.append(m)
+        pooled = validate.measure(validate.pieces(tape.Tape(markets)))
+        self.assertGreater(pooled["_orders_dispersion"], 50)
+        for seed, m in enumerate(markets):
+            m.labels = {"twin_of": seed % 2}
+        grouped = validate.measure(validate.pieces(tape.Tape(markets)))
+        self.assertEqual(grouped["_orders_dispersion"], 1.0)
+
+    def test_a_count_distance_grows_with_the_rate_where_twins_differ(self):
+        # Ten recorded markets of 60 to 600 minutes with one order between them, two twins each,
+        # the longer twins trading faster: the distance must keep growing as the rate does.
+        exposures = np.repeat(np.linspace(60, 600, 10), 2)
+        groups = np.repeat([str(i) for i in range(10)], 2)
+        real = {"_orders": 1.0, "_minutes": float(exposures.sum() / 2)}
+        last = 0.0
+        for scale in (1, 10, 100, 1000):
+            rates = scale * 0.01 * np.repeat(np.linspace(1, 10, 10), 2)
+            counts = np.random.default_rng(1).poisson(rates * exposures)
+            twins = {"_orders": float(counts.sum()), "_minutes": float(exposures.sum()),
+                     "_orders_dispersion": validate._dispersion(counts, exposures, groups)}
+            distance = validate.count_distance(real, twins, "orders_per_minute")
+            self.assertGreater(distance, 2 * last, scale)
+            last = distance
+
+    def test_the_report_and_the_fit_measure_orders_by_their_count(self):
+        # A recording with an order in one market of two, an hour each, against twins with an
+        # order a second: the bootstrap's tolerance would call that near, the count does not.
+        quiet = market(duration=3600.0)
+        quiet.trade_time, quiet.trade_price = quiet.trade_time[:1], quiet.trade_price[:1]
+        quiet.trade_size, quiet.trade_sign = quiet.trade_size[:1], quiet.trade_sign[:1]
+        empty = market(duration=3600.0)
+        for name in ("trade_time", "trade_price", "trade_size", "trade_sign"):
+            setattr(empty, name, getattr(empty, name)[:0])
+        real = validate.summarize("real", tape.Tape([quiet, empty]), validate.Config(bootstrap=20))
+        busy = validate.summarize("twins", tape.Tape([market(duration=3600.0)] * 2),
+                                  validate.Config(bootstrap=20))
+        self.assertEqual(real.point["_orders"], 1.0)
+        self.assertAlmostEqual(real.point["_minutes"], 120.0)
+        distance = validate.distance(real, busy, "orders_per_minute", True)
+        self.assertAlmostEqual(distance, validate.count_distance(real.point, busy.point,
+                                                                 "orders_per_minute"))
+        self.assertGreater(distance, 50)
 
     def test_draws_that_all_agree_have_no_spread(self):
         # The mean of draws all 589 is not exactly 589, so their spread rounds to about 1e-16,

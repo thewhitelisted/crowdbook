@@ -389,6 +389,10 @@ def market_pieces(m: tapes.Market, options: tapes.Options, config: Config) -> di
     # Orders.
     times, sizes, signs, prices = _orders(m, options.same_order)
     p["orders"] = np.array([len(times), len(m.trade_time)])
+    # Markets alike but for their seeds share a group: a recorded market's twins, or else every
+    # market of the tape, as one scenario's seeds are. A count's dispersion is measured within
+    # groups, not across twins that differ by design.
+    p["group"] = str(m.labels.get("twin_of", ""))
     p["sizes"] = sizes
     gaps = np.diff(times)
     p["gaps"] = np.array([len(gaps), gaps.sum(), (gaps**2).sum()])
@@ -547,6 +551,11 @@ def measure(ps: list[dict], config: Config = Config()) -> dict[str, float]:
     # Rates compared as logarithms count none as half of one over the time seen, so that markets
     # where nothing traded keep a rate, low as the time seen allows, and still count in a fit.
     out["orders_per_minute"] = 60 * max(orders[0], 0.5) / duration if duration > 0 else np.nan
+    # Not statistics of their own: what a rate's count distance needs (count_distance).
+    out["_orders"], out["_minutes"] = float(orders[0]), duration / 60
+    out["_orders_dispersion"] = _dispersion([p["orders"][0] for p in ps],
+                                            [p["duration"] / 60 for p in ps],
+                                            [p["group"] for p in ps])
     out["prints_per_order"] = orders[1] / orders[0] if orders[0] > 0 else np.nan
     sizes = _cat(ps, "sizes")
     median = float(np.median(sizes)) if len(sizes) else np.nan
@@ -692,6 +701,57 @@ def summarize(name: str, t: tapes.Tape, config: Config = Config(), seed: int = 1
     return Summary(name, len(ps), measure(ps, config), bootstrap(ps, config, seed), ps)
 
 
+def _dispersion(counts: list[float], exposures: list[float],
+                groups: list[str] | None = None) -> float:
+    """How much more markets' counts vary than a Poisson count at one rate would: Pearson's
+    statistic over its degrees of freedom, 1 at the least, each group of markets at a rate of its
+    own, so that markets that differ by design, twins of different recorded markets, are not
+    taken for bursts. Orders come in bursts, so counts of them vary more than a Poisson count
+    does. 1 where no group has two markets."""
+    counts, exposures = np.asarray(counts, dtype=float), np.asarray(exposures, dtype=float)
+    groups = np.asarray(groups if groups is not None else [""] * len(counts))
+    pearson, freedom = 0.0, 0
+    for group in np.unique(groups):
+        mine = groups == group
+        c, e = counts[mine], exposures[mine]
+        if len(c) < 2 or e.sum() <= 0 or c.sum() <= 0:
+            continue
+        expected = c.sum() / e.sum() * e
+        kept = expected > 0
+        pearson += float(np.sum((c[kept] - expected[kept]) ** 2 / expected[kept]))
+        freedom += len(c) - 1
+    return max(1.0, pearson / freedom) if freedom > 0 else 1.0
+
+
+# Rates of events compared as counts: the statistic, its count, the minutes seen and the
+# counts' dispersion over markets.
+COUNTED = {"orders_per_minute": ("_orders", "_minutes", "_orders_dispersion")}
+
+
+def count_distance(real: dict, simulated: dict, key: str) -> float:
+    """How far a simulated rate is from a recorded count of events, as the signed root of the
+    Poisson deviance of the count against what the simulated rate expects over the recording's
+    time, over the simulation's dispersion: positive where the simulation has too many. Where a
+    recording saw one order in an hour and its twins make one a minute, the bootstrap of markets
+    sees little, as the one market with an order is all it has to resample; the count says the
+    two cannot be the same market. NaN where either side lacks the counts."""
+    count, minutes, dispersion = COUNTED[key]
+    if not all(np.isfinite(side.get(k, np.nan)) for side in (real, simulated)
+               for k in (count, minutes)) or real[minutes] <= 0 or simulated[minutes] <= 0:
+        return np.nan
+    observed = real[count]
+    # A simulation that made none is counted as making half of one, as rates are.
+    rate = max(simulated[count], 0.5) / simulated[minutes]
+    expected = rate * real[minutes]
+    deviance = 2 * ((observed * math.log(observed / expected) if observed > 0 else 0.0)
+                    - (observed - expected))
+    # The simulated rate is a count too: over less time than the recording's, its own noise
+    # counts, as the variance of the difference of two Poisson counts, e (1 + real / simulated).
+    deviance /= 1 + real[minutes] / simulated[minutes]
+    deviance /= max(1.0, simulated.get(dispersion, 1.0))
+    return float(math.copysign(math.sqrt(max(deviance, 0.0)), expected - observed))
+
+
 def _scaled(values, logarithmic: bool):
     values = np.asarray(values, dtype=float)
     if not logarithmic:
@@ -713,7 +773,11 @@ def spread_of(draws: np.ndarray, logarithmic: bool) -> float:
 
 def distance(real: Summary, simulated: Summary, key: str, logarithmic: bool) -> float:
     """How far the simulated statistic is from the real one, over the two resampling spreads
-    together."""
+    together; a rate of events, by its count (count_distance)."""
+    if key in COUNTED:
+        counted = count_distance(real.point, simulated.point, key)
+        if np.isfinite(counted):
+            return counted
     a = _scaled(real.point[key], logarithmic)
     b = _scaled(simulated.point[key], logarithmic)
     tolerance = math.hypot(spread_of(real.draws[key], logarithmic),
@@ -787,7 +851,8 @@ def report(real: Summary, simulated: list[Summary], config: Config = Config()) -
     lines.append(f"{real.name}: {real.markets} markets; " + "; ".join(
         f"{s.name}: {s.markets}" for s in simulated) + ". Intervals are the 5th to 95th "
         f"percentile over {config.bootstrap} resamples of markets; a distance is the difference "
-        "in those tolerances, logarithmic where marked (log), and a statistic passes within "
+        "in those tolerances, logarithmic where marked (log), by its count where marked (count), "
+        "the signed root of a Poisson deviance, and a statistic passes within "
         f"{PASS:g} of them.")
     lines.append("")
     header = f"| statistic | {real.name} |"
@@ -804,7 +869,8 @@ def report(real: Summary, simulated: list[Summary], config: Config = Config()) -
         values = [real.point.get(key, np.nan)] + [s.point.get(key, np.nan) for s in simulated]
         if not any(np.isfinite(v) for v in values):
             continue
-        row = f"| {label}{' (log)' if logarithmic else ''} | {_format(real.point[key])}" \
+        marked = " (count)" if key in COUNTED else " (log)" if logarithmic else ""
+        row = f"| {label}{marked} | {_format(real.point[key])}" \
               f"{_interval(real.draws[key])} |"
         entry = {"key": key, "label": label, "logarithmic": logarithmic,
                  "real": real.point[key], "real_interval": list(np.nanpercentile(
