@@ -4,7 +4,11 @@ A release is a tag, `vX.Y.Z`, on a commit of `main` whose `CMakeLists.txt` says 
 Pushing the tag builds every wheel and the source packages, runs the tutorial on them, and
 publishes the GitHub release with `docs/releases/vX.Y.Z.md` as its notes
 ([.github/workflows/wheels.yml](../../.github/workflows/wheels.yml)); a release made by hand for
-the tag first, in GitHub's page for a new release, is filled in the same way.
+the tag first, in GitHub's page for a new release, is filled in the same way. Then the release's
+files go to PyPI, as `crowdbook-engine`, `crowdbook-analysis` and `crowdbook`, by trusted
+publishing from the environments `pypi`, `pypi-analysis` and `pypi-client`. A release published
+before that step existed goes to PyPI by running the workflow on `main` by hand with its tag as
+`publish`.
 
 1. On `main`: set `VERSION` in `CMakeLists.txt` (the engine package takes its version from it),
    `version` in `analysis/pyproject.toml` and `clients/python/pyproject.toml`, run
