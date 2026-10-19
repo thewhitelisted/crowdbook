@@ -422,26 +422,26 @@ TEST(MarketMakerTest, QuotesALadderOfLevels) {
     maker.onStart(context);
     EXPECT_EQ(context.takeSent(), (std::vector<Request>{
                                       limitOrder(1, Side::Buy, 99, 5),
-                                      limitOrder(2, Side::Sell, 101, 5),
-                                      limitOrder(3, Side::Buy, 97, 10),
-                                      limitOrder(4, Side::Sell, 103, 10),
-                                      limitOrder(5, Side::Buy, 95, 20),
+                                      limitOrder(2, Side::Buy, 97, 10),
+                                      limitOrder(3, Side::Buy, 95, 20),
+                                      limitOrder(4, Side::Sell, 101, 5),
+                                      limitOrder(5, Side::Sell, 103, 10),
                                       limitOrder(6, Side::Sell, 105, 20),
                                   }));
     for (ClientOrderId id = 1; id <= 6; ++id) {
         context.accept(id);
     }
     // The touch bid fills: long 5, r = 98, so the whole ladder moves down two ticks, a new touch
-    // bid at 97 and every other level modified.
+    // bid at 97 and every other level modified, the bids before the asks that fall towards them.
     context.fill(1, 5);
     maker.onFilled(context, {});
     EXPECT_EQ(context.takeSent(),
               (std::vector<Request>{
                   limitOrder(7, Side::Buy, 97, 5),
-                  ModifyOrder{.clientOrderId = 2, .price = 99, .quantity = 5},
-                  ModifyOrder{.clientOrderId = 3, .price = 95, .quantity = 10},
-                  ModifyOrder{.clientOrderId = 4, .price = 101, .quantity = 10},
-                  ModifyOrder{.clientOrderId = 5, .price = 93, .quantity = 20},
+                  ModifyOrder{.clientOrderId = 2, .price = 95, .quantity = 10},
+                  ModifyOrder{.clientOrderId = 3, .price = 93, .quantity = 20},
+                  ModifyOrder{.clientOrderId = 4, .price = 99, .quantity = 5},
+                  ModifyOrder{.clientOrderId = 5, .price = 101, .quantity = 10},
                   ModifyOrder{.clientOrderId = 6, .price = 103, .quantity = 20},
               }));
 }
@@ -473,8 +473,8 @@ TEST(MarketMakerTest, ALadderStopsAtItsInventoryLimit) {
     maker.onStart(context);
     EXPECT_EQ(context.takeSent(), (std::vector<Request>{
                                       limitOrder(1, Side::Buy, 99, 5),
-                                      limitOrder(2, Side::Sell, 101, 5),
-                                      limitOrder(3, Side::Buy, 98, 10),
+                                      limitOrder(2, Side::Buy, 98, 10),
+                                      limitOrder(3, Side::Sell, 101, 5),
                                       limitOrder(4, Side::Sell, 102, 10),
                                   }));
 }
@@ -893,10 +893,14 @@ interval = "1s"
     EXPECT_EQ(orders.selfTrades, 0);
 }
 
-// In a whole market whose price jumps, a maker that reads no flow never has a quote cancelled for
-// meeting its own: when its bid would reach its ask, the ask moves first.
+// In a whole market whose price jumps, as a maker quoting off a value it sees 20 seconds late
+// finds, a maker that reads no flow never has a quote cancelled for meeting its own, one level or
+// a ladder: one side moves before the other, the asks first when its bid would reach them.
 TEST(MarketMakerTest, ItsQuotesNeverMeetEachOther) {
-    const Scenario scenario = parseScenario(R"(
+    for (const std::string_view ladder :
+         {"levels = 1", "levels = 2", "levels = 3\nlevel_spacing = 1",
+          "levels = 3\nlevel_spacing = 3"}) {
+        const Scenario scenario = parseScenario(std::format(R"(
 seed = 7
 duration = "300s"
 reference_price = 1000
@@ -914,6 +918,7 @@ volatility = 1.0
 intensity = 1.0
 quote_value = true
 lag = "20s"
+{}
 
 [[agents]]
 type = "zero_intelligence"
@@ -925,8 +930,10 @@ market_rate = 0.3
 type = "informed"
 count = 3
 interval = "1s"
-)");
-    EXPECT_EQ(firstMakersOrders(scenario).selfTrades, 0);
+)",
+                                                          ladder));
+        EXPECT_EQ(firstMakersOrders(scenario).selfTrades, 0) << ladder;
+    }
 }
 
 // When the best price on the far side holds only its own quote it has nothing to take there.
