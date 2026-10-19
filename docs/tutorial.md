@@ -102,7 +102,7 @@ settings whose markets are closest, each statistic counted in units of its own s
 | noise_market_rate | 0.1 | 0.309 | 0.302 to 0.317 |
 | follower_lag | 3 s | 9.9 s | 9.1 to 10.8 s |
 
-**It judges the fit on seeds the search never saw.** Its distance there is 24.4, where chance
+**It judges the fit on seeds the search never saw.** Its distance there is 25.4, where chance
 alone stays under 64.0 95% of the time: the fitted market is the recording's, as far as these
 statistics can tell. When a fit does not reach a recording within chance, the model is missing
 something, and the report's statistics furthest from the recording say what.
