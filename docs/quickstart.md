@@ -92,7 +92,7 @@ crowdbook serve examples/challenges/market_making.toml --seat bot
 ```
 
 ```bash
-pip install ./clients/python
+pip install crowdbook==0.13.0
 python clients/python/examples/market_maker.py --seat bot
 ```
 
