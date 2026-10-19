@@ -252,19 +252,16 @@ def _plain(value: float) -> str:
     return np.format_float_positional(round(float(value), 6), trim="-")
 
 
-def led(path: list, lead: float, duration: float | None = None,
-        settled: float | None = None) -> list:
+def led(path: list, lead: float) -> list:
     """A value path `lead` seconds earlier: the value at each time is the one recorded `lead`
-    seconds later, and what was recorded before `lead` is where the path starts. With the
-    market's `duration` and where it `settled`, its last `lead` seconds are worth the
-    settlement, which is what the reference was after the recording ended."""
+    seconds later, and what was recorded before `lead` is where the path starts. Its last `lead`
+    seconds hold the last value recorded: a recording often ends long before its market settles,
+    so the settlement is no guide to the reference just after it ends."""
     if lead <= 0:
         return path
-    points = [(round(max(float(time) - lead, 0.0), 6), cents) for time, cents in path]
-    if duration is not None and settled is not None:
-        points.append((round(max(duration - lead, 0.0), 6), settled))
     shifted: list = []
-    for at, cents in points:
+    for time, cents in path:
+        at = round(max(float(time) - lead, 0.0), 6)
         while shifted and shifted[-1][0] >= at:  # the later of two at one time
             shifted.pop()
         if not shifted or shifted[-1][1] != cents:
@@ -280,9 +277,7 @@ def market_texts(market: tapes.Market, lead: float = 0.0) -> dict[str, str]:
     texts = {"duration": _plain(market.duration)}
     labels = dict(market.labels)
     if lead > 0 and labels.get("value_path"):
-        settled = labels.get("outcome")
-        labels["value_path"] = led(labels["value_path"], lead, market.duration,
-                                   settled if isinstance(settled, (int, float)) else None)
+        labels["value_path"] = led(labels["value_path"], lead)
     for name, value in labels.items():
         if isinstance(value, bool) or value is None:
             continue

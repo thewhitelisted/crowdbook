@@ -198,10 +198,12 @@ class ConditionTest(unittest.TestCase):
         # Two at one time after the start: the later wins, and a value repeated is left out.
         self.assertEqual(calibrate.led([(0.0, 50.0), (10.0, 60.0), (10.0, 50.0), (20.0, 70.0)],
                                        5.0), [(0.0, 50.0), (15.0, 70.0)])
-        # The last seconds of a settled market are worth the settlement, as its reference was
-        # once the recording ended.
-        self.assertEqual(calibrate.led([(0.0, 50.0), (10.0, 97.0)], 5.0, 120.0, 100.0),
-                         [(0.0, 50.0), (5.0, 97.0), (115.0, 100.0)])
+        # A recording that ends before its market settles: the twin holds the last value it
+        # recorded to its end, rather than knowing the settlement a lead's length early.
+        early = market("early", duration=3650.0)
+        early.labels = {"value_path": [(0.0, 28.5), (1455.0, 27.5)], "outcome": 0.0}
+        self.assertEqual(calibrate.market_texts(early, lead=149.0)["value_path"],
+                         "[[0, 28.5], [1306, 27.5]]")
         # A spec that fits the lead hands it to every twin, without a placeholder of its own.
         spec = calibrate.Spec(template="path = ${value_path}\n",
                               parameters=[calibrate.Parameter("value_lead", 1.0, 60.0, 10.0)])
@@ -329,7 +331,7 @@ class ConditionTest(unittest.TestCase):
         scenario = tomllib.loads(fitted.scenario(fitted.start(), recorded))
         makers = next(a for a in scenario["agents"] if a["name"] == "makers")
         self.assertEqual((makers["count"], makers["error_memory"]), (2, "240s"))
-        self.assertEqual(scenario["prediction"]["path"], [[0, 40], [540, 42], [7140, 100]])
+        self.assertEqual(scenario["prediction"]["path"], [[0, 40], [540, 42]])
 
     def test_writes_the_settings_as_toml(self):
         values = {"rate": np.float64(0.25), "traders": 30.0, "tiny": np.float64(1e-7)}
