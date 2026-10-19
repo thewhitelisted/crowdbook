@@ -275,12 +275,13 @@ TEST(MarketMakerTest, SendsARejectedModifyAgain) {
     context.accept(1);
     context.accept(2);
 
-    // A trade at 103 moves the fair price there, so the quotes move to 102 and 104.
+    // A trade at 103 moves the fair price there, so the quotes move to 102 and 104: the ask first,
+    // as a bid at 102 would meet it at 101.
     maker.onTrade(context, {.price = 103, .quantity = 1});
     maker.onWakeup(context, 0);
     ASSERT_EQ(context.takeSent(),
-              (std::vector<Request>{ModifyOrder{.clientOrderId = 1, .price = 102, .quantity = 5},
-                                    ModifyOrder{.clientOrderId = 2, .price = 104, .quantity = 5}}));
+              (std::vector<Request>{ModifyOrder{.clientOrderId = 2, .price = 104, .quantity = 5},
+                                    ModifyOrder{.clientOrderId = 1, .price = 102, .quantity = 5}}));
 
     // The exchange turns the ask's modify down, so it is still at 101: the next requote asks
     // again. The bid's modify is still on its way, so it is not repeated.
@@ -421,26 +422,26 @@ TEST(MarketMakerTest, QuotesALadderOfLevels) {
     maker.onStart(context);
     EXPECT_EQ(context.takeSent(), (std::vector<Request>{
                                       limitOrder(1, Side::Buy, 99, 5),
-                                      limitOrder(2, Side::Sell, 101, 5),
-                                      limitOrder(3, Side::Buy, 97, 10),
-                                      limitOrder(4, Side::Sell, 103, 10),
-                                      limitOrder(5, Side::Buy, 95, 20),
+                                      limitOrder(2, Side::Buy, 97, 10),
+                                      limitOrder(3, Side::Buy, 95, 20),
+                                      limitOrder(4, Side::Sell, 101, 5),
+                                      limitOrder(5, Side::Sell, 103, 10),
                                       limitOrder(6, Side::Sell, 105, 20),
                                   }));
     for (ClientOrderId id = 1; id <= 6; ++id) {
         context.accept(id);
     }
     // The touch bid fills: long 5, r = 98, so the whole ladder moves down two ticks, a new touch
-    // bid at 97 and every other level modified.
+    // bid at 97 and every other level modified, the bids before the asks that fall towards them.
     context.fill(1, 5);
     maker.onFilled(context, {});
     EXPECT_EQ(context.takeSent(),
               (std::vector<Request>{
                   limitOrder(7, Side::Buy, 97, 5),
-                  ModifyOrder{.clientOrderId = 2, .price = 99, .quantity = 5},
-                  ModifyOrder{.clientOrderId = 3, .price = 95, .quantity = 10},
-                  ModifyOrder{.clientOrderId = 4, .price = 101, .quantity = 10},
-                  ModifyOrder{.clientOrderId = 5, .price = 93, .quantity = 20},
+                  ModifyOrder{.clientOrderId = 2, .price = 95, .quantity = 10},
+                  ModifyOrder{.clientOrderId = 3, .price = 93, .quantity = 20},
+                  ModifyOrder{.clientOrderId = 4, .price = 99, .quantity = 5},
+                  ModifyOrder{.clientOrderId = 5, .price = 101, .quantity = 10},
                   ModifyOrder{.clientOrderId = 6, .price = 103, .quantity = 20},
               }));
 }
@@ -472,8 +473,8 @@ TEST(MarketMakerTest, ALadderStopsAtItsInventoryLimit) {
     maker.onStart(context);
     EXPECT_EQ(context.takeSent(), (std::vector<Request>{
                                       limitOrder(1, Side::Buy, 99, 5),
-                                      limitOrder(2, Side::Sell, 101, 5),
-                                      limitOrder(3, Side::Buy, 98, 10),
+                                      limitOrder(2, Side::Buy, 98, 10),
+                                      limitOrder(3, Side::Sell, 101, 5),
                                       limitOrder(4, Side::Sell, 102, 10),
                                   }));
 }
@@ -821,6 +822,37 @@ TEST(MarketMakerTest, TakesAgainOnlyOnItsTimer) {
     EXPECT_EQ(takesIn(context.takeSent()), 1);
 }
 
+struct MakerOrders {
+    int takes = 0;      // immediate-or-cancel orders it sent
+    int selfTrades = 0; // its orders cancelled for meeting its own
+};
+
+// Runs a scenario and counts the orders of the first agent of its first group.
+MakerOrders firstMakersOrders(const Scenario& scenario) {
+    std::ostringstream log;
+    CsvEventLog sink{log, {"new", "cancelled"}};
+    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), &sink);
+    const std::string maker = std::to_string(result.groups[0].agents[0]);
+    MakerOrders orders;
+    std::string line;
+    std::istringstream rows{log.str()};
+    std::getline(rows, line); // time,kind,agent,...,time_in_force (8th),...,reason (15th)
+    while (std::getline(rows, line)) {
+        std::vector<std::string> fields;
+        std::istringstream split{line};
+        for (std::string field; std::getline(split, field, ',');) {
+            fields.push_back(field);
+        }
+        fields.resize(15);
+        if (fields[2] != maker) {
+            continue;
+        }
+        orders.takes += fields[1] == "new" && fields[7] == "immediate-or-cancel" ? 1 : 0;
+        orders.selfTrades += fields[1] == "cancelled" && fields[14] == "self-trade" ? 1 : 0;
+    }
+    return orders;
+}
+
 // In a whole market, its takes are never stopped by its own quotes.
 TEST(MarketMakerTest, ItsTakesNeverMeetItsOwnQuotes) {
     const Scenario scenario = parseScenario(R"(
@@ -856,30 +888,52 @@ type = "informed"
 count = 3
 interval = "1s"
 )");
-    std::ostringstream log;
-    CsvEventLog sink{log, {"new", "cancelled"}};
-    const RunResult result = runScenario(scenario, AgentRegistry::withBuiltIns(), &sink);
-    const AgentId setter = result.groups[0].agents[0];
-    int takes = 0;
-    int stopped = 0;
-    std::string line;
-    std::istringstream rows{log.str()};
-    std::getline(rows, line); // time,kind,agent,...,time_in_force (8th),...,reason (15th)
-    while (std::getline(rows, line)) {
-        std::vector<std::string> fields;
-        std::istringstream split{line};
-        for (std::string field; std::getline(split, field, ',');) {
-            fields.push_back(field);
-        }
-        fields.resize(15);
-        if (fields[2] != std::to_string(setter)) {
-            continue;
-        }
-        takes += fields[1] == "new" && fields[7] == "immediate-or-cancel" ? 1 : 0;
-        stopped += fields[1] == "cancelled" && fields[14] == "self-trade" ? 1 : 0;
+    const MakerOrders orders = firstMakersOrders(scenario);
+    EXPECT_GT(orders.takes, 0);
+    EXPECT_EQ(orders.selfTrades, 0);
+}
+
+// In a whole market whose price jumps, as a maker quoting off a value it sees 20 seconds late
+// finds, a maker that reads no flow never has a quote cancelled for meeting its own, one level or
+// a ladder: one side moves before the other, the asks first when its bid would reach them.
+TEST(MarketMakerTest, ItsQuotesNeverMeetEachOther) {
+    for (const std::string_view ladder :
+         {"levels = 1", "levels = 2", "levels = 3\nlevel_spacing = 1",
+          "levels = 3\nlevel_spacing = 3"}) {
+        const Scenario scenario = parseScenario(std::format(R"(
+seed = 7
+duration = "300s"
+reference_price = 1000
+
+[fundamental]
+volatility = 2.0
+step = "100ms"
+
+[[agents]]
+type = "market_maker"
+name = "setter"
+quote_size = 2
+max_inventory = 40
+volatility = 1.0
+intensity = 1.0
+quote_value = true
+lag = "20s"
+{}
+
+[[agents]]
+type = "zero_intelligence"
+count = 10
+limit_rate = 1.0
+market_rate = 0.3
+
+[[agents]]
+type = "informed"
+count = 3
+interval = "1s"
+)",
+                                                          ladder));
+        EXPECT_EQ(firstMakersOrders(scenario).selfTrades, 0) << ladder;
     }
-    EXPECT_GT(takes, 0);
-    EXPECT_EQ(stopped, 0);
 }
 
 // When the best price on the far side holds only its own quote it has nothing to take there.

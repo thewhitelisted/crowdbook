@@ -269,27 +269,28 @@ void MarketMaker::requote(AgentContext& context, bool afterFill, bool mayTake) {
         }
     }
     // Requests reach the exchange in the order sent, and one that meets its own quote there is
-    // cancelled: when its new bid would reach one of its asks as they stand, the asks move
-    // first, and the bids after. Only a maker that reads flow, whose price jumps by whole
-    // spreads, does this, so that every other runs as it always has.
+    // cancelled. Its new quotes never cross each other, so one whole side moves before the other:
+    // the asks first when its new best bid would reach one of its asks as they stand, else the
+    // bids, which a falling price has its new asks reach.
     bool asksFirst = false;
-    if (bids[0] && (config_.flowImpact > 0.0 || config_.takeThrough)) {
+    if (bids[0]) {
         for (const std::optional<Quote>& quote : asks_) {
             asksFirst = asksFirst || (quote && quote->price <= *bids[0]);
         }
     }
-    if (asksFirst) {
+    const auto side = [&](std::vector<std::optional<Quote>>& quotes, Side of,
+                          const std::vector<std::optional<Price>>& targets) {
         for (int level = 0; level < config_.levels; ++level) {
             const auto at = static_cast<std::size_t>(level);
-            maintain(context, asks_[at], Side::Sell, asks[at], levelSize(level));
+            maintain(context, quotes[at], of, targets[at], levelSize(level));
         }
-    }
-    for (int level = 0; level < config_.levels; ++level) {
-        const auto at = static_cast<std::size_t>(level);
-        maintain(context, bids_[at], Side::Buy, bids[at], levelSize(level));
-        if (!asksFirst) {
-            maintain(context, asks_[at], Side::Sell, asks[at], levelSize(level));
-        }
+    };
+    if (asksFirst) {
+        side(asks_, Side::Sell, asks);
+        side(bids_, Side::Buy, bids);
+    } else {
+        side(bids_, Side::Buy, bids);
+        side(asks_, Side::Sell, asks);
     }
 }
 
