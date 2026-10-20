@@ -55,13 +55,17 @@ twin spec takes `--real` too, its recorded markets the ones the known twins are 
 It writes the fitted scenario, the validation report of the start and the fit against the target,
 and the settings with their intervals, as Markdown and as JSON; with `condition = true`, also
 `twins/`, the fitted twin of every recorded market, which `crowdbook-sweep` and the strategy
-harness take as they are.
+harness take as they are. While it searches, `searching.toml` holds the best settings so far,
+rewritten after every generation: a fit cut short, as by a machine that restarts, resumes from
+it with `--start`.
 """
 
 import argparse
 import json
 import math
+import os
 import re
+import sys
 import tomllib
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -656,7 +660,9 @@ def make_target(real: validate.Summary, start: validate.Summary, wanted: list[st
 
 def search(evaluator: Evaluator, target: Target, seeds, generations: int,
            log=print, *, start: dict[str, float] | None = None, sigma: float = 0.15,
-           seed: int = 1) -> tuple[dict[str, float], float]:
+           seed: int = 1, keep=None) -> tuple[dict[str, float], float]:
+    """CMA-ES from `start`: the best settings found and their distance. `keep`, if given, is
+    handed the best so far after every generation, so that a search cut short can resume."""
     spec = evaluator.spec
     start = spec.start() if start is None else start
     best, best_score = start, target.distance(evaluator.point(start, seeds))
@@ -676,6 +682,8 @@ def search(evaluator: Evaluator, target: Target, seeds, generations: int,
         cma.tell(points, np.array(scores))
         log(f"generation {generation + 1}: best {min(scores):.1f}, overall {best_score:.1f}, "
             f"step {cma.sigma:.3f}")
+        if keep is not None:
+            keep(best)
     return best, best_score
 
 
@@ -842,28 +850,30 @@ def parse_truth(text: str, spec: Spec) -> dict[str, float]:
 def calibrate(spec: Spec, evaluator: Evaluator, real: validate.Summary, *,
               truth: dict[str, float] | None = None, log=print, refits: int = 0,
               refit_generations: int = 15, step: float = 0.15,
-              retargets: int = 0) -> tuple[str, dict, str]:
+              retargets: int = 0, keep=None) -> tuple[str, dict, str]:
     """The whole fit: returns the report as Markdown, as a dictionary, and the fitted scenario.
     With `refits` of 2 or more, the search runs again that many times from the fit, on fresh
     seeds, and the spread of where it lands is added to the intervals. `step` is the search's
     first step, a share of each setting's range. With `retargets`, the search runs again that
     many times from where it landed, each time with the tolerances remade from the fit's own
     spread rather than the start's: a start far from the answer weighs the statistics by how
-    noisy they are there, not where the answer is."""
+    noisy they are there, not where the answer is. `keep` is handed the search's best so far
+    after every generation (`search`)."""
     config = evaluator.config
     fit_seeds = range(FIT_SEED, FIT_SEED + spec.seeds)
     held_out = range(HELD_OUT_SEED, HELD_OUT_SEED + spec.held_out)
     start_summary = evaluator.summary("start", spec.start(), fit_seeds, seed=2)
     target = make_target(real, start_summary, spec.statistics, config, spec.exclude)
     log(f"{real.markets} target markets; {len(target.keys)} statistics compared")
-    fitted, score = search(evaluator, target, fit_seeds, spec.generations, log, sigma=step)
+    fitted, score = search(evaluator, target, fit_seeds, spec.generations, log, sigma=step,
+                           keep=keep)
     for again in range(retargets):
         at_fit = evaluator.summary("fitted", fitted, fit_seeds, seed=6 + again)
         target = make_target(real, at_fit, spec.statistics, config, spec.exclude)
         log(f"tolerances remade at the fit, {again + 1} of {retargets}; "
             f"{len(target.keys)} statistics compared")
         fitted, score = search(evaluator, target, fit_seeds, spec.generations, log,
-                               start=fitted, sigma=step / 2)
+                               start=fitted, sigma=step / 2, keep=keep)
     log(f"fitted, distance {score:.1f} on the fit's seeds: {fitted}")
     # About 100 markets for each difference, or the fit's own number if more: with twins, that
     # many all told.
@@ -1003,7 +1013,12 @@ def main() -> None:
         real = validate.summarize("truth", evaluator.tape(truth, seeds), config, seed=1)
     else:
         real = validate.summarize(args.real.name, spec.cut(recorded), config, seed=1)
-    text, data, scenario = calibrate(spec, evaluator, real, truth=truth,
+    # The search's best so far, after every generation: a fit cut short resumes from it with
+    # --start.
+    args.output.mkdir(parents=True, exist_ok=True)
+    keep = keeper(args.output / "searching.toml")
+
+    text, data, scenario = calibrate(spec, evaluator, real, truth=truth, keep=keep,
                                      log=lambda line: print(line, flush=True),
                                      refits=args.refits,
                                      refit_generations=args.refit_generations,
@@ -1035,6 +1050,29 @@ def started_from(spec: Spec, values: dict[str, float]) -> Spec:
     parameters = [replace(p, start=min(max(float(values[p.name]), p.low), p.high))
                   if p.name in values else p for p in spec.parameters]
     return replace(spec, parameters=parameters)
+
+
+def keeper(path: Path):
+    """What hands a search's best so far to `path`, as settings.toml: whole or not at all, by a
+    file written beside it and renamed over it, so that a machine restarting mid-write leaves the
+    last generation's, never a part. A write that fails is told and the fit goes on. An earlier
+    fit's file is removed, so that a fit cut short before its first generation resumes from
+    nothing stale."""
+    path.unlink(missing_ok=True)
+    partial = path.with_name(path.name + ".partial")
+
+    def keep(values: dict[str, float]) -> None:
+        try:
+            with open(partial, "w") as file:
+                file.write(settings_text(values))
+                file.flush()
+                os.fsync(file.fileno())
+            partial.replace(path)
+        except OSError as error:
+            print(f"the best settings so far could not be kept in {path}: {error}",
+                  file=sys.stderr, flush=True)
+
+    return keep
 
 
 def settings_text(values: dict[str, float]) -> str:

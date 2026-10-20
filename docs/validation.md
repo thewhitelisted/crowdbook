@@ -233,7 +233,11 @@ the spec's starts, 40 generations on 2 seeds in 25 minutes, they find those sett
 
 `--start SETTINGS` begins the search from an earlier fit's `settings.toml` instead of the spec's
 starts, so that a fit can be carried on with more generations or seeds, or after a change to the
-template, rather than begun again. Near a fit the distance rises steeply, so a search started
+template, rather than begun again. While a fit searches, its output directory's `searching.toml`
+holds the best settings so far, rewritten after every generation, so that a fit cut short, as by
+a machine that restarts, resumes from there. The file is written whole or not at all, and a fit
+started in the same directory removes an earlier one's. A resumed fit runs all its searches
+again, retargets included, from where the cut one was. Near a fit the distance rises steeply, so a search started
 there takes a short first step, 0.02 of each setting's range, where a search from the spec's
 starts takes 0.15 (`--step` sets it): carried on from a fit of recorded games, steps of 0.1
 scored three to forty times the fit's distance while steps of 0.01 found better points. The
