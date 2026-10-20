@@ -1,6 +1,6 @@
 [project]
 name = "crowdbook-analysis"
-version = "0.13.0"
+version = "0.14.0"
 description = "Fitting, checking and analysing crowdbook markets: crowdbook-assess, crowdbook-calibrate, crowdbook-validate and the experiments"
 readme = "README.md"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
