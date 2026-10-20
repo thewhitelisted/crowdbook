@@ -54,6 +54,24 @@ private:
     Quantity quantity_;
 };
 
+// Rests one limit order at a given time.
+class Joiner final : public Agent {
+public:
+    Joiner(Timestamp at, Side side, Price price, Quantity quantity)
+        : at_(at), side_(side), price_(price), quantity_(quantity) {}
+
+    void onStart(AgentContext& context) override { context.wakeAt(at_, 0); }
+    void onWakeup(AgentContext& context, std::uint64_t /*tag*/) override {
+        context.submitLimit(side_, price_, quantity_);
+    }
+
+private:
+    Timestamp at_;
+    Side side_;
+    Price price_;
+    Quantity quantity_;
+};
+
 AgentRegistry testRegistry() {
     AgentRegistry registry = AgentRegistry::withBuiltIns();
     registry.add("standing_book", [](const Parameters& /*parameters*/,
@@ -64,6 +82,13 @@ AgentRegistry testRegistry() {
         return std::make_unique<Hitter>(parameters.duration("at", 0),
                                         parameters.text("side", "sell") == "buy" ? Side::Buy
                                                                                  : Side::Sell,
+                                        parameters.integer("quantity", 1));
+    });
+    registry.add("joiner", [](const Parameters& parameters, const Environment& /*environment*/) {
+        return std::make_unique<Joiner>(parameters.duration("at", 0),
+                                        parameters.text("side", "buy") == "buy" ? Side::Buy
+                                                                                : Side::Sell,
+                                        parameters.integer("price", 100),
                                         parameters.integer("quantity", 1));
     });
     return registry;
@@ -485,6 +510,34 @@ TEST(LearningTest, TheSeatsOwnOrderIsNotTheBestPriceItQuotesAgainst) {
               (Request{ModifyOrder{.clientOrderId = 1, .price = 100, .quantity = 1}}));
     EXPECT_EQ(sent[3].request,
               (Request{ModifyOrder{.clientOrderId = 1, .price = 99, .quantity = 1}}));
+}
+
+TEST(LearningTest, ASmallerSizeAtTheSamePriceShrinksTheQuoteInPlace) {
+    // The seat bids 5 at 100, someone else joins behind it with 2, and the seat asks for 2 at
+    // 100: its bid shrinks without losing its place, so the market order for 3 at 5.5s fills the
+    // seat's 2 before the 1 left for the order behind it. A larger size at the same price leaves
+    // the quote alone. With 1ms latencies each way the shrink is confirmed before the next
+    // decision, so that decision sees 2 lots open and sends nothing.
+    std::string text{kScripted};
+    text.replace(text.find("quantity = 2"), 12, "quantity = 3");
+    text += "\n[[agents]]\ntype = \"joiner\"\nat = \"1500ms\"\nprice = 100\nquantity = 2\n";
+    Started started{text};
+    const LearningOrders bid5{.bidPrice = 100, .bidSize = 5};
+    const LearningOrders bid2{.bidPrice = 100, .bidSize = 2};
+    const LearningOrders bid4{.bidPrice = 100, .bidSize = 4};
+    started.market.stepOrders(bid5, started.buffers.view());
+    started.market.stepOrders(bid2, started.buffers.view());
+    started.market.stepOrders(bid4, started.buffers.view());
+    const std::vector<SessionAction> sent = started.market.session().actions;
+    ASSERT_EQ(sent.size(), 2U);
+    EXPECT_EQ(sent[1].request,
+              (Request{ModifyOrder{.clientOrderId = 1, .price = 100, .quantity = 2}}));
+    EXPECT_EQ(started.buffers.field("open_buy"), 2);
+    while (started.buffers.field("position") == 0 && !started.market.stepOrders(bid2,
+               started.buffers.view()).terminated) {
+    }
+    EXPECT_EQ(started.buffers.field("position"), 2);
+    EXPECT_EQ(started.buffers.field("open_buy"), 0);
 }
 
 TEST(LearningTest, TakingAndClosingGoPastTheSeatsOwnOrders) {
