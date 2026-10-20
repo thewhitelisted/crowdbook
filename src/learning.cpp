@@ -1001,19 +1001,25 @@ struct LearningMarket::Episode {
             quoteAtPrice(side, price, size);
         }
 
-        // Keeps the seat's quote on `side` at `price`, moving the one it has there, or leaving it
-        // alone where it is already at that price.
+        // Keeps the seat's quote on `side` at `price`, moving the one it has there, or, where it is
+        // already at that price, shrinking it to a smaller size and otherwise leaving it alone.
         void quoteAtPrice(Side side, Price price, Quantity size) {
             if (price < 1 || price > context_.maxPrice()) {
                 return;
             }
             const OwnOrder* own = episode_.quote(ledger_, side);
             if (own != nullptr) {
+                const Quantity quantity = sized(size, room(side, own->leaves));
                 if (own->price != price) {
                     // Moving loses the queue place anyway; resize to what the limit allows, or
                     // keep the size when it allows none more.
-                    const Quantity quantity = sized(size, room(side, own->leaves));
                     modify(own->clientOrderId, price, quantity >= 1 ? quantity : own->leaves);
+                } else if (quantity >= 1 && quantity < own->leaves) {
+                    // Lowering the size at the same price keeps the queue place; growing in place
+                    // would not, so a larger size waits until the quote moves. The size is what
+                    // the seat last heard: should fills on the way leave less than `quantity`,
+                    // the exchange resizes the order to it at the back of the queue.
+                    modify(own->clientOrderId, price, quantity);
                 }
                 return;
             }

@@ -30,8 +30,12 @@ pool.reset(seeds=range(64, 128), mask=terminated.copy())        # new episodes w
   price and size, the offer's price and size, a quantity to take, negative to sell, and
   optionally the take's limit price, at the best price on the other side without one. A side
   with a price or size of 0 has no quote; a quote already at its price keeps its place in the
-  queue; a take first cancels the quote on the side it takes from. Any strategy that names its
-  prices can trade through it.
+  queue, shrinking in place to a smaller size, or to what the position limit allows, and keeping
+  its size when asked for a larger one (sizes are as the seat last heard: a shrink that crosses
+  fills on the way, leaving less than it asks for, goes to the back of the queue). A take first
+  cancels the quote on the side it takes from, ignoring the row's quote there until the next
+  decision, and only that one: the other side's quote is still placed in the same step. Any
+  strategy that names its prices can trade through it.
 - `session(i)` is market i's episode as a session file, which `crowdbook replay` and
   `crowdbook report` read.
 - `copy(source, targets)` makes each target market a copy of market `source` as it stands: the
