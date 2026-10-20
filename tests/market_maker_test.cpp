@@ -446,6 +446,43 @@ TEST(MarketMakerTest, QuotesALadderOfLevels) {
               }));
 }
 
+// Levels no ticks apart split the quote into orders at one price: three of 5 lots at 99 and three
+// at 101, a queue a large taker meets one after another. A filled one is sent again, at the price
+// the position now asks for, and the others follow it there.
+TEST(MarketMakerTest, LevelsNoTicksApartSplitTheQuoteIntoOrders) {
+    MarketMakerConfig config = kConfig;
+    config.levels = 3;
+    config.levelSpacing = 0;
+    MarketMaker maker{config, kReference};
+    FakeContext context;
+    maker.onTopOfBook(context, kTop);
+    maker.onStart(context);
+    EXPECT_EQ(context.takeSent(), (std::vector<Request>{
+                                      limitOrder(1, Side::Buy, 99, 5),
+                                      limitOrder(2, Side::Buy, 99, 5),
+                                      limitOrder(3, Side::Buy, 99, 5),
+                                      limitOrder(4, Side::Sell, 101, 5),
+                                      limitOrder(5, Side::Sell, 101, 5),
+                                      limitOrder(6, Side::Sell, 101, 5),
+                                  }));
+    for (ClientOrderId id = 1; id <= 6; ++id) {
+        context.accept(id);
+    }
+    // The first bid fills: long 5, r = 98, so the bids move to 97 and the asks to 99, as the
+    // one-quote maker's do.
+    context.fill(1, 5);
+    maker.onFilled(context, {});
+    EXPECT_EQ(context.takeSent(),
+              (std::vector<Request>{
+                  limitOrder(7, Side::Buy, 97, 5),
+                  ModifyOrder{.clientOrderId = 2, .price = 97, .quantity = 5},
+                  ModifyOrder{.clientOrderId = 3, .price = 97, .quantity = 5},
+                  ModifyOrder{.clientOrderId = 4, .price = 99, .quantity = 5},
+                  ModifyOrder{.clientOrderId = 5, .price = 99, .quantity = 5},
+                  ModifyOrder{.clientOrderId = 6, .price = 99, .quantity = 5},
+              }));
+}
+
 // Levels far apart reach the ends of the exchange's prices and are left out there, never
 // wrapping round.
 TEST(MarketMakerTest, ALadderStopsAtTheEndsOfThePrices) {
@@ -1210,7 +1247,7 @@ TEST(MarketMakerTest, RejectsInvalidConfigs) {
                  std::invalid_argument);
     EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levels = 51; }), kReference}),
                  std::invalid_argument);
-    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levelSpacing = 0; }), kReference}),
+    EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levelSpacing = -1; }), kReference}),
                  std::invalid_argument);
     EXPECT_THROW((MarketMaker{withChange([](auto& c) { c.levelGrowth = 0.0; }), kReference}),
                  std::invalid_argument);
