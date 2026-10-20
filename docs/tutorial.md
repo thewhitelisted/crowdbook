@@ -26,9 +26,9 @@ You need Python 3.12 or later on Linux (x86-64 or arm64, glibc 2.28 or later) or
 later on Apple silicon, and the repository at the release for the tutorial's files:
 
 ```bash
-git clone --branch v0.13.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
+git clone --branch v0.14.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
 python3 -m venv .venv && . .venv/bin/activate
-pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0
+pip install crowdbook-engine==0.14.0 crowdbook-analysis==0.14.0
 ```
 
 That installs two packages from PyPI's ready-built wheels, in under a minute:
