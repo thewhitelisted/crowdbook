@@ -40,7 +40,9 @@ struct MarketMakerConfig {
     Duration quietInterval = 0;
     // A ladder of quotes a side instead of one: `levels` of them, each `levelSpacing` ticks
     // behind the one before, the first where the one quote would be, and each `levelGrowth` times
-    // the size of the one before, so that the book is deeper further out, as real books are.
+    // the size of the one before, so that the book is deeper further out, as real books are. A
+    // spacing of 0 puts every level at the one price: the quote split into orders, as a queue of
+    // many orders at the touch, which a large taker meets one after another.
     int levels = 1;
     Price levelSpacing = 1;
     double levelGrowth = 1.0;

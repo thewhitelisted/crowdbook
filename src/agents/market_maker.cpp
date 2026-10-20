@@ -63,11 +63,11 @@ MarketMaker::MarketMaker(const MarketMakerConfig& config, Price referencePrice,
     if (!(config.requoteThreshold >= 0.0)) {
         throw std::invalid_argument("market_maker requote_threshold must not be negative");
     }
-    if (config.levels < 1 || config.levels > kMaxLevels || config.levelSpacing < 1 ||
+    if (config.levels < 1 || config.levels > kMaxLevels || config.levelSpacing < 0 ||
         config.levelSpacing > kMaxPrice || !(config.levelGrowth > 0.0) ||
         !(config.levelGrowth <= kMaxGrowth)) {
         throw std::invalid_argument(std::format(
-            "market_maker needs 1 to {} levels, a level_spacing from 1 tick to {} and a "
+            "market_maker needs 1 to {} levels, a level_spacing from 0 ticks to {} and a "
             "level_growth above 0 and at most {}",
             kMaxLevels, kMaxPrice, kMaxGrowth));
     }
