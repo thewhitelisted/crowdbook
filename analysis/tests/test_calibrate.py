@@ -420,6 +420,28 @@ class ConditionTest(unittest.TestCase):
         self.assertEqual((makers["count"], makers["error_memory"]), (2, "240s"))
         self.assertEqual(scenario["prediction"]["path"], [[0, 40], [540, 42]])
 
+    def test_keeps_the_best_so_far_whole_for_a_resume(self):
+        spec = spec_from()
+        values = {p.name: p.start for p in spec.parameters} | {"traders": 23.0}
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "searching.toml"
+            path.write_text("traders = 99.0\n")  # an earlier fit's
+            keep = calibrate.keeper(path)
+            self.assertFalse(path.exists())
+            keep(values)
+            # Read back by --start, it starts the search where the search was.
+            self.assertEqual(calibrate.started_from(spec, tomllib.loads(path.read_text()))
+                             .start(), values)
+            self.assertEqual(sorted(p.name for p in Path(scratch).iterdir()),
+                             ["searching.toml"])
+            # A write that fails is told, and the fit goes on.
+            (Path(scratch) / "searching.toml.partial").mkdir()
+            told = io.StringIO()
+            with contextlib.redirect_stderr(told):
+                keep(values | {"traders": 30.0})
+            self.assertIn("could not be kept", told.getvalue())
+            self.assertEqual(tomllib.loads(path.read_text())["traders"], 23.0)
+
     def test_writes_the_settings_as_toml(self):
         values = {"rate": np.float64(0.25), "traders": 30.0, "tiny": np.float64(1e-7)}
         self.assertEqual(tomllib.loads(calibrate.settings_text(values)),
@@ -518,9 +540,13 @@ class CalibrateTest(unittest.TestCase):
         self.assertEqual(data["calibration"]["compared"], ["spread_mean", "maker_at_trade"])
         self.assertIn("reached", data["calibration"])
         self.assertEqual(data["calibration"]["refits"], 0)
+        kept_in_refits = []
         refitted, refit_data, _ = calibrate.calibrate(spec, evaluator, real, truth=truth,
                                                       log=lambda line: None, refits=2,
-                                                      refit_generations=1)
+                                                      refit_generations=1,
+                                                      keep=kept_in_refits.append)
+        # The refits search other seeds: only the fit's own 3 generations are kept.
+        self.assertEqual(len(kept_in_refits), 3)
         self.assertIn("searches again on fresh seeds", refitted)
         self.assertEqual(refit_data["calibration"]["refits"], 2)
         # Retargeted, the search runs again from where it landed, with the tolerances made at
@@ -534,14 +560,22 @@ class CalibrateTest(unittest.TestCase):
 
         calibrate.make_target = watched
         try:
+            kept = []
             retargeted, retarget_data, _ = calibrate.calibrate(
-                spec, evaluator, real, truth=truth, log=lines.append, retargets=1)
+                spec, evaluator, real, truth=truth, log=lines.append, retargets=1,
+                keep=kept.append)
         finally:
             calibrate.make_target = made
         self.assertEqual(measured, ["start", "fitted"])
         self.assertTrue(any(line.startswith("tolerances remade at the fit, 1 of 1")
                             for line in lines))
         self.assertEqual(sum(line.startswith("generation ") for line in lines), 6)
+        # The best so far is kept after each of the 6 generations, the last the fit itself.
+        self.assertEqual(len(kept), 6)
+        fitted = {row["name"]: row["fitted"] for row in retarget_data["calibration"]["settings"]}
+        self.assertEqual(kept[-1].keys(), fitted.keys())
+        for name, value in kept[-1].items():
+            self.assertAlmostEqual(float(value), float(fitted[name]))
         self.assertIn("then 1 more search as long, each with the tolerances remade", retargeted)
         self.assertEqual(retarget_data["calibration"]["retargets"], 1)
         self.assertEqual(data["calibration"]["retargets"], 0)
