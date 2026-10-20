@@ -18,7 +18,7 @@ The examples and the tutorial's files are in the repository, so start from a clo
 environment with Python 3.12 or later:
 
 ```bash
-git clone --branch v0.13.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
+git clone --branch v0.14.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
 python3 -m venv .venv && . .venv/bin/activate
 ```
 
@@ -27,7 +27,7 @@ python3 -m venv .venv && . .venv/bin/activate
 release:
 
 ```bash
-pip install crowdbook-engine==0.13.0 crowdbook-analysis==0.13.0
+pip install crowdbook-engine==0.14.0 crowdbook-analysis==0.14.0
 ```
 
 On any other platform that command builds the engine from its source package instead, which
@@ -92,7 +92,7 @@ crowdbook serve examples/challenges/market_making.toml --seat bot
 ```
 
 ```bash
-pip install crowdbook==0.13.0
+pip install crowdbook==0.14.0
 python clients/python/examples/market_maker.py --seat bot
 ```
 
@@ -157,7 +157,7 @@ crowdbook-tape --quotes quotes.csv --trades trades.csv --market 3600 --tick 0.01
 tutorial's five-minute markets laid end to end into an hour, each one's five best levels, trades
 and a reference price once a second, gzipped CSV as data feeds often come, with prices in dollars
 at a cent a tick. `--market 300` cuts it back into those markets; each starts afresh at $100. It
-is new since 0.13.0, so until the next release it is in a checkout of `main`:
+is in the clone from the install steps:
 
 ```bash
 crowdbook-tape --quotes examples/recording/quotes.csv.gz --trades examples/recording/trades.csv.gz \
