@@ -364,6 +364,73 @@ class ConditionTest(unittest.TestCase):
                           "measured it against the reference as recorded", written.read_text())
             self.assertEqual(tomllib.loads(written.read_text())["initial"], 60104.6)
 
+    def test_a_venue_in_blocks_stamps_simulated_trades_with_their_blocks(self):
+        from crowdbook_analysis import validate
+        from test_validate import market
+        m = market("twin", duration=1.0)
+        m.trade_time = np.array([0.0, 0.0649, 0.065, 0.1, 0.1299999, 0.13, 0.95])
+        m.trade_price = np.full(7, 51.0)
+        m.trade_size, m.trade_sign = np.ones(7), np.array([1.0, 1, 1, 1, 1, -1, 1])
+        calibrate.stamped_in_blocks(m, 0.065)
+        self.assertEqual(m.trade_time.tolist(), [0.0, 0.0, 0.065, 0.065, 0.065, 0.13, 0.91])
+        # One side's prints in one block are one order, as the recording counts them: buys at 0,
+        # buys at 0.065, a sell at 0.13 and a buy at 0.91.
+        self.assertEqual(len(validate._orders(m, same_order=0.0)[0]), 4)
+        # The spec says it, and only as a length in seconds.
+        spec = spec_from("block = 0.065\n" + SPEC)
+        self.assertEqual(spec.block, 0.065)
+        self.assertIsNone(spec_from().block)
+        # A print on a block's first nanosecond a month in, 40 million blocks, is in that block,
+        # and one a nanosecond earlier in the one before.
+        late = market("late", duration=1.0)
+        late.trade_time = np.array([2_599_999.999999999, 2_600_000.0])
+        calibrate.stamped_in_blocks(late, 0.065)
+        np.testing.assert_allclose(late.trade_time, [2_599_999.935, 2_600_000.0], rtol=0,
+                                   atol=1e-9)
+        for wrong in ("0", "-1", '"65ms"', "true", "1e-7"):
+            with self.assertRaisesRegex(ValueError, "block is a block's length"):
+                spec_from(f"block = {wrong}\n" + SPEC)
+        # The evaluator stamps every market it simulates so, before it is measured.
+        twin = market("twin", duration=1.0)
+        twin.trade_time = np.array([0.01, 0.07])
+        calibrate.Evaluator(None, spec, validate.Config())._as_recorded(0, twin, None)
+        self.assertEqual(twin.trade_time.tolist(), [0.0, 0.065])
+        plain = market("plain", duration=1.0)
+        plain.trade_time = np.array([0.01, 0.07])
+        calibrate.Evaluator(None, spec_from(), validate.Config())._as_recorded(0, plain, None)
+        self.assertEqual(plain.trade_time.tolist(), [0.01, 0.07])
+        # Both ways the fit measures what it simulates stamp it: summaries and the search.
+        from crowdbook_analysis import tape as tapes
+
+        def simulated():
+            made = market("made", duration=100.0)
+            made.trade_time = np.arange(0.5, 100.0, 1.0) + 0.01  # 0.51, 1.51, ...
+            return made
+
+        seen = []
+        real = (tapes.simulate_runs, tapes.simulate_markets)
+        tapes.simulate_runs = lambda tool, runs, **kw: tapes.Tape([simulated() for _ in runs])
+
+        def markets(tool, runs, then, **kw):
+            out = []
+            for index, _ in enumerate(runs):
+                made = simulated()
+                out.append(then(index, made))
+                seen.append(made.trade_time[:2].tolist())
+            return out
+
+        tapes.simulate_markets = markets
+        try:
+            evaluator = calibrate.Evaluator(None, spec, validate.Config(bootstrap=5))
+            stamped = evaluator.tape(spec.start(), range(1)).markets[0].trade_time
+            evaluator.points([spec.start()], range(1))
+        finally:
+            tapes.simulate_runs, tapes.simulate_markets = real
+        self.assertAlmostEqual(stamped[0], 0.455)
+        self.assertAlmostEqual(stamped[1], 1.495)
+        self.assertEqual(len(seen), 1)
+        np.testing.assert_allclose(seen[0], [0.455, 1.495])
+
     def test_around_trims_each_recorded_market_before_the_fit(self):
         from crowdbook_analysis import tape as tapes
         from test_validate import market

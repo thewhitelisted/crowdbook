@@ -16,6 +16,7 @@ A spec names a scenario template and the settings to fit:
     phase = "from kickoff"          # optional: or the part of each from (or "before") a label
     around = { label = "kickoff", before = 3600, after = 9000 }   # optional: see below
     sample_interval = 0.1           # optional: seconds between samples of the simulated book
+    block = 0.065                   # optional: seconds a venue's blocks last (see below)
     condition = true                # optional: twins of each target market (see below)
 
     [parameters.noise_rate]
@@ -42,6 +43,13 @@ for a reference that trails the market it prices, and `value_basis`, how far abo
 (in ticks; not for a contract, whose value is bounded) each twin's value sits, for a market
 that trades apart from its reference, as a perpetual future does from its index; each twin is
 then measured against the reference as recorded.
+
+`block` is for a venue that runs in blocks and stamps every trade with its block's time: the
+prints of several takers on one side in one block then share a time, and the recording counts
+them as one aggressive order, as the tape counts prints at one time and side. Each simulated
+market's trades are stamped so too, each with the start of the block of that many seconds it
+falls in, so that their orders, prints per order, sizes and signs are counted as the recording's
+are.
 
 `around` trims each recorded market, before anything is fitted, to the span from `before` seconds
 ahead of the time a label of its own gives to `after` seconds past it (to its end without
@@ -154,6 +162,9 @@ class Spec:
     around: tuple[str, float, float | None] | None = None
     # Statistics the default would compare that this spec leaves out.
     exclude: list[str] | None = None
+    # Seconds a venue's blocks last, where it stamps each trade with its block's time: the
+    # simulated markets' trades are stamped so too (stamped_in_blocks).
+    block: float | None = None
 
     def trim(self, t: tapes.Tape) -> tapes.Tape:
         return t if self.around is None else tapes.around(t, *self.around)
@@ -423,10 +434,26 @@ def read_spec(path: Path) -> Spec:
         unknown = sorted(set(exclude) - names)
         if unknown:
             raise ValueError(f"exclude names statistics the report does not have: {unknown}")
+    block = spec.get("block")
+    if block is not None and not (isinstance(block, (int, float)) and not isinstance(block, bool)
+                                  and math.isfinite(block) and block >= 1e-6):
+        raise ValueError(f"block is a block's length in seconds, a microsecond or more, not "
+                         f"{block!r}")
     return Spec(template, parameters, statistics, int(spec.get("seeds", 60)),
                 int(spec.get("generations", 30)), int(spec.get("held_out", 200)), window,
                 float(spec.get("sample_interval", tapes.SAMPLE_INTERVAL)),
-                bool(spec.get("condition", False)), phase, around, exclude)
+                bool(spec.get("condition", False)), phase, around, exclude,
+                None if block is None else float(block))
+
+
+def stamped_in_blocks(market: tapes.Market, block: float) -> None:
+    """A simulated market's trades stamped as a venue that runs in blocks of `block` seconds
+    stamps them: each at the start of its block, so that the prints of one side in one block share
+    a time and count as one order. In whole nanoseconds, the engine's clock, so that a print on a
+    block's first nanosecond is in that block however long the market."""
+    nanoseconds = np.rint(market.trade_time * 1e9).astype(np.int64)
+    length = int(round(block * 1e9))
+    market.trade_time = (nanoseconds // length * length) / 1e9
 
 
 class Target:
@@ -529,8 +556,15 @@ class Evaluator:
         t = tapes.simulate_runs(self.tool, runs, labels=labels,
                                 sample_interval=self.spec.sample_interval)
         for index, market in enumerate(t.markets):
-            self._label_twin(index, market, t.options.payout)
+            self._as_recorded(index, market, t.options.payout)
         return self.spec.cut(t)
+
+    def _as_recorded(self, index: int, market: tapes.Market, payout: float | None) -> None:
+        """A simulated market as the recording is measured: a twin labelled as its recorded
+        market, and its trades stamped in the venue's blocks."""
+        self._label_twin(index, market, payout)
+        if self.spec.block is not None:
+            stamped_in_blocks(market, self.spec.block)
 
     def _label_twin(self, index: int, market: tapes.Market, payout: float | None = 100.0) -> None:
         """A twin's run carries its recorded market's labels, such as its kickoff, the run's own
@@ -583,7 +617,7 @@ class Evaluator:
         options = tapes.options_for(runs[0].scenario)
 
         def measured(index: int, market: tapes.Market) -> list[dict]:
-            self._label_twin(index, market, options.payout)
+            self._as_recorded(index, market, options.payout)
             cut = self.spec.cut(tapes.Tape([market], options)).markets
             pieces = [validate.market_pieces(m, options, self.config) for m in cut]
             for p in pieces:  # samples kept only for the report's distributions and charts
