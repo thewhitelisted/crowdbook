@@ -26,9 +26,9 @@ Apple silicon, from the latest release's ready-built wheels on PyPI, with the re
 release for the examples:
 
 ```bash
-git clone --branch v0.14.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
+git clone --branch v0.14.1 https://github.com/thewhitelisted/crowdbook && cd crowdbook
 python3 -m venv .venv && . .venv/bin/activate
-pip install crowdbook-engine==0.14.0 crowdbook-analysis==0.14.0
+pip install crowdbook-engine==0.14.1 crowdbook-analysis==0.14.1
 ```
 
 That installs the `crowdbook` command and the learning pool `crowdbook_learn` (the

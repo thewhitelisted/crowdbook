@@ -69,7 +69,7 @@ The module is part of the `crowdbook-engine` package, with the `crowdbook` comma
 
 ```bash
 pip install .                      # from crowdbook's checkout: CMake 3.25+ and a C++23 compiler
-pip install "crowdbook-engine[gymnasium]==0.14.0"
+pip install "crowdbook-engine[gymnasium]==0.14.1"
 python python/examples/random_policy.py examples/learning/market.toml
 ```
 

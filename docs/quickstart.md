@@ -18,7 +18,7 @@ The examples and the tutorial's files are in the repository, so start from a clo
 environment with Python 3.12 or later:
 
 ```bash
-git clone --branch v0.14.0 https://github.com/thewhitelisted/crowdbook && cd crowdbook
+git clone --branch v0.14.1 https://github.com/thewhitelisted/crowdbook && cd crowdbook
 python3 -m venv .venv && . .venv/bin/activate
 ```
 
@@ -27,7 +27,7 @@ python3 -m venv .venv && . .venv/bin/activate
 release:
 
 ```bash
-pip install crowdbook-engine==0.14.0 crowdbook-analysis==0.14.0
+pip install crowdbook-engine==0.14.1 crowdbook-analysis==0.14.1
 ```
 
 On any other platform that command builds the engine from its source package instead, which
@@ -92,7 +92,7 @@ crowdbook serve examples/challenges/market_making.toml --seat bot
 ```
 
 ```bash
-pip install crowdbook==0.14.0
+pip install crowdbook==0.14.1
 python clients/python/examples/market_maker.py --seat bot
 ```
 
