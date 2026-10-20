@@ -137,6 +137,7 @@ window = [0, 1800]    # optional: compare only this part of each market, in seco
 phase = "from kickoff" # optional: or the part from (or "before") a time a label of each gives
 around = { label = "kickoff", before = 3600 }   # optional: trim each recording first (below)
 sample_interval = 0.1 # optional: seconds between samples of the simulated book
+block = 0.065         # optional: seconds a venue's blocks last, for one that stamps trades so
 
 [parameters.follower_lag]
 low = 0.5
@@ -264,6 +265,18 @@ tell apart.
 
 Labels that a template reads as times, such as `kickoff` and `in_play_delay`, are numbers of
 seconds, as the templates write `"${kickoff}s"`.
+
+`block` is for a venue that runs in blocks and stamps each trade with its block's time, as a
+chain's exchange does. There the prints of several takers on one side in one block share a time,
+and the recording counts them as one aggressive order, as a tape counts prints at one time and
+side. The engine trades continuously, so each simulated market's trades are stamped with the start
+of the block of that many seconds they fall in, before they are measured. Without it, a fit
+compares one taker's order against a block's worth of them: too few prints per order, sizes too
+small, orders too many. To find a venue's block, look at the gaps between its trade times: where
+its blocks vary in length they cluster near multiples of the typical one, and the smallest common
+gap is it. The twins' fixed blocks stand for the venue's varying ones. `crowdbook-validate` does not
+stamp the scenarios it runs, so its report of a fitted scenario counts orders as the engine
+makes them.
 
 `around` trims each recorded market before anything is fitted, to the span from `before` seconds
 ahead of the time a label of its own gives to `after` seconds past it (to its end without
